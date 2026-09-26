@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS public.properties (
   contact_number TEXT,
   rules TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT uq_properties_owner UNIQUE (owner_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_properties_owner ON public.properties(owner_id);

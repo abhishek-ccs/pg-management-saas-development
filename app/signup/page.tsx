@@ -5,9 +5,158 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Building2, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { isValidEmail } from '@/lib/validation'
 
 export default function SignupPage() {
-  const router = useRouter(); const supabase = createClient(); const [fullName,setFullName]=useState(''); const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [show,setShow]=useState(false); const [loading,setLoading]=useState(false); const [error,setError]=useState(''); const [message,setMessage]=useState('')
-  async function submit(e: React.FormEvent<HTMLFormElement>) { e.preventDefault(); setLoading(true); setError(''); setMessage(''); const { error: authError } = await supabase.auth.signUp({ email: email.trim(), password, options: { emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/callback`, data: { full_name: fullName.trim() } } }); if(authError){setError(authError.message.toLowerCase().includes('password')?'Use a stronger password.':'We could not create your account. Please check your details.');setLoading(false);return} setMessage('Account created. Check your email to confirm your account.'); setTimeout(()=>router.push('/login'), 1600) }
-  return <main className="grid min-h-screen place-items-center bg-[#fbf8f3] px-5 py-10"><div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-7 shadow-sm"><div className="mb-8 flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-[#9a7651] text-white"><Building2 className="size-5" /></div><div><p className="font-bold">StayNest</p><p className="text-[11px] uppercase tracking-[0.16em] text-[#9296a5]">Create your owner account</p></div></div><h1 className="text-2xl font-bold tracking-tight">Start your free trial</h1><p className="mt-2 text-sm text-[#85899a]">Set up your PG workspace in a few simple steps.</p><form onSubmit={submit} className="mt-7 flex flex-col gap-4"><label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">Full name<input value={fullName} onChange={e=>setFullName(e.target.value)} required className="rounded-xl border border-[#e4d9cc] px-3 py-3 text-sm outline-none focus:border-[#b19372]" /></label><label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="email" className="rounded-xl border border-[#e4d9cc] px-3 py-3 text-sm outline-none focus:border-[#b19372]" /></label><label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">Password<div className="relative"><input type={show?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)} required minLength={6} className="w-full rounded-xl border border-[#e4d9cc] px-3 py-3 pr-11 text-sm outline-none focus:border-[#b19372]" /><button type="button" onClick={()=>setShow(!show)} aria-label="Toggle password visibility" className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9296a5]">{show?<EyeOff className="size-4"/>:<Eye className="size-4"/>}</button></div></label>{error&&<p role="alert" className="rounded-xl bg-[#fff0e9] px-3 py-2.5 text-xs text-[#b95c3c]">{error}</p>}{message&&<p className="rounded-xl bg-[#e7f7f0] px-3 py-2.5 text-xs text-[#328d68]">{message}</p>}<button disabled={loading} className="flex items-center justify-center gap-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white disabled:opacity-60">{loading&&<Loader2 className="size-4 animate-spin"/>}Create owner account</button></form><p className="mt-6 text-center text-sm text-[#85899a]">Already have an account? <Link href="/login" className="font-semibold text-[#9a7651]">Sign in</Link></p><p className="mt-4 text-center text-xs text-[#a08d79]"><Link href="/" className="hover:underline">Back to StayNest</Link></p></div></main>
+  const router = useRouter()
+  const supabase = createClient()
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [show, setShow] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    setMessage('')
+
+    if (!isValidEmail(email)) {
+      setError('Please enter a valid email address (e.g. owner@example.com).')
+      setLoading(false)
+      return
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.')
+      setLoading(false)
+      return
+    }
+
+    const { error: authError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/callback`,
+        data: { full_name: fullName.trim() },
+      },
+    })
+
+    if (authError) {
+      setError(
+        authError.message.toLowerCase().includes('password')
+          ? 'Use a stronger password.'
+          : 'We could not create your account. Please check your details.'
+      )
+      setLoading(false)
+      return
+    }
+
+    setMessage('Account created! Check your email to confirm your account.')
+    setTimeout(() => router.push('/login'), 1600)
+  }
+
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#fbf8f3] px-5 py-10">
+      <div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-7 shadow-sm">
+        <div className="mb-8 flex items-center gap-3">
+          <div className="grid size-11 place-items-center rounded-2xl bg-[#9a7651] text-white">
+            <Building2 className="size-5" />
+          </div>
+          <div>
+            <p className="font-bold">StayNest</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-[#9296a5]">Create your owner account</p>
+          </div>
+        </div>
+
+        <h1 className="text-2xl font-bold tracking-tight">Start your 7-day free trial</h1>
+        <p className="mt-2 text-sm text-[#85899a]">Set up your PG workspace in a few simple steps.</p>
+
+        <form onSubmit={submit} className="mt-7 flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+            Full name <span className="text-[#9a7651]">*</span>
+            <input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+              placeholder="e.g. Rahul Sharma"
+              className="rounded-xl border border-[#e4d9cc] px-3 py-3 text-sm outline-none focus:border-[#b19372]"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+            Email <span className="text-[#9a7651]">*</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              placeholder="e.g. rahul@example.com"
+              className="rounded-xl border border-[#e4d9cc] px-3 py-3 text-sm outline-none focus:border-[#b19372]"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+            Password <span className="text-[#9a7651]">*</span>
+            <div className="relative">
+              <input
+                type={show ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                placeholder="Minimum 6 characters"
+                className="w-full rounded-xl border border-[#e4d9cc] px-3 py-3 pr-11 text-sm outline-none focus:border-[#b19372]"
+              />
+              <button
+                type="button"
+                onClick={() => setShow(!show)}
+                aria-label="Toggle password visibility"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9296a5]"
+              >
+                {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+          </label>
+
+          {error && (
+            <p role="alert" className="rounded-xl bg-[#fff0e9] px-3 py-2.5 text-xs text-[#b95c3c]">
+              {error}
+            </p>
+          )}
+
+          {message && (
+            <p className="rounded-xl bg-[#e7f7f0] px-3 py-2.5 text-xs text-[#328d68]">
+              {message}
+            </p>
+          )}
+
+          <button
+            disabled={loading}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white disabled:opacity-60 hover:bg-[#866342]"
+          >
+            {loading && <Loader2 className="size-4 animate-spin" />}
+            Create owner account
+          </button>
+        </form>
+
+        <p className="mt-6 text-center text-sm text-[#85899a]">
+          Already have an account?{' '}
+          <Link href="/login" className="font-semibold text-[#9a7651] hover:underline">
+            Sign in
+          </Link>
+        </p>
+
+        <p className="mt-4 text-center text-xs text-[#a08d79]">
+          <Link href="/" className="hover:underline">
+            Back to StayNest
+          </Link>
+        </p>
+      </div>
+    </main>
+  )
 }

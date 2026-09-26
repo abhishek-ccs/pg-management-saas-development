@@ -40,6 +40,23 @@ export async function updateSession(request: NextRequest) {
 
   // 2. Authenticated guards & Role-Based Access Control
   if (user) {
+    // Returning User Experience: Direct access to customer dashboard when a valid session exists
+    // (Preserves ability to view public marketing landing page if explicit ?stay=true is requested)
+    if (pathname === '/' && !request.nextUrl.searchParams.has('stay') && !request.nextUrl.searchParams.has('preview')) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role,status')
+        .eq('id', user.id)
+        .maybeSingle()
+
+      if (profile?.status !== 'suspended') {
+        if (profile?.role === 'super_admin') {
+          return NextResponse.redirect(new URL('/admin', request.url))
+        }
+        return NextResponse.redirect(new URL('/dashboard', request.url))
+      }
+    }
+
     // Admin routes protection: Only super_admin accounts can access /admin and subroutes
     if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/login')) {
       const { data: profile } = await supabase

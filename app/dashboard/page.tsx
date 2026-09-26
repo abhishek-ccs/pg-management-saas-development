@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { isValidPhone } from '@/lib/validation'
 import {
   AlertTriangle,
   Building2,
@@ -15,6 +16,7 @@ import {
   FileText,
   Home,
   LayoutDashboard,
+  Loader2,
   LogOut,
   Menu,
   MessageSquare,
@@ -122,7 +124,10 @@ export default function DashboardPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState('')
   const [userEmail, setUserEmail] = useState('')
+  const [trialStart, setTrialStart] = useState<string | null>(null)
   const [trialEnd, setTrialEnd] = useState<string | null>(null)
+  const [subscriptionPlan, setSubscriptionPlan] = useState<string>('trial')
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string>('trialing')
   const [isTrialExpired, setIsTrialExpired] = useState(false)
 
   // Real Database Business State (Zero fake data)
@@ -134,7 +139,8 @@ export default function DashboardPage() {
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [electricity, setElectricity] = useState<ElectricityRecord[]>([])
 
-  // Modals state
+  // Modals & Action loading state
+  const [isSavingProperty, setIsSavingProperty] = useState(false)
   const [showPropertyModal, setShowPropertyModal] = useState(false)
   const [showRoomModal, setShowRoomModal] = useState(false)
   const [showTenantModal, setShowTenantModal] = useState(false)
@@ -198,7 +204,7 @@ export default function DashboardPage() {
           elecRes,
           complaintRes,
         ] = await Promise.all([
-          supabase.from('subscriptions').select('trial_end,status').eq('owner_id', user.id).maybeSingle(),
+          supabase.from('subscriptions').select('trial_start,trial_end,status,plan').eq('owner_id', user.id).maybeSingle(),
           supabase.from('properties').select('id,name,address,contact_number,city').eq('owner_id', user.id).maybeSingle(),
           supabase.from('rooms').select('id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
           supabase.from('tenants').select('id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id').eq('owner_id', user.id).order('created_at', { ascending: false }),
@@ -210,11 +216,16 @@ export default function DashboardPage() {
 
         if (!isMounted) return
 
-        // Subscription & Trial calculation
-        if (subRes.data?.trial_end) {
-          setTrialEnd(subRes.data.trial_end)
-          const remainingMs = new Date(subRes.data.trial_end).getTime() - Date.now()
-          setIsTrialExpired(remainingMs <= 0 && subRes.data.status !== 'active')
+        // Subscription & Trial calculation from real database subscription row
+        if (subRes.data) {
+          setTrialStart(subRes.data.trial_start || null)
+          setTrialEnd(subRes.data.trial_end || null)
+          setSubscriptionStatus(subRes.data.status || 'trialing')
+          setSubscriptionPlan(subRes.data.plan || 'trial')
+          if (subRes.data.trial_end) {
+            const remainingMs = new Date(subRes.data.trial_end).getTime() - Date.now()
+            setIsTrialExpired(remainingMs <= 0 && subRes.data.status !== 'active')
+          }
         }
 
         // Property info
@@ -314,10 +325,16 @@ export default function DashboardPage() {
       .reduce((sum, e) => sum + e.amount, 0)
   }, [expenses])
 
-  const daysRemaining = useMemo(() => {
-    if (!trialEnd) return null
-    const diff = Math.ceil((new Date(trialEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-    return Math.max(0, diff)
+  const { daysRemaining, hoursRemaining, isEndingSoon } = useMemo(() => {
+    if (!trialEnd) return { daysRemaining: null, hoursRemaining: null, isEndingSoon: false }
+    const remainingMs = new Date(trialEnd).getTime() - Date.now()
+    if (remainingMs <= 0) {
+      return { daysRemaining: 0, hoursRemaining: 0, isEndingSoon: false }
+    }
+    const days = Math.floor(remainingMs / (1000 * 60 * 60 * 24))
+    const hours = Math.floor(remainingMs / (1000 * 60 * 60))
+    const isEndingSoon = remainingMs <= 48 * 60 * 60 * 1000 // 48 hours or less
+    return { daysRemaining: days, hoursRemaining: hours, isEndingSoon }
   }, [trialEnd])
 
   // Filtered tenants for search
@@ -331,48 +348,104 @@ export default function DashboardPage() {
   // REAL CRUD ACTIONS
   // ----------------------------------------------------------------------------
 
-  // Save / Update Property
+  // Save / Update Property (End-to-End verified)
   async function handleSaveProperty(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!userId) return
+    if (!userId) {
+      flash('User session not found. Please log in again.')
+      return
+    }
     const fd = new FormData(e.currentTarget)
-    const name = String(fd.get('name')).trim()
-    const address = String(fd.get('address')).trim()
-    const contact = String(fd.get('contact')).trim()
-    const city = String(fd.get('city')).trim()
+    const name = String(fd.get('name') || '').trim()
+    const address = String(fd.get('address') || '').trim()
+    const contact = String(fd.get('contact') || '').trim()
+    const city = String(fd.get('city') || '').trim()
 
-    if (!name) return
-
-    const { data, error } = await supabase
-      .from('properties')
-      .upsert(
-        {
-          owner_id: userId,
-          name,
-          address,
-          contact_number: contact,
-          city,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'owner_id' }
-      )
-      .select('id,name,address,contact_number,city')
-      .single()
-
-    if (error) {
-      flash('Could not save property details. Please try again.')
+    if (!name) {
+      flash('Property Name is required.')
       return
     }
 
-    setProperty({
-      id: data.id,
-      name: data.name,
-      address: data.address || '',
-      contact: data.contact_number || '',
-      city: data.city || '',
-    })
-    setShowPropertyModal(false)
-    flash('Property details saved successfully.')
+    if (!address) {
+      flash('Property Address is required.')
+      return
+    }
+
+    if (contact && !isValidPhone(contact)) {
+      flash('Please enter a valid 10-15 digit contact phone number.')
+      return
+    }
+
+    setIsSavingProperty(true)
+    try {
+      // Check if this property owner already has a property row
+      let existingId = property.id
+      if (!existingId) {
+        const { data: existingProp } = await supabase
+          .from('properties')
+          .select('id')
+          .eq('owner_id', userId)
+          .maybeSingle()
+        if (existingProp?.id) {
+          existingId = existingProp.id
+        }
+      }
+
+      let res
+      if (existingId) {
+        // Update existing property record
+        res = await supabase
+          .from('properties')
+          .update({
+            name,
+            address,
+            contact_number: contact,
+            city,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingId)
+          .eq('owner_id', userId)
+          .select('id,name,address,contact_number,city')
+          .single()
+      } else {
+        // Insert new property record for this authenticated owner
+        res = await supabase
+          .from('properties')
+          .insert({
+            owner_id: userId,
+            name,
+            address,
+            contact_number: contact,
+            city,
+            updated_at: new Date().toISOString(),
+          })
+          .select('id,name,address,contact_number,city')
+          .single()
+      }
+
+      if (res.error) {
+        console.error('Property save error:', res.error)
+        flash(`Could not save property: ${res.error.message || 'Database error'}`)
+        return
+      }
+
+      if (res.data) {
+        setProperty({
+          id: res.data.id,
+          name: res.data.name,
+          address: res.data.address || '',
+          contact: res.data.contact_number || '',
+          city: res.data.city || '',
+        })
+        setShowPropertyModal(false)
+        flash('Property details saved successfully!')
+      }
+    } catch (err: any) {
+      console.error('Unexpected error saving property:', err)
+      flash('An unexpected error occurred while saving property.')
+    } finally {
+      setIsSavingProperty(false)
+    }
   }
 
   // Add Room
@@ -380,6 +453,7 @@ export default function DashboardPage() {
     e.preventDefault()
     if (!userId || !property.id) {
       flash('Please set up your property before adding rooms.')
+      setShowPropertyModal(true)
       return
     }
 
@@ -462,6 +536,11 @@ export default function DashboardPage() {
 
     if (!name || rent <= 0) {
       flash('Please provide a valid tenant name and monthly rent.')
+      return
+    }
+
+    if (!phone || !isValidPhone(phone)) {
+      flash('Please enter a valid 10-15 digit tenant contact phone number.')
       return
     }
 
@@ -832,23 +911,43 @@ export default function DashboardPage() {
         {/* Subscription / Plan Box */}
         <div className="p-4">
           <div className="rounded-2xl border border-[#e8dfd4] bg-[#fbf8f3] p-4 text-xs">
-            <div className="mb-1 flex items-center justify-between">
+            <div className="mb-2 flex items-center justify-between">
               <span className="flex items-center gap-1.5 font-bold text-[#9a7651]">
                 <Sparkles className="size-3.5" />
                 7-Day Free Trial
               </span>
-              <span className="text-[10px] font-semibold text-[#85899a]">
-                {daysRemaining !== null ? `${daysRemaining}d left` : 'Active'}
+              <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                isTrialExpired
+                  ? 'bg-[#ffebe8] text-[#b95c3c]'
+                  : isEndingSoon
+                  ? 'bg-[#fff4e5] text-[#b46b1a]'
+                  : 'bg-[#f4ede3] text-[#9a7651]'
+              }`}>
+                {isTrialExpired ? 'Expired' : hoursRemaining !== null && hoursRemaining < 48 ? `${hoursRemaining}h left` : daysRemaining !== null ? `${daysRemaining}d left` : 'Active'}
               </span>
             </div>
-            <p className="mb-3 text-[11px] text-[#74798a]">
-              {isTrialExpired ? 'Your trial period has ended. Upgrade to continue.' : 'All workspace tools unlocked during trial.'}
+            <p className="mb-1 font-semibold text-[#403a34]">
+              {isTrialExpired
+                ? 'Your 7-day trial has concluded.'
+                : 'You are currently using your 7-day free trial.'}
             </p>
+            <p className="mb-2.5 text-[11px] leading-4 text-[#74798a]">
+              {isTrialExpired
+                ? 'Upgrade anytime to continue adding business records.'
+                : isEndingSoon
+                ? `Ending soon! Only ${hoursRemaining} hours left. Upgrade to prevent disruption.`
+                : 'Your free trial is active. Upgrade anytime to continue after the trial ends.'}
+            </p>
+            {trialEnd && (
+              <p className="mb-3 text-[10px] text-[#999daa]">
+                Valid until {new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(trialEnd))}
+              </p>
+            )}
             <button
               onClick={() => setShowPricingModal(true)}
               className="w-full rounded-lg bg-[#9a7651] py-2 text-center text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
             >
-              View Plans
+              View Plans & Upgrade
             </button>
           </div>
         </div>
@@ -879,6 +978,18 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Header Trial Status Pill */}
+            <div className="hidden sm:flex items-center gap-2 rounded-full border border-[#e8dfd4] bg-[#fbf8f3] px-3 py-1.5 text-xs shadow-xs">
+              <span className={`size-2 rounded-full ${isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#9a7651]'}`} />
+              <span className="font-semibold text-[#5a4838]">
+                {isTrialExpired
+                  ? 'Trial Ended'
+                  : hoursRemaining !== null && hoursRemaining < 48
+                  ? `7-Day Trial: ${hoursRemaining}h remaining`
+                  : `7-Day Trial: ${daysRemaining ?? 7}d remaining`}
+              </span>
+            </div>
+
             <div className="hidden items-center gap-2 rounded-lg border border-[#e8dfd4] px-3 py-2 text-xs text-[#a0a3b0] md:flex">
               <Search className="size-3.5" />
               <input
@@ -907,6 +1018,26 @@ export default function DashboardPage() {
             </div>
           </div>
         </header>
+
+        {/* Trial Ending Soon Alert Banner */}
+        {!isTrialExpired && isEndingSoon && (
+          <div className="border-b border-[#fed7aa] bg-[#fffbf5] px-6 py-2.5 text-xs text-[#9a540b]">
+            <div className="mx-auto flex max-w-[1360px] items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="size-4 shrink-0 text-[#b46b1a]" />
+                <span>
+                  <strong>Your 7-day free trial is ending soon!</strong> You have {hoursRemaining} hours remaining. Upgrade anytime to continue after the trial ends.
+                </span>
+              </div>
+              <button
+                onClick={() => setShowPricingModal(true)}
+                className="rounded-lg bg-[#9a7651] px-3 py-1 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+              >
+                View Plans & Upgrade
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Trial Expiration Alert Banner */}
         {isTrialExpired && (
@@ -940,10 +1071,16 @@ export default function DashboardPage() {
               rentPending={totalRentPending}
               expensesMonth={totalExpensesMonth}
               daysRemaining={daysRemaining}
+              hoursRemaining={hoursRemaining}
+              isEndingSoon={isEndingSoon}
+              isTrialExpired={isTrialExpired}
+              trialStart={trialStart}
+              trialEnd={trialEnd}
               onAddProperty={() => setShowPropertyModal(true)}
               onAddRoom={() => setShowRoomModal(true)}
               onAddTenant={() => setShowTenantModal(true)}
               onRecordPayment={() => setShowPaymentModal(true)}
+              onViewPlans={() => setShowPricingModal(true)}
               onNavigate={setActive}
             />
           )}
@@ -970,7 +1107,7 @@ export default function DashboardPage() {
               payments={payments}
               tenants={tenants}
               onRecordPayment={() => setShowPaymentModal(true)}
-              onViewReceipt={(p) => setSelectedReceipt(p)}
+              onViewReceipt={(p: any) => setSelectedReceipt(p)}
             />
           )}
 
@@ -1011,8 +1148,13 @@ export default function DashboardPage() {
               userName={userName}
               userEmail={userEmail}
               property={property}
+              trialStart={trialStart}
               trialEnd={trialEnd}
               daysRemaining={daysRemaining}
+              hoursRemaining={hoursRemaining}
+              isEndingSoon={isEndingSoon}
+              isTrialExpired={isTrialExpired}
+              subscriptionPlan={subscriptionPlan}
               onEditProperty={() => setShowPropertyModal(true)}
               onViewPlans={() => setShowPricingModal(true)}
               onSignOut={handleSignOut}
@@ -1027,16 +1169,26 @@ export default function DashboardPage() {
 
       {/* Property Setup Modal */}
       {showPropertyModal && (
-        <Modal title={property.name ? 'Edit Property Details' : 'Set Up Your Property'} onClose={() => setShowPropertyModal(false)}>
+        <Modal
+          title={property.name ? 'Edit Property Details' : 'Set Up Your Property'}
+          onClose={() => !isSavingProperty && setShowPropertyModal(false)}
+        >
           <form onSubmit={handleSaveProperty} className="flex flex-col gap-4">
+            <p className="text-xs text-[#74798a]">
+              Please fill in your rental property details below. Required fields are marked with an asterisk (<span className="text-[#9a7651] font-bold">*</span>).
+            </p>
             <Field label="Property Name" name="name" defaultValue={property.name} placeholder="e.g. Green Valley Residency" required />
-            <Field label="Address" name="address" defaultValue={property.address} placeholder="Street, Locality" required />
+            <Field label="Property Address" name="address" defaultValue={property.address} placeholder="Street, Locality, Area" required />
             <div className="grid grid-cols-2 gap-3">
               <Field label="City" name="city" defaultValue={property.city} placeholder="e.g. Bengaluru" />
               <Field label="Contact Phone" name="contact" defaultValue={property.contact} placeholder="e.g. 9876543210" />
             </div>
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Save Property Details
+            <button
+              disabled={isSavingProperty}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342] disabled:opacity-60"
+            >
+              {isSavingProperty && <Loader2 className="size-4 animate-spin" />}
+              {isSavingProperty ? 'Saving Property Details...' : 'Save Property Details'}
             </button>
           </form>
         </Modal>
@@ -1394,10 +1546,16 @@ function OverviewTab({
   rentPending,
   expensesMonth,
   daysRemaining,
+  hoursRemaining,
+  isEndingSoon,
+  isTrialExpired,
+  trialStart,
+  trialEnd,
   onAddProperty,
   onAddRoom,
   onAddTenant,
   onRecordPayment,
+  onViewPlans,
   onNavigate,
 }: any) {
   const today = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())
@@ -1431,29 +1589,84 @@ function OverviewTab({
         </div>
       </div>
 
+      {/* Property Setup Onboarding Prompt if no property yet */}
+      {!property.name && (
+        <div className="mb-6 flex flex-col justify-between gap-4 rounded-2xl border-2 border-dashed border-[#d8c2aa] bg-[#fdfbf7] p-5 sm:flex-row sm:items-center">
+          <div className="flex items-start gap-3.5">
+            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f4ede3] text-[#9a7651]">
+              <Building2 className="size-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-[#443e38]">Step 1: Set Up Your Rental Property</h3>
+              <p className="mt-0.5 text-xs text-[#7d746a]">
+                Configure your PG or hostel details, address, and contact number to start adding rooms, beds, and tenants.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onAddProperty}
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          >
+            <Plus className="size-4" /> Complete Property Setup
+          </button>
+        </div>
+      )}
+
       {/* Trial Countdown Card */}
-      <section className="mb-6 flex flex-col justify-between gap-4 rounded-2xl border border-[#e6d8c9] bg-[#f4ede3] px-5 py-4 sm:flex-row sm:items-center">
+      <section className={`mb-6 flex flex-col justify-between gap-4 rounded-2xl border px-5 py-4 sm:flex-row sm:items-center ${
+        isTrialExpired
+          ? 'border-[#ffd9d4] bg-[#fff5f5]'
+          : isEndingSoon
+          ? 'border-[#fed7aa] bg-[#fffbf5]'
+          : 'border-[#e6d8c9] bg-[#f4ede3]'
+      }`}>
         <div className="flex items-start gap-3">
-          <div className="grid size-9 place-items-center rounded-xl bg-white text-[#9a7651]">
+          <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-white text-[#9a7651] shadow-xs">
             <Sparkles className="size-[17px]" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[#594331]">
-              {daysRemaining === null ? 'Standard Access' : daysRemaining > 0 ? `7-Day Free Trial: ${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining` : 'Trial Period Completed'}
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-bold text-[#594331]">
+                {isTrialExpired
+                  ? '7-Day Free Trial Concluded'
+                  : 'You are currently using your 7-day free trial.'}
+              </p>
+              {!isTrialExpired && (
+                <span className={`rounded-md px-2 py-0.5 text-xs font-bold ${
+                  isEndingSoon ? 'bg-[#ffeedd] text-[#b46b1a]' : 'bg-white text-[#9a7651]'
+                }`}>
+                  {hoursRemaining !== null && hoursRemaining < 48 ? `${hoursRemaining} hours remaining` : `${daysRemaining ?? 7} days remaining`}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-[#696c9b]">
+              {isTrialExpired
+                ? 'Your 7-day trial period has ended. Your existing records are safely preserved. Upgrade to a plan to continue operations.'
+                : isEndingSoon
+                ? `Your trial is ending soon (${hoursRemaining} hours remaining). Upgrade anytime to ensure seamless continuity for your PG.`
+                : 'Your free trial is active. Upgrade anytime to continue after the trial ends.'}
             </p>
-            <p className="mt-0.5 text-xs text-[#696c9b]">
-              {daysRemaining && daysRemaining > 0
-                ? 'Enjoy unrestricted access to all property management tools.'
-                : 'Choose a subscription plan to continue recording new business transactions.'}
-            </p>
+            {trialStart && trialEnd && (
+              <p className="mt-1 text-[11px] text-[#8e857b]">
+                Trial window: {new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' }).format(new Date(trialStart))} – {new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(trialEnd))}
+              </p>
+            )}
           </div>
         </div>
-        <button
-          onClick={() => onNavigate('Reports')}
-          className="rounded-lg border border-[#c8c9f3] bg-white px-3 py-2 text-xs font-semibold text-[#866342] hover:bg-[#faf7f2]"
-        >
-          View Full Reports →
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => onNavigate('Reports')}
+            className="rounded-lg border border-[#c8c9f3] bg-white px-3 py-2 text-xs font-semibold text-[#866342] hover:bg-[#faf7f2]"
+          >
+            View Reports
+          </button>
+          <button
+            onClick={onViewPlans}
+            className="rounded-lg bg-[#9a7651] px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          >
+            Upgrade Plan
+          </button>
+        </div>
       </section>
 
       {/* Metrics Row (Real Data) */}
@@ -2006,7 +2219,21 @@ function ReportsTab({ property, rooms, tenants, revenueMonth, expensesMonth, ren
   )
 }
 
-function SettingsTab({ userName, userEmail, property, trialEnd, daysRemaining, onEditProperty, onViewPlans, onSignOut }: any) {
+function SettingsTab({
+  userName,
+  userEmail,
+  property,
+  trialStart,
+  trialEnd,
+  daysRemaining,
+  hoursRemaining,
+  isEndingSoon,
+  isTrialExpired,
+  subscriptionPlan,
+  onEditProperty,
+  onViewPlans,
+  onSignOut,
+}: any) {
   return (
     <div className="max-w-2xl space-y-6">
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
@@ -2038,29 +2265,51 @@ function SettingsTab({ userName, userEmail, property, trialEnd, daysRemaining, o
             onClick={onEditProperty}
             className="rounded-lg border border-[#9a7651] px-3.5 py-1.5 text-xs font-semibold text-[#866342] hover:bg-[#fbf8f3]"
           >
-            Edit
+            {property.name ? 'Edit' : 'Set Up Property'}
           </button>
         </div>
         <div className="mt-5 space-y-2 text-xs">
-          <p className="font-bold text-[#3d3934]">{property.name || 'No property set up'}</p>
-          <p className="text-[#676b7d]">{property.address || 'Address not configured'}</p>
+          <p className="font-bold text-[#3d3934]">{property.name || 'No property set up yet'}</p>
+          <p className="text-[#676b7d]">{property.address ? `${property.address}${property.city ? `, ${property.city}` : ''}` : 'Address not configured'}</p>
           <p className="text-[#676b7d]">{property.contact ? `Phone: ${property.contact}` : 'Phone not configured'}</p>
         </div>
       </div>
 
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h3 className="text-base font-bold text-[#3d3934]">Subscription & SaaS Plan</h3>
-            <p className="text-xs text-[#85899a]">
-              {daysRemaining !== null ? `Trial ends: ${new Date(trialEnd).toLocaleDateString('en-IN')}` : 'Subscription active'}
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 font-bold text-[#9a7651]">
+                <Sparkles className="size-4" />
+                7-Day Free Trial
+              </span>
+              <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                isTrialExpired ? 'bg-[#ffebe8] text-[#b95c3c]' : isEndingSoon ? 'bg-[#fff4e5] text-[#b46b1a]' : 'bg-[#f4ede3] text-[#9a7651]'
+              }`}>
+                {isTrialExpired ? 'Expired' : hoursRemaining !== null && hoursRemaining < 48 ? `${hoursRemaining}h remaining` : `${daysRemaining ?? 7} days remaining`}
+              </span>
+            </div>
+            <p className="mt-2 text-sm font-semibold text-[#3d3934]">
+              {isTrialExpired
+                ? 'Your 7-day trial period has ended.'
+                : 'You are currently using your 7-day free trial.'}
             </p>
+            <p className="mt-1 text-xs text-[#74798a]">
+              {isTrialExpired
+                ? 'All historical records are safely retained. Upgrade anytime to continue day-to-day operations.'
+                : 'Your free trial is active with full access to all workspace features. Upgrade anytime to continue after the trial ends.'}
+            </p>
+            {trialStart && trialEnd && (
+              <p className="mt-2 text-[11px] text-[#999daa]">
+                Trial window: {new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' }).format(new Date(trialStart))} to {new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(trialEnd))}
+              </p>
+            )}
           </div>
           <button
             onClick={onViewPlans}
-            className="rounded-xl bg-[#9a7651] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+            className="self-start sm:self-center shrink-0 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
           >
-            View Plans
+            View Plans & Upgrade
           </button>
         </div>
       </div>
@@ -2122,7 +2371,9 @@ function EmptyState({ title, description, action, actionLabel }: any) {
 function Field({ label, name, placeholder, type = 'text', defaultValue = '', min, required = false }: any) {
   return (
     <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-      {label}
+      <span>
+        {label} {required && <span className="font-bold text-[#9a7651]">*</span>}
+      </span>
       <input
         name={name}
         type={type}
