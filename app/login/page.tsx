@@ -22,7 +22,7 @@ export default function LoginPage() {
     const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
     const { data, error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     if (authError) { setError(authError.message.toLowerCase().includes('confirm') ? 'Please confirm your email before signing in.' : 'Invalid email or password.'); setLoading(false); return }
-    const destination = new URLSearchParams(window.location.search).get('next') || (data.user?.email?.toLowerCase() === 'sharmavn258@gmail.com' ? '/admin' : '/')
+    const destination = new URLSearchParams(window.location.search).get('next') || '/dashboard'
     setMessage('Signed in successfully.')
     router.push(destination)
     router.refresh()
