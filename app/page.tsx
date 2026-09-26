@@ -1,14 +1,15 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import {
   Bell, Building2, CalendarDays, Check, ChevronDown, CircleHelp, DoorOpen, FileText,
   Home, LayoutDashboard, Menu, MessageSquare, MoreHorizontal, Plus, Receipt, Search,
   Settings, ShieldCheck, Sparkles, Trash2, Users, Wallet, X, Zap,
 } from 'lucide-react'
 
-type Tenant = { id: number; name: string; room: string; rent: number; status: 'Paid' | 'Pending' | 'Overdue' }
-type Complaint = { id: number; title: string; tenant: string; priority: 'High' | 'Medium' | 'Low'; status: 'Open' | 'In progress' | 'Resolved' }
+type Tenant = { id: string; name: string; room: string; rent: number; status: 'Paid' | 'Pending' | 'Overdue' }
+type Complaint = { id: string; title: string; tenant: string; priority: 'High' | 'Medium' | 'Low'; status: 'Open' | 'In progress' | 'Resolved' }
 
 const navigation = [
   { label: 'Overview', icon: LayoutDashboard }, { label: 'Property', icon: Building2 },
@@ -17,15 +18,8 @@ const navigation = [
   { label: 'Expenses', icon: Receipt }, { label: 'Complaints', icon: MessageSquare }, { label: 'Reports', icon: FileText },
 ]
 
-const initialTenants: Tenant[] = [
-  { id: 1, name: 'Rohan Mehta', room: 'A-101', rent: 8500, status: 'Paid' },
-  { id: 2, name: 'Priya Sharma', room: 'A-102', rent: 9000, status: 'Pending' },
-  { id: 3, name: 'Vikram Singh', room: 'B-201', rent: 8500, status: 'Overdue' },
-]
-const initialComplaints: Complaint[] = [
-  { id: 1, title: 'Leaking bathroom tap', tenant: 'Vikram Singh', priority: 'High', status: 'Open' },
-  { id: 2, title: 'Wi-Fi connectivity issue', tenant: 'Priya Sharma', priority: 'Medium', status: 'In progress' },
-]
+const initialTenants: Tenant[] = []
+const initialComplaints: Complaint[] = []
 const currency = (value: number) => `₹${value.toLocaleString('en-IN')}`
 
 export default function Page() {
@@ -39,23 +33,56 @@ export default function Page() {
   const [complaints, setComplaints] = useState(initialComplaints)
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
+  const supabase = createClient()
+
+  useEffect(() => {
+    let mounted = true
+    async function loadDashboard() {
+      const { data: userData } = await supabase.auth.getUser()
+      if (!userData.user) return
+      const [{ data: propertyRow }, { data: tenantRows }] = await Promise.all([
+        supabase.from('properties').select('id,name,address').eq('owner_id', userData.user.id).maybeSingle(),
+        supabase.from('tenants').select('id,full_name,monthly_rent,status').eq('owner_id', userData.user.id).order('created_at', { ascending: false }),
+      ])
+      if (!mounted) return
+      if (propertyRow) {
+        const { count: roomCount } = await supabase.from('rooms').select('id', { count: 'exact', head: true }).eq('owner_id', userData.user.id)
+        const { count: bedCount } = await supabase.from('beds').select('id', { count: 'exact', head: true }).eq('owner_id', userData.user.id).eq('status', 'available')
+        setProperty({ name: propertyRow.name, address: propertyRow.address ?? '', rooms: roomCount ?? 0, beds: bedCount ?? 0 })
+      }
+      setTenants((tenantRows ?? []).map(row => ({ id: row.id, name: row.full_name, room: 'Unassigned', rent: Number(row.monthly_rent), status: row.status === 'moved_out' ? 'Paid' : 'Pending' })))
+    }
+    void loadDashboard()
+    return () => { mounted = false }
+  }, [supabase])
 
   const collected = useMemo(() => tenants.filter(t => t.status === 'Paid').reduce((sum, t) => sum + t.rent, 0), [tenants])
   const filteredTenants = tenants.filter(t => `${t.name} ${t.room}`.toLowerCase().includes(search.toLowerCase()))
   const flash = (text: string) => { setNotice(text); window.setTimeout(() => setNotice(''), 2600) }
 
-  function addTenant(event: React.FormEvent<HTMLFormElement>) {
+  async function addTenant(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    setTenants(current => [...current, { id: Date.now(), name: String(form.get('name')), room: String(form.get('room')), rent: Number(form.get('rent')), status: 'Pending' }])
+    const name = String(form.get('name'))
+    const rent = Number(form.get('rent'))
+    const { data: userData } = await supabase.auth.getUser()
+    const { data: propertyRow } = await supabase.from('properties').select('id').eq('owner_id', userData.user?.id ?? '').maybeSingle()
+    if (!userData.user || !propertyRow) { flash('Add your property before adding tenants'); return }
+    const { data, error } = await supabase.from('tenants').insert({ owner_id: userData.user.id, property_id: propertyRow.id, full_name: name, monthly_rent: rent, joining_date: new Date().toISOString().slice(0, 10) }).select('id,full_name,monthly_rent,status').single()
+    if (error) { flash('Could not add tenant'); return }
+    setTenants(current => [...current, { id: data.id, name: data.full_name, room: 'Unassigned', rent: Number(data.monthly_rent), status: 'Pending' }])
     setShowTenant(false); flash('Tenant added successfully')
   }
-  function saveProperty(event: React.FormEvent<HTMLFormElement>) {
+  async function saveProperty(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget)
-    setProperty({ name: String(form.get('name')), address: String(form.get('address')), rooms: Number(form.get('rooms')), beds: Number(form.get('beds')) })
-    setShowProperty(false); flash('Property setup saved')
+    const values = { name: String(form.get('name')), address: String(form.get('address')), rooms: Number(form.get('rooms')), beds: Number(form.get('beds')) }
+    const { data: userData } = await supabase.auth.getUser()
+    if (!userData.user) { flash('Please sign in to save your property'); return }
+    const { error } = await supabase.from('properties').upsert({ owner_id: userData.user.id, name: values.name, address: values.address }).select().single()
+    if (error) { flash('Could not save property'); return }
+    setProperty(values); setShowProperty(false); flash('Property setup saved')
   }
-  function markPaid(id: number) { setTenants(current => current.map(t => t.id === id ? { ...t, status: 'Paid' } : t)); setShowPayment(false); flash('Payment recorded') }
+  async function markPaid(id: string) { setTenants(current => current.map(t => t.id === id ? { ...t, status: 'Paid' } : t)); setShowPayment(false); flash('Payment recorded') }
 
   return <div className="min-h-screen bg-[#f8f9fc] text-[#202536]">
     <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-[#e8eaf0] bg-white transition-transform lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
