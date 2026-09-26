@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function AdminPage() {
   const current = await requireSuperAdmin()
-  if (!current) redirect('/login?next=/admin')
+  if (!current) redirect('/admin/login')
   const { profiles, audit } = await getPlatformCounts()
   const owners = profiles.filter((profile) => profile.role === 'pg_owner')
   const active = owners.filter((profile) => profile.status === 'active')

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Building2, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
-import { createBrowserClient } from '@supabase/ssr'
+import { createClient } from '@/lib/supabase/client'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,7 +19,7 @@ export default function LoginPage() {
     event.preventDefault()
     if (event.nativeEvent instanceof SubmitEvent && (event.nativeEvent as SubmitEvent).submitter === null) return
     setLoading(true); setError(''); setMessage('')
-    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+    const supabase = createClient()
     const { data, error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     if (authError) { setError(authError.message.toLowerCase().includes('confirm') ? 'Please confirm your email before signing in.' : 'Invalid email or password.'); setLoading(false); return }
     const destination = new URLSearchParams(window.location.search).get('next') || '/dashboard'

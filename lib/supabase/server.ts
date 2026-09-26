@@ -35,7 +35,14 @@ export function isPgOwner(profile: { role?: string; status?: string } | null) {
 
 export async function createAdminClient() {
   const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
-  return createSupabaseClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { autoRefreshToken: false, persistSession: false } })
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error(
+      'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variable. Server admin operations require valid credentials.'
+    )
+  }
+  return createSupabaseClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } })
 }
 
 export async function writeAudit(action: string, targetType: string, targetId?: string, metadata: Record<string, unknown> = {}) {
@@ -47,12 +54,16 @@ export async function writeAudit(action: string, targetType: string, targetId?: 
 }
 
 export async function ensureSuperAdmin(email: string) {
-  if (email !== 'sharmavn258@gmail.com') return false
+  const allowedAdmins = (process.env.SUPER_ADMIN_EMAILS || 'sharmavn258@gmail.com')
+    .split(',')
+    .map(e => e.trim().toLowerCase())
+  if (!allowedAdmins.includes(email.toLowerCase())) return false
+
   const admin = await createAdminClient()
   const { data: userData } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
-  const user = userData.users.find((candidate) => candidate.email?.toLowerCase() === email)
+  const user = userData.users.find((candidate) => candidate.email?.toLowerCase() === email.toLowerCase())
   if (!user) return false
-  const { error } = await admin.from('profiles').upsert({ id: user.id, email, role: 'super_admin', status: 'active' }, { onConflict: 'id' })
+  const { error } = await admin.from('profiles').upsert({ id: user.id, email: user.email ?? email, role: 'super_admin', status: 'active' }, { onConflict: 'id' })
   return !error
 }
 
@@ -155,13 +166,69 @@ export async function suspendProfile(id: string, status: 'active' | 'suspended')
 export async function extendTrial(id: string, days: number) {
   const current = await requireSuperAdmin()
   if (!current) return false
-  await writeAudit('extend_trial', 'profile', id, { days })
-  return true
+
+  const admin = await createAdminClient()
+  const { data: sub } = await admin.from('subscriptions').select('id,trial_end').eq('owner_id', id).maybeSingle()
+
+  const baseDate = sub?.trial_end ? new Date(sub.trial_end) : new Date()
+  const newTrialEnd = new Date(Math.max(Date.now(), baseDate.getTime()) + days * 86400000).toISOString()
+
+  let updateError = null
+  if (sub) {
+    const { error } = await admin
+      .from('subscriptions')
+      .update({ trial_end: newTrialEnd, status: 'trialing', updated_at: new Date().toISOString() })
+      .eq('owner_id', id)
+    updateError = error
+  } else {
+    const { error } = await admin.from('subscriptions').insert({
+      owner_id: id,
+      plan: 'trial',
+      status: 'trialing',
+      trial_start: new Date().toISOString(),
+      trial_end: newTrialEnd,
+    })
+    updateError = error
+  }
+
+  if (!updateError) {
+    await writeAudit('extend_trial', 'profile', id, { days, newTrialEnd })
+    return true
+  }
+  return false
 }
 
 export async function extendSubscription(id: string, days: number) {
   const current = await requireSuperAdmin()
   if (!current) return false
-  await writeAudit('extend_subscription', 'profile', id, { days })
-  return true
+
+  const admin = await createAdminClient()
+  const { data: sub } = await admin.from('subscriptions').select('id,current_period_end').eq('owner_id', id).maybeSingle()
+
+  const baseDate = sub?.current_period_end ? new Date(sub.current_period_end) : new Date()
+  const newPeriodEnd = new Date(Math.max(Date.now(), baseDate.getTime()) + days * 86400000).toISOString()
+
+  let updateError = null
+  if (sub) {
+    const { error } = await admin
+      .from('subscriptions')
+      .update({ current_period_end: newPeriodEnd, status: 'active', updated_at: new Date().toISOString() })
+      .eq('owner_id', id)
+    updateError = error
+  } else {
+    const { error } = await admin.from('subscriptions').insert({
+      owner_id: id,
+      plan: 'starter',
+      status: 'active',
+      current_period_start: new Date().toISOString(),
+      current_period_end: newPeriodEnd,
+    })
+    updateError = error
+  }
+
+  if (!updateError) {
+    await writeAudit('extend_subscription', 'profile', id, { days, newPeriodEnd })
+    return true
+  }
+  return false
 }
