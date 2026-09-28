@@ -1,11 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Strict TypeScript verification during build
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
+  // Enable modern image optimization with remote Supabase storage support
   images: {
-    unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.supabase.co',
+      },
+    ],
   },
 }
 
 export default nextConfig
+

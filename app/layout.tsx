@@ -1,36 +1,86 @@
-import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { Analytics } from '@vercel/analytics/next'
+import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner'
+import { StructuredData } from '@/components/seo/StructuredData'
 import './globals.css'
 
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staynest.in'
+
 export const metadata: Metadata = {
-  title: 'StayNest | PG Management',
-  description: 'Simple, secure PG and hostel management for property owners.',
-  generator: 'v0.app',
-  icons: {
-    icon: [
-      {
-        url: '/icon-light-32x32.png',
-        media: '(prefers-color-scheme: light)',
-      },
-      {
-        url: '/icon-dark-32x32.png',
-        media: '(prefers-color-scheme: dark)',
-      },
+  metadataBase: new URL(baseUrl),
+  title: {
+    default: 'StayNest | PG & Rental Property Management Software',
+    template: '%s | StayNest',
+  },
+  description:
+    'Modern cloud PG and rental property management SaaS. Track bed occupancy, manage tenants, log electricity meter units, automate rent receipts, and reconcile ledgers.',
+  keywords: [
+    'PG management software',
+    'hostel management system',
+    'paying guest management app',
+    'rent ledger SaaS',
+    'tenant management software',
+    'co-living management',
+    'StayNest',
+  ],
+  authors: [{ name: 'StayNest Technologies' }],
+  creator: 'StayNest Technologies',
+  publisher: 'StayNest Technologies',
+  formatDetection: {
+    email: false,
+    address: false,
+    telephone: false,
+  },
+  openGraph: {
+    type: 'website',
+    locale: 'en_IN',
+    url: baseUrl,
+    siteName: 'StayNest Property Management SaaS',
+    title: 'StayNest | PG & Rental Property Management Software',
+    description:
+      'Replace spreadsheets with a calm, accurate PG and rental property management system. Real-time bed occupancy, rent collection, and tenant management.',
+    images: [
       {
         url: '/icon.svg',
-        type: 'image/svg+xml',
+        width: 512,
+        height: 512,
+        alt: 'StayNest PG Management SaaS',
       },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'StayNest | PG & Rental Property Management Software',
+    description:
+      'Modern cloud PG and rental property management SaaS. Track bed occupancy, manage tenants, and reconcile ledgers.',
+    images: ['/icon.svg'],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  icons: {
+    icon: [
+      { url: '/icon-light-32x32.png', media: '(prefers-color-scheme: light)' },
+      { url: '/icon-dark-32x32.png', media: '(prefers-color-scheme: dark)' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
     ],
     apple: '/apple-icon.png',
   },
 }
 
 export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
   colorScheme: 'light dark',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
-  ],
+  themeColor: '#9a7651',
 }
 
 export default function RootLayout({
@@ -39,9 +89,24 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased">
+    <html lang="en" className="scroll-smooth">
+      <head>
+        <StructuredData />
+      </head>
+      <body className="antialiased font-sans text-[#403a34] bg-[#fbf8f3]">
+        {/* WCAG 2.2 AA: Skip to main content keyboard accessibility link */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:rounded-xl focus:bg-[#9a7651] focus:px-4 focus:py-2.5 focus:text-xs focus:font-bold focus:text-white focus:shadow-2xl focus:outline-none focus:ring-2 focus:ring-white"
+        >
+          Skip to main content
+        </a>
+
         {children}
+
+        {/* GDPR & India DPDP Act 2023 Consent Management */}
+        <CookieConsentBanner />
+
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

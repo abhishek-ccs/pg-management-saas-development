@@ -14,6 +14,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
 
 const features = [
   ['Property control', 'Keep your PG profile, rooms, beds, and availability in one calm workspace.', Building2],
@@ -60,7 +61,7 @@ export default function LandingPage() {
   }, [])
 
   return (
-    <main className="min-h-screen bg-[#fbf8f3] text-[#403a34]">
+    <main id="main-content" className="min-h-screen bg-[#fbf8f3] text-[#403a34]">
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
@@ -81,7 +82,8 @@ export default function LandingPage() {
             <Link href="#faq">FAQ</Link>
             <Link href="#contact">Contact</Link>
           </nav>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <LocaleSwitcher />
             {hasSession ? (
               <Link
                 href="/dashboard"
@@ -306,27 +308,61 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer id="contact" className="bg-[#403a34] text-[#f8f0e5]">
-        <div className="mx-auto flex max-w-6xl flex-col gap-8 px-5 py-12 sm:px-8 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
-                <Building2 className="size-5" />
-              </span>
-              <span className="text-lg font-bold">StayNest</span>
+      <footer id="contact" className="bg-[#2c2926] text-[#f8f0e5] border-t border-[#403a34]">
+        <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8">
+          <div className="grid gap-10 md:grid-cols-4">
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-2.5">
+                <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
+                  <Building2 className="size-5" />
+                </span>
+                <span className="text-lg font-bold">StayNest</span>
+              </div>
+              <p className="mt-4 max-w-sm text-xs leading-6 text-[#cbbfaf]">
+                Modern multi-tenant PG and rental property management SaaS. Real-time bed occupancy, accurate rent ledgers, automated receipts, and tenant records.
+              </p>
+              <p className="mt-4 text-[11px] text-[#9a9187]">
+                &copy; {new Date().getFullYear()} StayNest Technologies. Built for global property managers.
+              </p>
             </div>
-            <p className="mt-4 max-w-sm text-sm leading-6 text-[#cbbfaf]">
-              A thoughtful workspace for PGs, hostels, and rental property owners.
-            </p>
-          </div>
-          <div className="text-sm text-[#cbbfaf]">
-            <p className="mb-2 font-semibold text-white">Contact & Support</p>
-            <a href="mailto:hello@staynest.in" className="hover:text-white hover:underline">
-              hello@staynest.in
-            </a>
+
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-white">Legal & Compliance</p>
+              <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
+                <li>
+                  <Link href="/terms" className="hover:text-white hover:underline">Terms of Service</Link>
+                </li>
+                <li>
+                  <Link href="/privacy" className="hover:text-white hover:underline">Privacy Policy (DPDP & GDPR)</Link>
+                </li>
+                <li>
+                  <Link href="/cookies" className="hover:text-white hover:underline">Cookie Policy</Link>
+                </li>
+                <li>
+                  <Link href="/security" className="hover:text-white hover:underline">Security Architecture</Link>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-white">Support & Governance</p>
+              <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
+                <li>
+                  <a href="mailto:hello@staynest.in" className="hover:text-white hover:underline">hello@staynest.in</a>
+                </li>
+                <li>
+                  <span className="block text-[11px] text-[#9a9187]">Grievance Officer:</span>
+                  <a href="mailto:privacy@staynest.in" className="hover:text-white hover:underline">privacy@staynest.in</a>
+                </li>
+                <li className="pt-2">
+                  <LocaleSwitcher />
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
       </footer>
     </main>
   )
 }
+
