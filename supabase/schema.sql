@@ -516,3 +516,128 @@ DROP TRIGGER IF EXISTS trg_complaints_updated_at ON public.complaints;
 CREATE TRIGGER trg_complaints_updated_at
   BEFORE UPDATE ON public.complaints
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- ------------------------------------------------------------------------------
+-- 16. Backfill existing auth.users into profiles and subscriptions
+-- Ensures accounts created prior to schema execution are fully initialized
+-- ------------------------------------------------------------------------------
+INSERT INTO public.profiles (id, email, full_name, role, status)
+SELECT 
+  id,
+  email,
+  coalesce(raw_user_meta_data->>'full_name', split_part(email, '@', 1)),
+  CASE 
+    WHEN email IN ('abhishekrawat67320@gmail.com', 'sharmavn258@gmail.com', 'admin@staynest.in') THEN 'super_admin'
+    ELSE 'pg_owner'
+  END,
+  'active'
+FROM auth.users
+ON CONFLICT (id) DO UPDATE
+SET 
+  email = EXCLUDED.email,
+  role = CASE 
+    WHEN EXCLUDED.email IN ('abhishekrawat67320@gmail.com', 'sharmavn258@gmail.com', 'admin@staynest.in') THEN 'super_admin'
+    ELSE public.profiles.role
+  END;
+
+INSERT INTO public.subscriptions (owner_id, plan, status, trial_start, trial_end)
+SELECT 
+  id,
+  'trial',
+  'trialing',
+  timezone('utc'::text, now()),
+  timezone('utc'::text, now()) + interval '7 days'
+FROM auth.users
+ON CONFLICT (owner_id) DO NOTHING;
+
+-- ------------------------------------------------------------------------------
+-- 17. Room Capacity & Bed Occupancy Server-Side Validation Trigger
+-- Enforces Single (1), Double (2), Triple (3), Four (4) sharing rules & bed isolation
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_validate_room_capacity_and_beds()
+RETURNS trigger AS $$
+DECLARE
+  v_room_type TEXT;
+  v_max_capacity INT;
+  v_active_count INT;
+  v_bed_occupied INT;
+BEGIN
+  -- Validate Room Capacity if room_id is set and tenant is not vacated
+  IF NEW.room_id IS NOT NULL AND (NEW.status IS NULL OR NEW.status <> 'Vacated') THEN
+    SELECT room_type INTO v_room_type FROM public.rooms WHERE id = NEW.room_id;
+    
+    IF v_room_type IS NOT NULL THEN
+      IF lower(v_room_type) LIKE '%single%' THEN
+        v_max_capacity := 1;
+      ELSIF lower(v_room_type) LIKE '%double%' THEN
+        v_max_capacity := 2;
+      ELSIF lower(v_room_type) LIKE '%triple%' THEN
+        v_max_capacity := 3;
+      ELSIF lower(v_room_type) LIKE '%four%' THEN
+        v_max_capacity := 4;
+      ELSE
+        -- Fallback to count of configured beds or default 2
+        SELECT coalesce(count(*), 2) INTO v_max_capacity FROM public.beds WHERE room_id = NEW.room_id;
+        IF v_max_capacity < 1 THEN v_max_capacity := 2; END IF;
+      END IF;
+
+      -- Count existing active tenants in this room (excluding current tenant being updated)
+      SELECT COUNT(*) INTO v_active_count
+      FROM public.tenants
+      WHERE room_id = NEW.room_id
+        AND (status IS NULL OR status <> 'Vacated')
+        AND id <> COALESCE(NEW.id, '00000000-0000-0000-0000-000000000000'::uuid);
+
+      IF v_active_count >= v_max_capacity THEN
+        RAISE EXCEPTION 'Room capacity exceeded: maximum % active resident(s) allowed for this room (%s).', v_max_capacity, v_room_type;
+      END IF;
+    END IF;
+  END IF;
+
+  -- Validate Bed Assignment: Prevent two active tenants on the same bed
+  IF NEW.bed_id IS NOT NULL AND (NEW.status IS NULL OR NEW.status <> 'Vacated') THEN
+    SELECT COUNT(*) INTO v_bed_occupied
+    FROM public.tenants
+    WHERE bed_id = NEW.bed_id
+      AND (status IS NULL OR status <> 'Vacated')
+      AND id <> COALESCE(NEW.id, '00000000-0000-0000-0000-000000000000'::uuid);
+
+    IF v_bed_occupied > 0 THEN
+      RAISE EXCEPTION 'Selected bed is already occupied by another active tenant.';
+    END IF;
+
+    -- Synchronize bed status to 'occupied'
+    UPDATE public.beds SET status = 'occupied', updated_at = timezone('utc'::text, now()) WHERE id = NEW.bed_id;
+  END IF;
+
+  -- If bed was changed or tenant vacated, release the old bed to 'available'
+  IF TG_OP = 'UPDATE' AND OLD.bed_id IS NOT NULL THEN
+    IF NEW.bed_id IS NULL OR NEW.bed_id <> OLD.bed_id OR NEW.status = 'Vacated' THEN
+      UPDATE public.beds SET status = 'available', updated_at = timezone('utc'::text, now()) WHERE id = OLD.bed_id;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_tenants_capacity_validation ON public.tenants;
+CREATE TRIGGER trg_tenants_capacity_validation
+  BEFORE INSERT OR UPDATE ON public.tenants
+  FOR EACH ROW EXECUTE FUNCTION public.fn_validate_room_capacity_and_beds();
+
+-- Free bed on tenant deletion
+CREATE OR REPLACE FUNCTION public.fn_handle_tenant_delete()
+RETURNS trigger AS $$
+BEGIN
+  IF OLD.bed_id IS NOT NULL THEN
+    UPDATE public.beds SET status = 'available', updated_at = timezone('utc'::text, now()) WHERE id = OLD.bed_id;
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_tenants_bed_cleanup ON public.tenants;
+CREATE TRIGGER trg_tenants_bed_cleanup
+  AFTER DELETE ON public.tenants
+  FOR EACH ROW EXECUTE FUNCTION public.fn_handle_tenant_delete();

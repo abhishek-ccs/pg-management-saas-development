@@ -54,7 +54,7 @@ export async function writeAudit(action: string, targetType: string, targetId?: 
 }
 
 export async function ensureSuperAdmin(email: string) {
-  const allowedAdmins = (process.env.SUPER_ADMIN_EMAILS || 'sharmavn258@gmail.com')
+  const allowedAdmins = (process.env.SUPER_ADMIN_EMAILS || 'abhishekrawat67320@gmail.com,sharmavn258@gmail.com,admin@staynest.in')
     .split(',')
     .map(e => e.trim().toLowerCase())
   if (!allowedAdmins.includes(email.toLowerCase())) return false
@@ -69,11 +69,22 @@ export async function ensureSuperAdmin(email: string) {
 
 export async function getPlatformCounts() {
   const admin = await createAdminClient()
-  const [profiles, audit] = await Promise.all([
+  const [profiles, audit, properties, tenants, subscriptions, payments] = await Promise.all([
     admin.from('profiles').select('id, email, full_name, role, status, created_at').order('created_at', { ascending: false }),
     admin.from('platform_audit_logs').select('id, action, target_type, created_at, metadata').order('created_at', { ascending: false }).limit(50),
+    admin.from('properties').select('id, owner_id, name, city, contact_number, created_at'),
+    admin.from('tenants').select('id, owner_id, full_name, status, monthly_rent, created_at'),
+    admin.from('subscriptions').select('id, owner_id, plan, status, trial_start, trial_end, current_period_end'),
+    admin.from('payments').select('id, amount, paid_at, payment_method'),
   ])
-  return { profiles: profiles.data ?? [], audit: audit.data ?? [] }
+  return {
+    profiles: profiles.data ?? [],
+    audit: audit.data ?? [],
+    properties: properties.data ?? [],
+    tenants: tenants.data ?? [],
+    subscriptions: subscriptions.data ?? [],
+    payments: payments.data ?? [],
+  }
 }
 
 export async function requireSuperAdmin() {

@@ -515,3 +515,31 @@ DROP TRIGGER IF EXISTS trg_complaints_updated_at ON public.complaints;
 CREATE TRIGGER trg_complaints_updated_at
   BEFORE UPDATE ON public.complaints
   FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+
+-- ------------------------------------------------------------------------------
+-- 16. Backfill existing auth.users into profiles and subscriptions
+-- Ensures accounts created prior to schema execution are fully initialized
+-- ------------------------------------------------------------------------------
+INSERT INTO public.profiles (id, email, full_name, role, status)
+SELECT 
+  id,
+  email,
+  coalesce(raw_user_meta_data->>'full_name', split_part(email, '@', 1)),
+  CASE 
+    WHEN email IN ('sharmavn258@gmail.com', 'admin@staynest.in') THEN 'super_admin'
+    ELSE 'pg_owner'
+  END,
+  'active'
+FROM auth.users
+ON CONFLICT (id) DO UPDATE
+SET email = EXCLUDED.email;
+
+INSERT INTO public.subscriptions (owner_id, plan, status, trial_start, trial_end)
+SELECT 
+  id,
+  'trial',
+  'trialing',
+  timezone('utc'::text, now()),
+  timezone('utc'::text, now()) + interval '7 days'
+FROM auth.users
+ON CONFLICT (owner_id) DO NOTHING;
