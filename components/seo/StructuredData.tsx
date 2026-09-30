@@ -1,3 +1,5 @@
+import { SUPPORT_EMAIL } from '@/lib/constants'
+
 export function StructuredData() {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staynest.in'
 
@@ -10,7 +12,7 @@ export function StructuredData() {
         name: 'StayNest Technologies',
         url: baseUrl,
         logo: `${baseUrl}/icon.svg`,
-        email: 'hello@staynest.in',
+        email: SUPPORT_EMAIL,
         description: 'Global cloud property management and rental SaaS workspace.',
         sameAs: ['https://x.com/staynest', 'https://linkedin.com/company/staynest'],
       },

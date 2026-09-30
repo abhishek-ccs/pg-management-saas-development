@@ -21,7 +21,11 @@ export async function getCurrentProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { user: null, profile: null }
-  const { data: profile } = await supabase.from('profiles').select('id,email,full_name,role,status').eq('id', user.id).maybeSingle()
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('id,email,full_name,role,status,must_change_password,mfa_enrolled,preferred_language')
+    .eq('id', user.id)
+    .maybeSingle()
   return { user, profile }
 }
 
@@ -54,9 +58,10 @@ export async function writeAudit(action: string, targetType: string, targetId?: 
 }
 
 export async function ensureSuperAdmin(email: string) {
-  const allowedAdmins = (process.env.SUPER_ADMIN_EMAILS || 'abhishekrawat67320@gmail.com,sharmavn258@gmail.com,admin@staynest.in')
+  const allowedAdmins = (process.env.SUPER_ADMIN_EMAILS || '')
     .split(',')
     .map(e => e.trim().toLowerCase())
+    .filter(Boolean)
   if (!allowedAdmins.includes(email.toLowerCase())) return false
 
   const admin = await createAdminClient()
@@ -243,3 +248,83 @@ export async function extendSubscription(id: string, days: number) {
   }
   return false
 }
+
+export async function updateCustomerPlan(id: string, plan: 'trial' | 'monthly' | 'yearly') {
+  const current = await requireSuperAdmin()
+  if (!current) return false
+
+  const admin = await createAdminClient()
+  const { error } = await admin
+    .from('subscriptions')
+    .upsert({
+      owner_id: id,
+      plan,
+      status: plan === 'trial' ? 'trialing' : 'active',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'owner_id' })
+
+  if (!error) {
+    await writeAudit('change_plan', 'subscription', id, { plan })
+    return true
+  }
+  return false
+}
+
+export async function deleteCustomerProfile(id: string) {
+  const current = await requireSuperAdmin()
+  if (!current) return { success: false, error: 'Unauthorized.' }
+
+  const admin = await createAdminClient()
+
+  // 1. Check target profile
+  const { data: targetProfile } = await admin
+    .from('profiles')
+    .select('id, email, role')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!targetProfile) {
+    return { success: false, error: 'Customer profile not found.' }
+  }
+
+  // Founder deletion immunity check
+  const founderEmails = (process.env.SUPER_ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+
+  if (
+    targetProfile.role === 'super_admin' ||
+    founderEmails.includes(targetProfile.email.toLowerCase())
+  ) {
+    return {
+      success: false,
+      error: 'Platform founders and super administrators are protected by deletion immunity.',
+    }
+  }
+
+  // Delete user from auth (cascades all owner data)
+  const { error: deleteAuthError } = await admin.auth.admin.deleteUser(id)
+  if (deleteAuthError) {
+    return { success: false, error: deleteAuthError.message }
+  }
+
+  await writeAudit('delete_customer', 'profile', id, {
+    deletedEmail: targetProfile.email,
+  })
+
+  return { success: true }
+}
+
+export async function getPlatformAuditLogs() {
+  const current = await requireSuperAdmin()
+  if (!current) return []
+  const admin = await createAdminClient()
+  const { data } = await admin
+    .from('platform_audit_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  return data || []
+}
+

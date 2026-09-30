@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, RotateCcw, Home } from 'lucide-react'
 import { logger } from '@/lib/logger'
+import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export default function ErrorBoundary({
   error,
@@ -60,6 +61,16 @@ export default function ErrorBoundary({
             Return Home
           </Link>
         </div>
+
+        <p className="mt-6 text-xs text-[#85899a]">
+          If this issue persists, please report it to{' '}
+          <a
+            href={getMailtoSupport('StayNest Error Report')}
+            className="font-semibold text-[#9a7651] underline"
+          >
+            {SUPPORT_EMAIL}
+          </a>
+        </p>
       </div>
 
       <footer className="border-t border-[#eee4d7] bg-[#fbf8f3] py-6 text-center text-xs text-[#776d62]">

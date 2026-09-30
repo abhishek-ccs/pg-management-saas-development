@@ -13,8 +13,10 @@ export interface SendEmailResult {
   error?: string
 }
 
+import { SUPPORT_EMAIL } from '@/lib/constants'
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY
-const EMAIL_FROM = process.env.EMAIL_FROM || 'StayNest <notifications@staynest.in>'
+const EMAIL_FROM = process.env.EMAIL_FROM || `StayNest Support <${SUPPORT_EMAIL}>`
 
 /**
  * Universal Transactional Email Sender
@@ -32,6 +34,7 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions): 
         body: JSON.stringify({
           from: EMAIL_FROM,
           to,
+          reply_to: SUPPORT_EMAIL,
           subject,
           html,
           text,

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Building2, ArrowLeft, ShieldCheck, Mail } from 'lucide-react'
 import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
+import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export const metadata = {
   title: 'Privacy Policy | StayNest',
@@ -129,7 +130,7 @@ export default function PrivacyPage() {
               <div className="mt-3 rounded-2xl border border-[#dcd3c5] bg-[#faf7f2] p-5 text-xs space-y-1.5">
                 <p><strong className="text-[#3d3934]">Designation:</strong> Data Protection & Grievance Redressal Officer</p>
                 <p><strong className="text-[#3d3934]">Entity:</strong> StayNest Technologies</p>
-                <p><strong className="text-[#3d3934]">Official Email:</strong> <a href="mailto:privacy@staynest.in" className="text-[#9a7651] underline font-semibold">privacy@staynest.in</a></p>
+                <p><strong className="text-[#3d3934]">Official Email:</strong> <a href={getMailtoSupport('StayNest Privacy & Grievance Request')} className="text-[#9a7651] underline font-semibold">{SUPPORT_EMAIL}</a></p>
                 <p><strong className="text-[#3d3934]">Redressal SLA:</strong> All formal privacy inquiries are acknowledged within 24 hours and resolved within 7 business days.</p>
               </div>
             </section>

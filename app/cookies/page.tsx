@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Building2, ArrowLeft, Cookie } from 'lucide-react'
 import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
+import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export const metadata = {
   title: 'Cookie Policy | StayNest',
@@ -101,6 +102,19 @@ export default function CookiePolicyPage() {
               <p className="mt-2">
                 You can adjust your cookie consent preferences at any time by clearing your browser cookies or clicking the &quot;Cookie Preferences&quot;
                 button in your platform account settings.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-bold text-[#2c2926]">4. Questions & Feedback</h2>
+              <p className="mt-2">
+                If you have questions about our cookie practices, reach our support team at:{' '}
+                <a
+                  href={getMailtoSupport('StayNest Cookie Policy Inquiry')}
+                  className="font-semibold text-[#9a7651] underline"
+                >
+                  {SUPPORT_EMAIL}
+                </a>
               </p>
             </section>
           </div>

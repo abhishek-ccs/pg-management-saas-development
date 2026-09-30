@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Building2, ArrowLeft } from 'lucide-react'
 import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
+import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export const metadata = {
   title: 'Terms of Service | StayNest',
@@ -95,6 +96,19 @@ export default function TermsPage() {
               <p className="mt-2">
                 These Terms shall be governed by and construed in accordance with the laws of the Republic of India. Any legal dispute or claim arising
                 under these terms shall be subject to the exclusive jurisdiction of the competent courts located in New Delhi, India.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-bold text-[#2c2926]">8. Contact & Legal Notices</h2>
+              <p className="mt-2">
+                For questions regarding these Terms or formal legal notices, contact our administration team at:{' '}
+                <a
+                  href={getMailtoSupport('StayNest Terms of Service Inquiry')}
+                  className="font-semibold text-[#9a7651] underline"
+                >
+                  {SUPPORT_EMAIL}
+                </a>
               </p>
             </section>
           </div>

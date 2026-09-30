@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   phone TEXT,
   role TEXT NOT NULL DEFAULT 'pg_owner' CHECK (role IN ('pg_owner', 'super_admin')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'pending')),
+  preferred_language TEXT DEFAULT 'en' CHECK (preferred_language IN ('en', 'hi')),
+  must_change_password BOOLEAN DEFAULT false,
+  mfa_enrolled BOOLEAN DEFAULT false,
+  mfa_secret TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -31,7 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 CREATE TABLE IF NOT EXISTS public.subscriptions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  plan TEXT NOT NULL DEFAULT 'trial' CHECK (plan IN ('trial', 'starter', 'growth', 'pro')),
+  plan TEXT NOT NULL DEFAULT 'trial' CHECK (plan IN ('trial', 'starter', 'growth', 'pro', 'monthly', 'yearly')),
   status TEXT NOT NULL DEFAULT 'trialing' CHECK (status IN ('trialing', 'active', 'past_due', 'canceled', 'expired')),
   trial_start TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
   trial_end TIMESTAMPTZ DEFAULT (timezone('utc'::text, now()) + interval '7 days'),
@@ -138,7 +142,9 @@ CREATE TABLE IF NOT EXISTS public.tenants (
   monthly_rent NUMERIC(10, 2) NOT NULL DEFAULT 0,
   security_deposit NUMERIC(10, 2) DEFAULT 0,
   joining_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  rent_due_day INT DEFAULT 5 CHECK (rent_due_day BETWEEN 1 AND 31),
   status TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Paid', 'Pending', 'Overdue', 'Vacated')),
+  deleted_at TIMESTAMPTZ DEFAULT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -146,6 +152,7 @@ CREATE TABLE IF NOT EXISTS public.tenants (
 CREATE INDEX IF NOT EXISTS idx_tenants_owner ON public.tenants(owner_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_property ON public.tenants(property_id);
 CREATE INDEX IF NOT EXISTS idx_tenants_status ON public.tenants(status);
+CREATE INDEX IF NOT EXISTS idx_tenants_deleted_at ON public.tenants(deleted_at);
 
 -- ------------------------------------------------------------------------------
 -- 9. Payments Table (Rent & Deposit Ledger)
@@ -160,6 +167,8 @@ CREATE TABLE IF NOT EXISTS public.payments (
   payment_type TEXT DEFAULT 'rent' CHECK (payment_type IN ('rent', 'deposit', 'electricity', 'maintenance', 'other')),
   transaction_reference TEXT,
   notes TEXT,
+  month_covered TEXT DEFAULT NULL,
+  deleted_at TIMESTAMPTZ DEFAULT NULL,
   paid_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -167,6 +176,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
 CREATE INDEX IF NOT EXISTS idx_payments_owner ON public.payments(owner_id);
 CREATE INDEX IF NOT EXISTS idx_payments_tenant ON public.payments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_payments_paid_at ON public.payments(paid_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payments_deleted_at ON public.payments(deleted_at);
 
 -- ------------------------------------------------------------------------------
 -- 10. Complaints Table
@@ -526,19 +536,12 @@ SELECT
   id,
   email,
   coalesce(raw_user_meta_data->>'full_name', split_part(email, '@', 1)),
-  CASE 
-    WHEN email IN ('abhishekrawat67320@gmail.com', 'sharmavn258@gmail.com', 'admin@staynest.in') THEN 'super_admin'
-    ELSE 'pg_owner'
-  END,
+  coalesce((SELECT role FROM public.profiles WHERE id = auth.users.id), 'pg_owner'),
   'active'
 FROM auth.users
 ON CONFLICT (id) DO UPDATE
 SET 
-  email = EXCLUDED.email,
-  role = CASE 
-    WHEN EXCLUDED.email IN ('abhishekrawat67320@gmail.com', 'sharmavn258@gmail.com', 'admin@staynest.in') THEN 'super_admin'
-    ELSE public.profiles.role
-  END;
+  email = EXCLUDED.email;
 
 INSERT INTO public.subscriptions (owner_id, plan, status, trial_start, trial_end)
 SELECT 
@@ -641,3 +644,322 @@ DROP TRIGGER IF EXISTS trg_tenants_bed_cleanup ON public.tenants;
 CREATE TRIGGER trg_tenants_bed_cleanup
   AFTER DELETE ON public.tenants
   FOR EACH ROW EXECUTE FUNCTION public.fn_handle_tenant_delete();
+
+-- ------------------------------------------------------------------------------
+-- 19. Audit Logs Table for Owner Operations & System Changes
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL,
+  entity_id UUID NOT NULL,
+  action TEXT NOT NULL,
+  old_values JSONB,
+  new_values JSONB,
+  reason TEXT,
+  performed_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  performed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_owner ON public.audit_logs(owner_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON public.audit_logs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_performed_at ON public.audit_logs(performed_at DESC);
+
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Owners can view own audit logs" ON public.audit_logs;
+CREATE POLICY "Owners can view own audit logs"
+  ON public.audit_logs FOR SELECT
+  USING (owner_id = auth.uid());
+
+DROP POLICY IF EXISTS "Super admins can view all audit logs" ON public.audit_logs;
+CREATE POLICY "Super admins can view all audit logs"
+  ON public.audit_logs FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid() AND profiles.role = 'super_admin'
+    )
+  );
+
+DROP POLICY IF EXISTS "System can insert audit logs" ON public.audit_logs;
+CREATE POLICY "System can insert audit logs"
+  ON public.audit_logs FOR INSERT
+  WITH CHECK (owner_id = auth.uid() OR auth.uid() IS NULL);
+
+-- ------------------------------------------------------------------------------
+-- 20. Atomic Soft Delete & Restore Functions (RPC)
+-- ------------------------------------------------------------------------------
+
+-- Soft-delete payment
+CREATE OR REPLACE FUNCTION public.soft_delete_payment(
+  p_payment_id UUID,
+  p_reason TEXT DEFAULT 'Deleted by owner'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_owner_id UUID := auth.uid();
+  v_old_payment RECORD;
+  v_result JSONB;
+BEGIN
+  IF v_owner_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  SELECT * INTO v_old_payment
+  FROM public.payments
+  WHERE id = p_payment_id AND owner_id = v_owner_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Payment record not found or access denied.';
+  END IF;
+
+  IF v_old_payment.deleted_at IS NOT NULL THEN
+    RAISE EXCEPTION 'Payment record is already deleted.';
+  END IF;
+
+  UPDATE public.payments
+  SET deleted_at = timezone('utc'::text, now())
+  WHERE id = p_payment_id AND owner_id = v_owner_id;
+
+  INSERT INTO public.audit_logs (
+    owner_id,
+    entity_type,
+    entity_id,
+    action,
+    old_values,
+    new_values,
+    reason,
+    performed_by
+  ) VALUES (
+    v_owner_id,
+    'payment',
+    p_payment_id,
+    'soft_deleted',
+    to_jsonb(v_old_payment),
+    jsonb_build_object('deleted_at', timezone('utc'::text, now())),
+    p_reason,
+    v_owner_id
+  );
+
+  v_result := jsonb_build_object(
+    'success', true,
+    'payment_id', p_payment_id,
+    'deleted_at', timezone('utc'::text, now())
+  );
+
+  RETURN v_result;
+END;
+$$;
+
+-- Restore payment
+CREATE OR REPLACE FUNCTION public.restore_payment(
+  p_payment_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_owner_id UUID := auth.uid();
+  v_old_payment RECORD;
+  v_result JSONB;
+BEGIN
+  IF v_owner_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  SELECT * INTO v_old_payment
+  FROM public.payments
+  WHERE id = p_payment_id AND owner_id = v_owner_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Payment record not found or access denied.';
+  END IF;
+
+  UPDATE public.payments
+  SET deleted_at = NULL
+  WHERE id = p_payment_id AND owner_id = v_owner_id;
+
+  INSERT INTO public.audit_logs (
+    owner_id,
+    entity_type,
+    entity_id,
+    action,
+    old_values,
+    new_values,
+    reason,
+    performed_by
+  ) VALUES (
+    v_owner_id,
+    'payment',
+    p_payment_id,
+    'restored',
+    to_jsonb(v_old_payment),
+    jsonb_build_object('deleted_at', null),
+    'Restored by owner',
+    v_owner_id
+  );
+
+  v_result := jsonb_build_object(
+    'success', true,
+    'payment_id', p_payment_id
+  );
+
+  RETURN v_result;
+END;
+$$;
+
+-- Soft-delete tenant
+CREATE OR REPLACE FUNCTION public.soft_delete_tenant(
+  p_tenant_id UUID,
+  p_reason TEXT DEFAULT 'Deleted by owner'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_owner_id UUID := auth.uid();
+  v_old_tenant RECORD;
+  v_result JSONB;
+BEGIN
+  IF v_owner_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  SELECT * INTO v_old_tenant
+  FROM public.tenants
+  WHERE id = p_tenant_id AND owner_id = v_owner_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Tenant record not found or access denied.';
+  END IF;
+
+  UPDATE public.tenants
+  SET deleted_at = timezone('utc'::text, now()),
+      status = 'Vacated'
+  WHERE id = p_tenant_id AND owner_id = v_owner_id;
+
+  IF v_old_tenant.bed_id IS NOT NULL THEN
+    UPDATE public.beds
+    SET status = 'available'
+    WHERE id = v_old_tenant.bed_id;
+  END IF;
+
+  INSERT INTO public.audit_logs (
+    owner_id,
+    entity_type,
+    entity_id,
+    action,
+    old_values,
+    new_values,
+    reason,
+    performed_by
+  ) VALUES (
+    v_owner_id,
+    'tenant',
+    p_tenant_id,
+    'soft_deleted',
+    to_jsonb(v_old_tenant),
+    jsonb_build_object('deleted_at', timezone('utc'::text, now()), 'status', 'Vacated'),
+    p_reason,
+    v_owner_id
+  );
+
+  v_result := jsonb_build_object(
+    'success', true,
+    'tenant_id', p_tenant_id
+  );
+
+  RETURN v_result;
+END;
+$$;
+
+-- Restore tenant
+CREATE OR REPLACE FUNCTION public.restore_tenant(
+  p_tenant_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_owner_id UUID := auth.uid();
+  v_old_tenant RECORD;
+  v_result JSONB;
+BEGIN
+  IF v_owner_id IS NULL THEN
+    RAISE EXCEPTION 'Authentication required.';
+  END IF;
+
+  SELECT * INTO v_old_tenant
+  FROM public.tenants
+  WHERE id = p_tenant_id AND owner_id = v_owner_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Tenant record not found or access denied.';
+  END IF;
+
+  UPDATE public.tenants
+  SET deleted_at = NULL,
+      status = 'Pending'
+  WHERE id = p_tenant_id AND owner_id = v_owner_id;
+
+  IF v_old_tenant.bed_id IS NOT NULL THEN
+    UPDATE public.beds
+    SET status = 'occupied'
+    WHERE id = v_old_tenant.bed_id AND status = 'available';
+  END IF;
+
+  INSERT INTO public.audit_logs (
+    owner_id,
+    entity_type,
+    entity_id,
+    action,
+    old_values,
+    new_values,
+    reason,
+    performed_by
+  ) VALUES (
+    v_owner_id,
+    'tenant',
+    p_tenant_id,
+    'restored',
+    to_jsonb(v_old_tenant),
+    jsonb_build_object('deleted_at', null, 'status', 'Pending'),
+    'Restored by owner',
+    v_owner_id
+  );
+
+  v_result := jsonb_build_object(
+    'success', true,
+    'tenant_id', p_tenant_id
+  );
+
+  RETURN v_result;
+END;
+$$;
+
+-- ------------------------------------------------------------------------------
+-- 21. Founder & Super Admin Deletion Protection
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.protect_super_admin_deletion()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.role = 'super_admin' THEN
+    RAISE EXCEPTION 'Super Administrator accounts cannot be deleted directly.';
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_protect_super_admin ON public.profiles;
+CREATE TRIGGER trg_protect_super_admin
+BEFORE DELETE ON public.profiles
+FOR EACH ROW
+EXECUTE FUNCTION public.protect_super_admin_deletion();
+

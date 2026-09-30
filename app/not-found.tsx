@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Building2, Home, ArrowLeft } from 'lucide-react'
+import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export default function NotFound() {
   return (
@@ -40,6 +41,16 @@ export default function NotFound() {
             Owner Dashboard
           </Link>
         </div>
+
+        <p className="mt-6 text-xs text-[#85899a]">
+          Need help? Reach out to{' '}
+          <a
+            href={getMailtoSupport('StayNest 404 Page Assistance')}
+            className="font-semibold text-[#9a7651] underline"
+          >
+            {SUPPORT_EMAIL}
+          </a>
+        </p>
       </div>
 
       <footer className="border-t border-[#eee4d7] bg-[#fbf8f3] py-6 text-center text-xs text-[#776d62]">

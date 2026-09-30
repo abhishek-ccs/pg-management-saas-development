@@ -4,6 +4,23 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { isValidPhone } from '@/lib/validation'
+import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
+import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
+import { useI18n } from '@/lib/i18n'
+import {
+  PRICING_CONFIG,
+  formatINR,
+  getSavingsLabel,
+  ANNUAL_SAVINGS_PERCENT,
+  YEARLY_MONTHLY_EQUIVALENT,
+  ANNUAL_SAVINGS_AMOUNT,
+} from '@/lib/pricing'
+import {
+  calculateRentDueStatus,
+  formatPaymentTimestamp,
+  generateWhatsAppReminder,
+  generateSmsReminder,
+} from '@/lib/due-dates'
 import {
   AlertTriangle,
   ArrowRight,
@@ -14,6 +31,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleHelp,
+  Clock,
   DoorOpen,
   Download,
   Edit2,
@@ -23,6 +41,7 @@ import {
   Loader2,
   LogOut,
   Menu,
+  MessageCircle,
   MessageSquare,
   Pencil,
   Plus,
@@ -31,10 +50,12 @@ import {
   RotateCcw,
   Search,
   Settings,
+  Share2,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
+  Undo2,
   UserCheck,
   UserMinus,
   Users,
@@ -57,6 +78,8 @@ type Tenant = {
   rent: number
   deposit?: number
   joiningDate?: string
+  rent_due_day?: number
+  deleted_at?: string | null
   status: 'Paid' | 'Pending' | 'Overdue' | 'Vacated'
 }
 
@@ -87,6 +110,8 @@ type PaymentRecord = {
   payment_method: string
   payment_type: string
   paid_at: string
+  month_covered?: string
+  deleted_at?: string | null
   notes?: string
 }
 
@@ -129,6 +154,7 @@ const navigation = [
   { label: 'Expenses', icon: Receipt },
   { label: 'Complaints', icon: MessageSquare },
   { label: 'Reports', icon: FileText },
+  { label: 'Deleted Records', icon: Trash2 },
   { label: 'Settings', icon: Settings },
 ]
 
@@ -149,6 +175,7 @@ export default function DashboardPage() {
   const supabase = createClient()
 
   // Navigation & UI state
+  const { t, locale } = useI18n()
   const [active, setActive] = useState('Overview')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -164,6 +191,7 @@ export default function DashboardPage() {
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>('trial')
   const [subscriptionStatus, setSubscriptionStatus] = useState<string>('trialing')
   const [isTrialExpired, setIsTrialExpired] = useState(false)
+  const [dashboardBillingCycle, setDashboardBillingCycle] = useState<'yearly' | 'monthly'>('yearly')
 
   // Real Database Business State (Zero fake data)
   const [property, setProperty] = useState({ id: '', name: '', address: '', contact: '', city: '' })
@@ -171,9 +199,21 @@ export default function DashboardPage() {
   const [beds, setBeds] = useState<Bed[]>([])
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [payments, setPayments] = useState<PaymentRecord[]>([])
+  const [deletedPayments, setDeletedPayments] = useState<PaymentRecord[]>([])
+  const [deletedTenants, setDeletedTenants] = useState<Tenant[]>([])
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [electricity, setElectricity] = useState<ElectricityRecord[]>([])
+
+  // Due Dates & Undo State
+  const [tenantDueFilter, setTenantDueFilter] = useState<'all' | 'paid' | 'due' | 'overdue'>('all')
+  const [undoItem, setUndoItem] = useState<{
+    id: string
+    type: 'payment' | 'tenant'
+    name: string
+    secondsLeft: number
+    intervalId?: any
+  } | null>(null)
 
   // Modal Visibility States
   const [isSavingProperty, setIsSavingProperty] = useState(false)
@@ -208,7 +248,9 @@ export default function DashboardPage() {
   const [paymentFormType, setPaymentFormType] = useState<string>('rent')
   const [paymentFormNotes, setPaymentFormNotes] = useState<string>('')
 
+  const [tenantFormDueDay, setTenantFormDueDay] = useState<number>(5)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [showElectricityModal, setShowElectricityModal] = useState(false)
@@ -277,8 +319,8 @@ export default function DashboardPage() {
           supabase.from('properties').select('id,name,address,contact_number,city').eq('owner_id', user.id).maybeSingle(),
           supabase.from('rooms').select('id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
           supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
-          supabase.from('tenants').select('id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id').eq('owner_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('payments').select('id,tenant_id,amount,payment_method,payment_type,paid_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
+          supabase.from('tenants').select('id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id,rent_due_day,deleted_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+          supabase.from('payments').select('id,tenant_id,amount,payment_method,payment_type,paid_at,notes,month_covered,deleted_at').eq('owner_id', user.id).order('paid_at', { ascending: false }),
           supabase.from('expenses').select('id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
           supabase.from('electricity_readings').select('id,previous_reading,current_reading,rate_per_unit,reading_date,room_id').eq('owner_id', user.id).order('reading_date', { ascending: false }),
           supabase.from('complaints').select('id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
@@ -328,8 +370,8 @@ export default function DashboardPage() {
         const roomMap = new Map(roomList.map((r) => [r.id, r.room_number]))
         const bedMap = new Map(bedList.map((b) => [b.id, b.bed_number]))
 
-        // Tenants
-        const tenantList: Tenant[] = (tenantRes.data || []).map((t: any) => ({
+        // Tenants (Separate active from soft-deleted)
+        const allTenants: Tenant[] = (tenantRes.data || []).map((t: any) => ({
           id: t.id,
           name: t.full_name,
           phone: t.phone || '',
@@ -340,25 +382,31 @@ export default function DashboardPage() {
           rent: Number(t.monthly_rent || 0),
           deposit: Number(t.security_deposit || 0),
           joiningDate: t.joining_date,
+          rent_due_day: Number(t.rent_due_day || 5),
+          deleted_at: t.deleted_at || null,
           status: t.status || 'Pending',
         }))
-        setTenants(tenantList)
+        setTenants(allTenants.filter((t) => !t.deleted_at))
+        setDeletedTenants(allTenants.filter((t) => !!t.deleted_at))
 
-        // Payments
-        const tenantNameMap = new Map(tenantList.map((t) => [t.id, t.name]))
-        const tenantRoomMap = new Map(tenantList.map((t) => [t.id, t.room]))
-        const paymentList: PaymentRecord[] = (paymentRes.data || []).map((p: any) => ({
+        // Payments (Separate active from soft-deleted)
+        const tenantNameMap = new Map(allTenants.map((t) => [t.id, t.name]))
+        const tenantRoomMap = new Map(allTenants.map((t) => [t.id, t.room]))
+        const allPayments: PaymentRecord[] = (paymentRes.data || []).map((p: any) => ({
           id: p.id,
           tenant_id: p.tenant_id,
-          tenant_name: tenantNameMap.get(p.tenant_id) || 'Unknown Tenant',
+          tenant_name: tenantNameMap.get(p.tenant_id) || 'Unknown Resident',
           room_number: tenantRoomMap.get(p.tenant_id) || 'N/A',
           amount: Number(p.amount || 0),
           payment_method: p.payment_method || 'upi',
           payment_type: p.payment_type || 'rent',
           paid_at: p.paid_at,
+          month_covered: p.month_covered || undefined,
+          deleted_at: p.deleted_at || null,
           notes: p.notes,
         }))
-        setPayments(paymentList)
+        setPayments(allPayments.filter((p) => !p.deleted_at))
+        setDeletedPayments(allPayments.filter((p) => !!p.deleted_at))
 
         // Expenses, Electricity, Complaints
         setExpenses((expenseRes.data || []).map((e: any) => ({ ...e, amount: Number(e.amount) })))
@@ -867,6 +915,7 @@ export default function DashboardPage() {
     const bedId = String(fd.get('bed_id')) || null
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
+    const dueDay = Math.min(Math.max(Number(fd.get('rent_due_day') || 5), 1), 31)
     const joiningDate = String(fd.get('joining_date')) || new Date().toISOString().slice(0, 10)
 
     if (!name || rent <= 0) {
@@ -921,9 +970,10 @@ export default function DashboardPage() {
         monthly_rent: rent,
         security_deposit: deposit,
         joining_date: joiningDate,
+        rent_due_day: dueDay,
         status: 'Pending',
       })
-      .select('id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id')
+      .select('id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id,rent_due_day')
       .single()
 
     if (error) {
@@ -952,6 +1002,7 @@ export default function DashboardPage() {
         rent: Number(newTenant.monthly_rent),
         deposit: Number(newTenant.security_deposit),
         joiningDate: newTenant.joining_date,
+        rent_due_day: Number(newTenant.rent_due_day || dueDay),
         status: 'Pending',
       },
       ...prev,
@@ -973,6 +1024,7 @@ export default function DashboardPage() {
     const bedId = String(fd.get('bed_id')) || null
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
+    const dueDay = Math.min(Math.max(Number(fd.get('rent_due_day') || editingTenant.rent_due_day || 5), 1), 31)
     const joiningDate = String(fd.get('joining_date')) || editingTenant.joiningDate
     const status = String(fd.get('status') || editingTenant.status) as Tenant['status']
 
@@ -1027,6 +1079,7 @@ export default function DashboardPage() {
         monthly_rent: rent,
         security_deposit: deposit,
         joining_date: joiningDate,
+        rent_due_day: dueDay,
         status,
         updated_at: new Date().toISOString(),
       })
@@ -1068,6 +1121,7 @@ export default function DashboardPage() {
               rent,
               deposit,
               joiningDate,
+              rent_due_day: dueDay,
               status,
             }
           : t
@@ -1105,29 +1159,95 @@ export default function DashboardPage() {
     })
   }
 
-  // Delete Tenant
+  // Delete / Soft-Delete Tenant (with 5-second Undo Toast)
   async function handleDeleteTenant(tenantId: string, tenantName: string) {
     const target = tenants.find((t) => t.id === tenantId)
+    if (!target || !userId) return
+
     setConfirmDialog({
       open: true,
-      title: `Remove Tenant ${tenantName}?`,
-      description: 'Are you sure you want to remove this tenant? Past payment records will be preserved for accounting history.',
-      actionLabel: 'Remove Tenant',
+      title: `Delete Resident ${tenantName}?`,
+      description: 'The resident will be moved to Deleted Records. You will have 5 seconds to undo immediately, and can also restore from the Deleted Records tab anytime.',
+      actionLabel: 'Delete Resident',
       isDestructive: true,
       onConfirm: async () => {
-        const { error } = await supabase.from('tenants').delete().eq('id', tenantId).eq('owner_id', userId)
+        const now = new Date().toISOString()
+        const { error } = await supabase
+          .from('tenants')
+          .update({ deleted_at: now, updated_at: now })
+          .eq('id', tenantId)
+          .eq('owner_id', userId)
+
         if (error) {
-          flash('Could not remove tenant.')
+          flash(`Could not delete tenant: ${error.message}`)
           return
         }
-        if (target?.bed_id) {
+
+        // Release bed if occupied
+        if (target.bed_id) {
           await supabase.from('beds').update({ status: 'available' }).eq('id', target.bed_id)
           setBeds((prev) => prev.map((b) => (b.id === target.bed_id ? { ...b, status: 'available' } : b)))
         }
+
+        const softDeletedTenant = { ...target, deleted_at: now }
         setTenants((prev) => prev.filter((t) => t.id !== tenantId))
-        flash(`Tenant ${tenantName} removed.`)
+        setDeletedTenants((prev) => [softDeletedTenant, ...prev])
+
+        // 5-second Undo Timer
+        if (undoItem?.intervalId) clearInterval(undoItem.intervalId)
+        let countdown = 5
+        const intervalId = setInterval(() => {
+          countdown -= 1
+          if (countdown <= 0) {
+            clearInterval(intervalId)
+            setUndoItem(null)
+          } else {
+            setUndoItem((curr) => (curr ? { ...curr, secondsLeft: countdown } : null))
+          }
+        }, 1000)
+
+        setUndoItem({
+          id: tenantId,
+          type: 'tenant',
+          name: tenantName,
+          secondsLeft: 5,
+          intervalId,
+        })
+
+        flash(`Resident ${tenantName} moved to Deleted Records.`)
       },
     })
+  }
+
+  // Restore Tenant
+  async function handleRestoreTenant(tenantId: string) {
+    if (!userId) return
+    const target = deletedTenants.find((t) => t.id === tenantId)
+    if (!target) return
+
+    const { error } = await supabase
+      .from('tenants')
+      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .eq('id', tenantId)
+      .eq('owner_id', userId)
+
+    if (error) {
+      flash(`Could not restore resident: ${error.message}`)
+      return
+    }
+
+    if (target.bed_id) {
+      const bed = beds.find((b) => b.id === target.bed_id)
+      if (bed && bed.status === 'available') {
+        await supabase.from('beds').update({ status: 'occupied' }).eq('id', target.bed_id)
+        setBeds((prev) => prev.map((b) => (b.id === target.bed_id ? { ...b, status: 'occupied' } : b)))
+      }
+    }
+
+    const restored = { ...target, deleted_at: null }
+    setDeletedTenants((prev) => prev.filter((t) => t.id !== tenantId))
+    setTenants((prev) => [restored, ...prev])
+    flash(`Resident ${target.name} restored successfully.`)
   }
 
   // Record Payment
@@ -1140,6 +1260,7 @@ export default function DashboardPage() {
     const amount = Number(fd.get('amount') || 0)
     const method = String(fd.get('payment_method') || 'upi')
     const type = String(fd.get('payment_type') || 'rent')
+    const monthCovered = String(fd.get('month_covered') || '').trim()
     const notes = String(fd.get('notes') || '').trim()
 
     const targetTenant = tenants.find((t) => t.id === tenantId)
@@ -1165,10 +1286,11 @@ export default function DashboardPage() {
             amount,
             payment_method: method,
             payment_type: type,
+            month_covered: monthCovered || null,
             paid_at: now,
             notes,
           })
-          .select('id,tenant_id,amount,payment_method,payment_type,paid_at,notes')
+          .select('id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,notes')
           .single()
 
         if (error) {
@@ -1187,6 +1309,7 @@ export default function DashboardPage() {
           amount: newPayment.amount,
           payment_method: newPayment.payment_method,
           payment_type: newPayment.payment_type,
+          month_covered: newPayment.month_covered || undefined,
           paid_at: newPayment.paid_at,
           notes: newPayment.notes,
         }
@@ -1200,25 +1323,150 @@ export default function DashboardPage() {
     })
   }
 
-  // Reverse / Delete Payment (Safe Financial Adjustment)
-  async function handleReversePayment(paymentId: string, amount: number, tenantName: string) {
+  // Update / Edit Existing Payment
+  async function handleUpdatePayment(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!userId || !editingPayment) return
+
+    const fd = new FormData(e.currentTarget)
+    const amount = Number(fd.get('amount') || 0)
+    const method = String(fd.get('payment_method') || 'upi')
+    const type = String(fd.get('payment_type') || 'rent')
+    const paidAt = String(fd.get('paid_at')) || editingPayment.paid_at
+    const monthCovered = String(fd.get('month_covered') || '').trim()
+    const notes = String(fd.get('notes') || '').trim()
+
+    if (amount <= 0) {
+      flash('Please enter a valid payment amount.')
+      return
+    }
+
+    const { error } = await supabase
+      .from('payments')
+      .update({
+        amount,
+        payment_method: method,
+        payment_type: type,
+        paid_at: paidAt,
+        month_covered: monthCovered || null,
+        notes: notes || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', editingPayment.id)
+      .eq('owner_id', userId)
+
+    if (error) {
+      flash(`Could not update payment: ${error.message}`)
+      return
+    }
+
+    setPayments((prev) =>
+      prev.map((p) =>
+        p.id === editingPayment.id
+          ? {
+              ...p,
+              amount,
+              payment_method: method,
+              payment_type: type,
+              paid_at: paidAt,
+              month_covered: monthCovered || undefined,
+              notes,
+            }
+          : p
+      )
+    )
+    setEditingPayment(null)
+    flash('Payment record updated successfully.')
+  }
+
+  // Delete / Soft-Delete Payment (with 5-second Undo Toast)
+  async function handleDeletePayment(paymentId: string, amount: number, tenantName: string) {
+    if (!userId) return
+    const target = payments.find((p) => p.id === paymentId)
+    if (!target) return
+
     setConfirmDialog({
       open: true,
-      title: `Reverse Payment #${paymentId.slice(0, 8).toUpperCase()}?`,
-      description: `Are you sure you want to reverse the payment of ${currency(amount)} recorded for ${tenantName}? This action will adjust your monthly collection total.`,
-      actionLabel: 'Reverse Payment',
+      title: `Delete Payment #${paymentId.slice(0, 8).toUpperCase()}?`,
+      description: `Remove payment of ${currency(amount)} for ${tenantName}? The entry will be moved to Deleted Records. You will have 5 seconds to undo immediately, and can restore it anytime.`,
+      actionLabel: 'Delete Payment',
       isDestructive: true,
       onConfirm: async () => {
-        const { error } = await supabase.from('payments').delete().eq('id', paymentId).eq('owner_id', userId)
+        const now = new Date().toISOString()
+        const { error } = await supabase
+          .from('payments')
+          .update({ deleted_at: now, updated_at: now })
+          .eq('id', paymentId)
+          .eq('owner_id', userId)
+
         if (error) {
-          flash('Could not reverse payment record.')
+          flash(`Could not delete payment: ${error.message}`)
           return
         }
 
+        const softDeletedPayment = { ...target, deleted_at: now }
         setPayments((prev) => prev.filter((p) => p.id !== paymentId))
-        flash(`Payment of ${currency(amount)} reversed successfully.`)
+        setDeletedPayments((prev) => [softDeletedPayment, ...prev])
+
+        // 5-second Undo Timer
+        if (undoItem?.intervalId) clearInterval(undoItem.intervalId)
+        let countdown = 5
+        const intervalId = setInterval(() => {
+          countdown -= 1
+          if (countdown <= 0) {
+            clearInterval(intervalId)
+            setUndoItem(null)
+          } else {
+            setUndoItem((curr) => (curr ? { ...curr, secondsLeft: countdown } : null))
+          }
+        }, 1000)
+
+        setUndoItem({
+          id: paymentId,
+          type: 'payment',
+          name: `${tenantName} (${currency(amount)})`,
+          secondsLeft: 5,
+          intervalId,
+        })
+
+        flash(`Payment of ${currency(amount)} moved to Deleted Records.`)
       },
     })
+  }
+
+  // Restore Payment
+  async function handleRestorePayment(paymentId: string) {
+    if (!userId) return
+    const target = deletedPayments.find((p) => p.id === paymentId)
+    if (!target) return
+
+    const { error } = await supabase
+      .from('payments')
+      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .eq('id', paymentId)
+      .eq('owner_id', userId)
+
+    if (error) {
+      flash(`Could not restore payment: ${error.message}`)
+      return
+    }
+
+    const restored = { ...target, deleted_at: null }
+    setDeletedPayments((prev) => prev.filter((p) => p.id !== paymentId))
+    setPayments((prev) => [restored, ...prev])
+    flash(`Payment of ${currency(target.amount)} restored successfully.`)
+  }
+
+  // Execute Immediate Undo
+  function handleExecuteUndo() {
+    if (!undoItem) return
+    if (undoItem.intervalId) clearInterval(undoItem.intervalId)
+    if (undoItem.type === 'payment') {
+      void handleRestorePayment(undoItem.id)
+    } else if (undoItem.type === 'tenant') {
+      void handleRestoreTenant(undoItem.id)
+    }
+    setUndoItem(null)
   }
 
   // Add Expense
@@ -1611,6 +1859,9 @@ export default function DashboardPage() {
               </span>
             </div>
 
+            {/* Bilingual Language Switcher */}
+            <LocaleSwitcher />
+
             {/* Dynamic Multi-Module Search Input */}
             <div className="relative flex items-center gap-2 rounded-lg border border-[#e8dfd4] bg-[#faf7f2] px-3 py-2 text-xs text-[#74798a]">
               <Search className="size-3.5 text-[#9a7651]" />
@@ -1726,6 +1977,8 @@ export default function DashboardPage() {
             <TenantsTab
               tenants={filteredTenants}
               rooms={rooms}
+              property={property}
+              locale={locale}
               onAddTenant={() => {
                 setTenantFormRoomId(rooms[0]?.id || 'unassigned')
                 setTenantFormRent(rooms[0]?.base_rent || 0)
@@ -1748,6 +2001,7 @@ export default function DashboardPage() {
             <PaymentsTab
               payments={filteredPayments}
               tenants={tenants}
+              locale={locale}
               onRecordPayment={() => {
                 if (tenants.length) {
                   setPaymentFormTenantId(tenants[0].id)
@@ -1756,7 +2010,8 @@ export default function DashboardPage() {
                 setShowPaymentModal(true)
               }}
               onViewReceipt={(p: any) => setSelectedReceipt(p)}
-              onReversePayment={handleReversePayment}
+              onEditPayment={(p: PaymentRecord) => setEditingPayment(p)}
+              onDeletePayment={handleDeletePayment}
               searchQuery={q}
               onClearSearch={() => setSearch('')}
             />
@@ -1814,6 +2069,16 @@ export default function DashboardPage() {
               expensesMonth={totalExpensesMonth}
               rentPending={totalRentPending}
               electricityPending={totalElectricityPending}
+            />
+          )}
+
+          {active === 'Deleted Records' && (
+            <DeletedRecordsTab
+              deletedPayments={deletedPayments}
+              deletedTenants={deletedTenants}
+              locale={locale}
+              onRestorePayment={handleRestorePayment}
+              onRestoreTenant={handleRestoreTenant}
             />
           )}
 
@@ -2055,7 +2320,7 @@ export default function DashboardPage() {
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Field
                 label="Monthly Rent (₹)"
                 name="rent"
@@ -2065,6 +2330,13 @@ export default function DashboardPage() {
                 required
               />
               <Field label="Security Deposit (₹)" name="deposit" type="number" placeholder="10000" />
+              <Field
+                label="Rent Due Day (1-31)"
+                name="rent_due_day"
+                type="number"
+                defaultValue={5}
+                required
+              />
             </div>
 
             <Field
@@ -2132,9 +2404,16 @@ export default function DashboardPage() {
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Field label="Monthly Rent (₹)" name="rent" type="number" defaultValue={editingTenant.rent} required />
               <Field label="Security Deposit (₹)" name="deposit" type="number" defaultValue={editingTenant.deposit} />
+              <Field
+                label="Rent Due Day (1-31)"
+                name="rent_due_day"
+                type="number"
+                defaultValue={editingTenant.rent_due_day || 5}
+                required
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -2187,7 +2466,7 @@ export default function DashboardPage() {
                   .filter((t) => t.status !== 'Vacated')
                   .map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.name} (Room {t.room}) — Due: {currency(t.rent)}
+                      {t.name} (Room {t.room}) — Due: {currency(t.rent)} (Due Day: {t.rent_due_day || 5}th)
                     </option>
                   ))}
               </select>
@@ -2213,20 +2492,29 @@ export default function DashboardPage() {
               </label>
             </div>
 
-            <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-              Payment Type
-              <select
-                name="payment_type"
-                value={paymentFormType}
-                onChange={(e) => setPaymentFormType(e.target.value)}
-                className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
-              >
-                <option value="rent">Monthly Rent</option>
-                <option value="deposit">Security Deposit</option>
-                <option value="electricity">Electricity Charges</option>
-                <option value="maintenance">Maintenance</option>
-              </select>
-            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                Payment Type
+                <select
+                  name="payment_type"
+                  value={paymentFormType}
+                  onChange={(e) => setPaymentFormType(e.target.value)}
+                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                >
+                  <option value="rent">Monthly Rent</option>
+                  <option value="deposit">Security Deposit</option>
+                  <option value="electricity">Electricity Charges</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </label>
+
+              <Field
+                label="Month Covered"
+                name="month_covered"
+                defaultValue={new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date())}
+                placeholder="e.g. October 2026"
+              />
+            </div>
 
             <Field
               label="Notes / Reference"
@@ -2466,11 +2754,20 @@ export default function DashboardPage() {
                 <p className="text-[#999daa]">Resident</p>
                 <p className="font-semibold text-[#44485a]">{selectedReceipt.tenant_name}</p>
                 <p className="text-[#74798a]">Room: {selectedReceipt.room_number}</p>
+                {selectedReceipt.month_covered && (
+                  <p className="text-[11px] text-[#9a7651] font-medium mt-1">Period: {selectedReceipt.month_covered}</p>
+                )}
               </div>
               <div>
-                <p className="text-[#999daa]">Payment Date</p>
-                <p className="font-semibold text-[#44485a]">{new Date(selectedReceipt.paid_at).toLocaleDateString('en-IN')}</p>
+                <p className="text-[#999daa]">Payment Date & Time</p>
+                <p className="font-semibold text-[#44485a]">{formatPaymentTimestamp(selectedReceipt.paid_at, 'Asia/Kolkata', locale)}</p>
                 <p className="text-[#74798a]">Mode: {selectedReceipt.payment_method.toUpperCase()}</p>
+                {(() => {
+                  const rTenant = tenants.find((t) => t.id === selectedReceipt.tenant_id)
+                  return rTenant ? (
+                    <p className="text-[11px] text-[#74798a] mt-1">Due Day: {rTenant.rent_due_day || 5}th of month</p>
+                  ) : null
+                })()}
               </div>
             </div>
 
@@ -2484,14 +2781,27 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="mt-6 flex items-center justify-between pt-2">
-              <button
-                onClick={() => window.print()}
-                className="flex items-center gap-1.5 rounded-lg border border-[#e8dfd4] bg-white px-3 py-1.5 text-xs font-semibold text-[#676b7d] hover:bg-[#fbf8f3]"
-              >
-                <Printer className="size-3.5" />
-                Print Receipt
-              </button>
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-2 pt-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 rounded-lg border border-[#e8dfd4] bg-white px-3 py-1.5 text-xs font-semibold text-[#676b7d] hover:bg-[#fbf8f3]"
+                >
+                  <Printer className="size-3.5" />
+                  Print Receipt
+                </button>
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    `*StayNest Official Rent Receipt*\nReceipt: REC-${selectedReceipt.id.slice(0, 8).toUpperCase()}\nProperty: ${property.name || 'StayNest'}\nResident: ${selectedReceipt.tenant_name} (Room ${selectedReceipt.room_number})\nAmount: ${currency(selectedReceipt.amount)}\nType: ${selectedReceipt.payment_type.toUpperCase()}\nMethod: ${selectedReceipt.payment_method.toUpperCase()}\nPaid At: ${formatPaymentTimestamp(selectedReceipt.paid_at, 'Asia/Kolkata', locale)}\n${selectedReceipt.month_covered ? `Period: ${selectedReceipt.month_covered}\n` : ''}Status: CONFIRMED & PAID`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 rounded-lg border border-[#25D366]/40 bg-[#25D366]/10 px-3 py-1.5 text-xs font-semibold text-[#1e7e34] hover:bg-[#25D366]/20"
+                >
+                  <MessageCircle className="size-3.5 text-[#25D366]" />
+                  Share WhatsApp
+                </a>
+              </div>
               <button
                 onClick={() => setSelectedReceipt(null)}
                 className="rounded-lg bg-[#9a7651] px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
@@ -2503,47 +2813,223 @@ export default function DashboardPage() {
         </Modal>
       )}
 
+      {/* Edit Payment Modal */}
+      {editingPayment && (
+        <Modal title={`Edit Payment REC-${editingPayment.id.slice(0, 8).toUpperCase()}`} onClose={() => setEditingPayment(null)}>
+          <form onSubmit={handleUpdatePayment} className="flex flex-col gap-4">
+            <div className="rounded-xl bg-[#faf7f2] p-3 text-xs text-[#555a6c]">
+              <span className="font-semibold text-[#3d3934]">Resident:</span> {editingPayment.tenant_name} (Room {editingPayment.room_number})
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Amount (₹)"
+                name="amount"
+                type="number"
+                defaultValue={editingPayment.amount}
+                required
+              />
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                Payment Method
+                <select
+                  name="payment_method"
+                  defaultValue={editingPayment.payment_method}
+                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                >
+                  <option value="upi">UPI / GPay / PhonePe</option>
+                  <option value="cash">Cash</option>
+                  <option value="bank_transfer">Bank Transfer / NEFT</option>
+                  <option value="card">Debit / Credit Card</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                Payment Type
+                <select
+                  name="payment_type"
+                  defaultValue={editingPayment.payment_type}
+                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                >
+                  <option value="rent">Monthly Rent</option>
+                  <option value="deposit">Security Deposit</option>
+                  <option value="electricity">Electricity Charges</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </label>
+
+              <Field
+                label="Month Covered"
+                name="month_covered"
+                defaultValue={editingPayment.month_covered || ''}
+                placeholder="e.g. October 2026"
+              />
+            </div>
+
+            <Field
+              label="Payment Date & Time (ISO or YYYY-MM-DDTHH:MM)"
+              name="paid_at"
+              defaultValue={editingPayment.paid_at ? new Date(editingPayment.paid_at).toISOString().slice(0, 16) : ''}
+              required
+            />
+
+            <Field
+              label="Notes / Reference"
+              name="notes"
+              defaultValue={editingPayment.notes || ''}
+              placeholder="e.g. UTR / Transaction ID"
+            />
+
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingPayment(null)}
+                className="rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="rounded-xl bg-[#9a7651] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+              >
+                Save Payment Changes
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {/* 16. Subscription / Pricing Modal */}
       {showPricingModal && (
         <Modal title="StayNest Subscription Plans" onClose={() => setShowPricingModal(false)}>
           <div className="space-y-4">
-            <p className="text-xs text-[#74798a]">
-              Choose the tier that best matches your PG scale. All plans include automated rent receipts, tenant isolation, and electricity calculations.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <p className="text-xs text-[#74798a]">
+                Choose the plan that fits your PG scale. Save with annual billing or switch anytime.
+              </p>
+              {/* Billing Cycle Toggle - Yearly as Default */}
+              <div className="inline-flex items-center self-start sm:self-auto rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setDashboardBillingCycle('yearly')}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all ${
+                    dashboardBillingCycle === 'yearly'
+                      ? 'bg-[#9a7651] text-white shadow-xs'
+                      : 'text-[#676b7d] hover:text-[#3d3934]'
+                  }`}
+                >
+                  Yearly
+                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${
+                    dashboardBillingCycle === 'yearly' ? 'bg-[#5f442b] text-[#f7d8ba]' : 'bg-[#eaf5ea] text-[#2e7d32]'
+                  }`}>
+                    Save {ANNUAL_SAVINGS_PERCENT}%
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDashboardBillingCycle('monthly')}
+                  className={`rounded-lg px-3 py-1.5 font-medium transition-all ${
+                    dashboardBillingCycle === 'monthly'
+                      ? 'bg-[#9a7651] text-white shadow-xs'
+                      : 'text-[#676b7d] hover:text-[#3d3934]'
+                  }`}
+                >
+                  Monthly
+                </button>
+              </div>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-5">
-                <h4 className="font-bold text-sm">Starter Plan</h4>
-                <p className="text-2xl font-bold mt-1 text-[#9a7651]">₹499<span className="text-xs font-normal text-[#85899a]">/month</span></p>
+                <h4 className="font-bold text-sm">7-Day Free Trial</h4>
+                <p className="text-2xl font-bold mt-1 text-[#9a7651]">
+                  ₹0<span className="text-xs font-normal text-[#85899a]"> / 7 days</span>
+                </p>
+                <p className="text-[11px] text-[#85899a] mt-0.5">No credit card required</p>
                 <ul className="mt-3 space-y-1.5 text-xs text-[#676b7d]">
-                  <li>✓ Up to 20 Tenants</li>
-                  <li>✓ Unlimited Rooms & Beds</li>
-                  <li>✓ WhatsApp Receipts</li>
+                  <li>✓ Up to 10 Rooms & Beds</li>
+                  <li>✓ Digital Rent Receipts</li>
+                  <li>✓ WhatsApp Reminders</li>
+                  <li>✓ Electricity Meter Logger</li>
                 </ul>
               </div>
-              <div className="rounded-2xl border-2 border-[#9a7651] bg-[#faf7f2] p-5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#9a7651]">Recommended</span>
-                <h4 className="font-bold text-sm mt-1">Growth Pro</h4>
-                <p className="text-2xl font-bold mt-1 text-[#9a7651]">₹999<span className="text-xs font-normal text-[#85899a]">/month</span></p>
+
+              <div className="rounded-2xl border-2 border-[#9a7651] bg-[#faf7f2] p-5 relative">
+                <div className="absolute top-4 right-4">
+                  <span className="rounded-full bg-[#9a7651] px-2.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
+                    Recommended
+                  </span>
+                </div>
+                <h4 className="font-bold text-sm">Growth Pro</h4>
+                {dashboardBillingCycle === 'yearly' ? (
+                  <div>
+                    <p className="text-2xl font-bold mt-1 text-[#9a7651]">
+                      {formatINR(PRICING_CONFIG.yearlyRate)}
+                      <span className="text-xs font-normal text-[#85899a]"> / year</span>
+                    </p>
+                    <p className="text-[11px] font-semibold text-[#2e7d32] mt-0.5">
+                      Save ₹{ANNUAL_SAVINGS_AMOUNT.toLocaleString('en-IN')}/yr (Effective ₹{YEARLY_MONTHLY_EQUIVALENT.toLocaleString('en-IN')}/mo)
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-2xl font-bold mt-1 text-[#9a7651]">
+                      {formatINR(PRICING_CONFIG.monthlyRate)}
+                      <span className="text-xs font-normal text-[#85899a]"> / month</span>
+                    </p>
+                    <p className="text-[11px] text-[#85899a] mt-0.5">Billed monthly</p>
+                  </div>
+                )}
                 <ul className="mt-3 space-y-1.5 text-xs text-[#676b7d]">
-                  <li>✓ Unlimited Tenants</li>
-                  <li>✓ Electricity Meter Logger</li>
-                  <li>✓ Financial Export & Reports</li>
+                  <li>✓ Unlimited Rooms, Beds & Residents</li>
+                  <li>✓ Full Owner Ledger & Soft Deletes</li>
+                  <li>✓ 1-Click WhatsApp & SMS Reminders</li>
+                  <li>✓ Real-Time Overdue Status Badges</li>
+                  <li>✓ Priority Support: {SUPPORT_EMAIL}</li>
                 </ul>
               </div>
             </div>
-            <div className="pt-2 text-right">
+
+            <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <a
+                href={getMailtoSupport('Subscription Inquiry')}
+                className="text-xs font-medium text-[#9a7651] hover:underline"
+              >
+                Questions? Email {SUPPORT_EMAIL}
+              </a>
               <button
                 onClick={() => {
                   setShowPricingModal(false)
-                  flash('Subscription checkout gateway will open.')
+                  flash(`Plan upgrade to Growth Pro (${dashboardBillingCycle}) selected. Payment checkout gateway connecting...`)
                 }}
-                className="rounded-xl bg-[#9a7651] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+                className="rounded-xl bg-[#9a7651] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
               >
-                Select Growth Pro
+                Continue with Growth Pro ({dashboardBillingCycle === 'yearly' ? `${formatINR(PRICING_CONFIG.yearlyRate)}/yr` : `${formatINR(PRICING_CONFIG.monthlyRate)}/mo`})
               </button>
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Floating 5-Second Undo Toast */}
+      {undoItem && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-2xl border border-[#c29668] bg-[#2e2318] px-5 py-3 text-xs text-white shadow-2xl animate-in slide-in-from-bottom-3">
+          <AlertTriangle className="size-4 text-[#e8b584] animate-pulse" />
+          <div>
+            <p className="font-semibold text-white">
+              {undoItem.type === 'payment' ? 'Payment entry deleted' : 'Resident record deleted'}
+            </p>
+            <p className="text-[11px] text-[#dec2a5] truncate max-w-[200px]">{undoItem.name}</p>
+          </div>
+          <button
+            onClick={handleExecuteUndo}
+            className="flex items-center gap-1.5 rounded-xl bg-[#9a7651] px-3.5 py-1.5 text-xs font-bold text-white shadow hover:bg-[#b58c64] transition-colors"
+          >
+            <Undo2 className="size-3.5" />
+            Undo ({undoItem.secondsLeft}s)
+          </button>
+        </div>
       )}
     </div>
   )
@@ -2946,6 +3432,8 @@ function RoomsTab({
 function TenantsTab({
   tenants,
   rooms,
+  property,
+  locale = 'en',
   onAddTenant,
   onEditTenant,
   onVacateTenant,
@@ -2954,27 +3442,97 @@ function TenantsTab({
   searchQuery,
   onClearSearch,
 }: any) {
+  const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'due' | 'overdue'>('all')
+
+  // Calculate live due statuses for all tenants
+  const tenantStatuses = useMemo(() => {
+    return tenants.map((t: Tenant) => {
+      const dueInfo = calculateRentDueStatus(t.rent_due_day || 5, t.status === 'Paid')
+      return { tenant: t, dueInfo }
+    })
+  }, [tenants])
+
+  const paidCount = useMemo(() => tenantStatuses.filter((item: any) => item.dueInfo.status === 'paid').length, [tenantStatuses])
+  const dueCount = useMemo(() => tenantStatuses.filter((item: any) => item.dueInfo.status === 'due_soon' || item.dueInfo.status === 'due_today').length, [tenantStatuses])
+  const overdueCount = useMemo(() => tenantStatuses.filter((item: any) => item.dueInfo.status === 'overdue').length, [tenantStatuses])
+
+  const displayedTenants = useMemo(() => {
+    if (statusFilter === 'paid') return tenantStatuses.filter((item: any) => item.dueInfo.status === 'paid')
+    if (statusFilter === 'due') return tenantStatuses.filter((item: any) => item.dueInfo.status === 'due_soon' || item.dueInfo.status === 'due_today')
+    if (statusFilter === 'overdue') return tenantStatuses.filter((item: any) => item.dueInfo.status === 'overdue')
+    return tenantStatuses
+  }, [tenantStatuses, statusFilter])
+
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight">Tenants & Residents</h2>
-          <p className="text-xs text-[#85899a]">Active resident directory, room assignments, and rent status.</p>
+          <p className="text-xs text-[#85899a]">Active resident directory, room assignments, due dates, and WhatsApp reminders.</p>
         </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onAddTenant}
+            className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          >
+            <Plus className="size-4" /> Onboard Resident
+          </button>
+        </div>
+      </div>
+
+      {/* Due Status Quick Filter Badges */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <button
-          onClick={onAddTenant}
-          className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          onClick={() => setStatusFilter('all')}
+          className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+            statusFilter === 'all'
+              ? 'bg-[#9a7651] text-white shadow-xs'
+              : 'border border-[#e8dfd4] bg-white text-[#676b7d] hover:bg-[#faf7f2]'
+          }`}
         >
-          <Plus className="size-4" /> Onboard Resident
+          All Residents ({tenants.length})
+        </button>
+        <button
+          onClick={() => setStatusFilter('paid')}
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+            statusFilter === 'paid'
+              ? 'bg-[#2e7d32] text-white shadow-xs'
+              : 'border border-[#c5e6c7] bg-[#eaf5ea] text-[#2e7d32] hover:bg-[#d8eed9]'
+          }`}
+        >
+          <CheckCircle2 className="size-3.5" />
+          Paid ({paidCount})
+        </button>
+        <button
+          onClick={() => setStatusFilter('due')}
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+            statusFilter === 'due'
+              ? 'bg-[#b46b1a] text-white shadow-xs'
+              : 'border border-[#ffdcb0] bg-[#fff4e5] text-[#b46b1a] hover:bg-[#ffe8cc]'
+          }`}
+        >
+          <Clock className="size-3.5" />
+          Due Soon ({dueCount})
+        </button>
+        <button
+          onClick={() => setStatusFilter('overdue')}
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+            statusFilter === 'overdue'
+              ? 'bg-[#b95c3c] text-white shadow-xs'
+              : 'border border-[#ffc9c1] bg-[#ffebe8] text-[#b95c3c] hover:bg-[#ffd7d2]'
+          }`}
+        >
+          <AlertTriangle className="size-3.5" />
+          Overdue Rent ({overdueCount})
         </button>
       </div>
 
-      {tenants.length === 0 ? (
+      {displayedTenants.length === 0 ? (
         searchQuery ? (
           <EmptySearchState query={searchQuery} onClear={onClearSearch} />
         ) : (
           <EmptyState
-            title="No residents registered yet"
+            title={statusFilter === 'all' ? 'No residents registered yet' : `No residents matching filter "${statusFilter}"`}
             description="Add resident profiles, assign available rooms and beds, and record monthly terms."
             action={onAddTenant}
             actionLabel="Onboard Resident"
@@ -2983,76 +3541,105 @@ function TenantsTab({
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[#e9ebf0] bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-xs">
+            <table className="w-full min-w-[860px] text-left text-xs">
               <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
                 <tr>
                   <th className="px-5 py-3.5">Resident</th>
                   <th className="px-5 py-3.5">Contact</th>
                   <th className="px-5 py-3.5">Room & Bed</th>
                   <th className="px-5 py-3.5">Monthly Rent</th>
-                  <th className="px-5 py-3.5">Status</th>
+                  <th className="px-5 py-3.5">Due Schedule</th>
+                  <th className="px-5 py-3.5">Rent Status</th>
                   <th className="px-5 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#eee6dc]">
-                {tenants.map((t: Tenant) => (
-                  <tr key={t.id} className="hover:bg-[#fbf8f3]">
-                    <td className="px-5 py-4 font-bold text-[#3d3934]">{t.name}</td>
-                    <td className="px-5 py-4 text-[#676b7d]">{t.phone || '—'}</td>
-                    <td className="px-5 py-4 text-[#676b7d]">
-                      Room {t.room} {t.bed_number ? `· Bed ${t.bed_number}` : ''}
-                    </td>
-                    <td className="px-5 py-4 font-semibold text-[#866342]">{currency(t.rent)}</td>
-                    <td className="px-5 py-4">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                          t.status === 'Paid'
-                            ? 'bg-[#e7f7f0] text-[#328d68]'
-                            : t.status === 'Vacated'
-                            ? 'bg-[#f4ede3] text-[#74798a]'
-                            : 'bg-[#fff7e7] text-[#c58a35]'
-                        }`}
-                      >
-                        {t.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {t.status !== 'Paid' && t.status !== 'Vacated' && (
-                          <button
-                            onClick={() => onRecordPayment(t)}
-                            className="font-semibold text-[#9a7651] hover:underline"
-                          >
-                            Collect
-                          </button>
-                        )}
-                        <button
-                          onClick={() => onEditTenant(t)}
-                          className="rounded-lg p-1 text-[#a0a3af] hover:text-[#9a7651]"
-                          title="Edit details"
+                {displayedTenants.map(({ tenant: t, dueInfo }: any) => {
+                  const whatsappUrl = generateWhatsAppReminder({
+                    tenantName: t.name,
+                    phone: t.phone,
+                    amount: t.rent,
+                    dueDay: t.rent_due_day || 5,
+                    propertyName: property?.name || 'StayNest PG',
+                    locale,
+                  })
+
+                  return (
+                    <tr key={t.id} className="hover:bg-[#fbf8f3]">
+                      <td className="px-5 py-4 font-bold text-[#3d3934]">{t.name}</td>
+                      <td className="px-5 py-4 text-[#676b7d]">{t.phone || '—'}</td>
+                      <td className="px-5 py-4 text-[#676b7d]">
+                        Room {t.room} {t.bed_number ? `· Bed ${t.bed_number}` : ''}
+                      </td>
+                      <td className="px-5 py-4 font-semibold text-[#866342]">{currency(t.rent)}</td>
+                      <td className="px-5 py-4 text-[#74798a]">
+                        <span className="font-medium text-[#44485a]">
+                          {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold ${dueInfo.badgeColor}`}
                         >
-                          <Pencil className="size-3.5" />
-                        </button>
-                        {t.status !== 'Vacated' && (
-                          <button
-                            onClick={() => onVacateTenant(t.id, t.name)}
-                            className="rounded-lg p-1 text-[#a0a3af] hover:text-[#b46b1a]"
-                            title="Mark as vacated"
+                          {dueInfo.status === 'overdue' && <AlertTriangle className="size-3" />}
+                          {dueInfo.status === 'paid' && <Check className="size-3" />}
+                          {dueInfo.status === 'due_soon' && <Clock className="size-3" />}
+                          {locale === 'hi' ? dueInfo.labelHi : dueInfo.labelEn}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* 1-Click WhatsApp Reminder */}
+                          <a
+                            href={whatsappUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 rounded-lg border border-[#25D366]/40 bg-[#25D366]/10 px-2 py-1 text-[11px] font-semibold text-[#1e7e34] hover:bg-[#25D366]/20 transition-colors"
+                            title="Send WhatsApp payment reminder"
                           >
-                            <UserMinus className="size-3.5" />
+                            <MessageCircle className="size-3.5 text-[#25D366]" />
+                            <span className="hidden md:inline">Remind</span>
+                          </a>
+
+                          {t.status !== 'Paid' && t.status !== 'Vacated' && (
+                            <button
+                              onClick={() => onRecordPayment(t)}
+                              className="rounded-lg bg-[#9a7651]/10 px-2 py-1 text-[11px] font-semibold text-[#9a7651] hover:bg-[#9a7651]/20 transition-colors"
+                            >
+                              Collect
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => onEditTenant(t)}
+                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#9a7651] hover:bg-[#faf7f2]"
+                            title="Edit resident details"
+                          >
+                            <Pencil className="size-3.5" />
                           </button>
-                        )}
-                        <button
-                          onClick={() => onDeleteTenant(t.id, t.name)}
-                          className="rounded-lg p-1 text-[#a0a3af] hover:text-[#b95c3c]"
-                          title="Delete tenant"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+
+                          {t.status !== 'Vacated' && (
+                            <button
+                              onClick={() => onVacateTenant(t.id, t.name)}
+                              className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b46b1a] hover:bg-[#faf7f2]"
+                              title="Mark as vacated"
+                            >
+                              <UserMinus className="size-3.5" />
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => onDeleteTenant(t.id, t.name)}
+                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5]"
+                            title="Delete resident (Soft-delete with 5s undo)"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -3062,13 +3649,23 @@ function TenantsTab({
   )
 }
 
-function PaymentsTab({ payments, tenants, onRecordPayment, onViewReceipt, onReversePayment, searchQuery, onClearSearch }: any) {
+function PaymentsTab({
+  payments,
+  tenants,
+  locale = 'en',
+  onRecordPayment,
+  onViewReceipt,
+  onEditPayment,
+  onDeletePayment,
+  searchQuery,
+  onClearSearch,
+}: any) {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight">Rent & Payments Ledger</h2>
-          <p className="text-xs text-[#85899a]">Confirmed collections, adjustments, and printable receipts.</p>
+          <p className="text-xs text-[#85899a]">Confirmed collections, exact timestamps in owner timezone, and owner controls.</p>
         </div>
         <button
           onClick={onRecordPayment}
@@ -3092,14 +3689,14 @@ function PaymentsTab({ payments, tenants, onRecordPayment, onViewReceipt, onReve
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[#e9ebf0] bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px] text-left text-xs">
+            <table className="w-full min-w-[760px] text-left text-xs">
               <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
                 <tr>
                   <th className="px-5 py-3.5">Receipt #</th>
                   <th className="px-5 py-3.5">Resident</th>
-                  <th className="px-5 py-3.5">Type</th>
+                  <th className="px-5 py-3.5">Type & Period</th>
                   <th className="px-5 py-3.5">Method</th>
-                  <th className="px-5 py-3.5">Date</th>
+                  <th className="px-5 py-3.5">Payment Date & Exact Time (IST)</th>
                   <th className="px-5 py-3.5">Amount</th>
                   <th className="px-5 py-3.5 text-right">Actions</th>
                 </tr>
@@ -3110,22 +3707,44 @@ function PaymentsTab({ payments, tenants, onRecordPayment, onViewReceipt, onReve
                     <td className="px-5 py-4 font-mono font-bold text-[#676b7d]">
                       REC-{p.id.slice(0, 8).toUpperCase()}
                     </td>
-                    <td className="px-5 py-4 font-semibold text-[#3d3934]">{p.tenant_name}</td>
-                    <td className="px-5 py-4 uppercase text-[10px] text-[#85899a]">{p.payment_type}</td>
+                    <td className="px-5 py-4">
+                      <p className="font-semibold text-[#3d3934]">{p.tenant_name}</p>
+                      <p className="text-[11px] text-[#85899a]">Room {p.room_number}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className="uppercase text-[10px] font-bold text-[#85899a] bg-[#faf7f2] px-2 py-0.5 rounded border border-[#e8dfd4]">
+                        {p.payment_type}
+                      </span>
+                      {p.month_covered && (
+                        <p className="mt-1 text-[11px] font-medium text-[#9a7651]">{p.month_covered}</p>
+                      )}
+                    </td>
                     <td className="px-5 py-4 uppercase text-[10px] text-[#85899a]">{p.payment_method}</td>
-                    <td className="px-5 py-4 text-[#676b7d]">{new Date(p.paid_at).toLocaleDateString('en-IN')}</td>
-                    <td className="px-5 py-4 font-bold text-[#328d68]">{currency(p.amount)}</td>
+                    <td className="px-5 py-4 text-[#555a6c] font-medium">
+                      {formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}
+                    </td>
+                    <td className="px-5 py-4 font-bold text-[#328d68] text-sm">{currency(p.amount)}</td>
                     <td className="px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => onViewReceipt(p)} className="font-semibold text-[#9a7651] hover:underline">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => onViewReceipt(p)}
+                          className="rounded-lg border border-[#e8dfd4] px-2.5 py-1 text-xs font-semibold text-[#9a7651] hover:bg-[#faf7f2]"
+                        >
                           Receipt
                         </button>
                         <button
-                          onClick={() => onReversePayment(p.id, p.amount, p.tenant_name)}
-                          className="rounded-lg p-1 text-[#a0a3af] hover:text-[#b95c3c]"
-                          title="Reverse payment entry"
+                          onClick={() => onEditPayment(p)}
+                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#9a7651] hover:bg-[#faf7f2]"
+                          title="Edit payment entry"
                         >
-                          <RotateCcw className="size-3.5" />
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onDeletePayment(p.id, p.amount, p.tenant_name)}
+                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5]"
+                          title="Delete payment (Soft-delete with 5s undo)"
+                        >
+                          <Trash2 className="size-3.5" />
                         </button>
                       </div>
                     </td>
@@ -3135,6 +3754,141 @@ function PaymentsTab({ payments, tenants, onRecordPayment, onViewReceipt, onReve
             </table>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function DeletedRecordsTab({
+  deletedPayments,
+  deletedTenants,
+  locale = 'en',
+  onRestorePayment,
+  onRestoreTenant,
+}: {
+  deletedPayments: PaymentRecord[]
+  deletedTenants: Tenant[]
+  locale?: string
+  onRestorePayment: (id: string) => Promise<void>
+  onRestoreTenant: (id: string) => Promise<void>
+}) {
+  const totalDeleted = deletedPayments.length + deletedTenants.length
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-xl font-bold tracking-tight">Deleted Records & Audit Recovery</h2>
+        <p className="text-xs text-[#85899a]">
+          Records are soft-deleted for financial compliance and accounting integrity. You can restore any accidentally deleted item here anytime.
+        </p>
+      </div>
+
+      {totalDeleted === 0 ? (
+        <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-8 text-center">
+          <ShieldCheck className="mx-auto size-8 text-[#2e7d32]" />
+          <h4 className="mt-2 text-sm font-bold text-[#3d3934]">No Deleted Records</h4>
+          <p className="mt-1 text-xs text-[#74798a]">Your ledger is clean. Any payments or residents deleted in the future can be restored here.</p>
+        </div>
+      ) : (
+        <>
+          {/* Deleted Payments Section */}
+          <section className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-[#3d3934]">Deleted Payment Entries ({deletedPayments.length})</h3>
+                <p className="text-xs text-[#85899a]">Soft-deleted payments excluded from monthly totals</p>
+              </div>
+            </div>
+
+            {deletedPayments.length === 0 ? (
+              <p className="text-xs text-[#999daa] italic">No deleted payment entries.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[700px] text-left text-xs">
+                  <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                    <tr>
+                      <th className="px-4 py-3">Receipt</th>
+                      <th className="px-4 py-3">Resident</th>
+                      <th className="px-4 py-3">Amount</th>
+                      <th className="px-4 py-3">Original Payment Date</th>
+                      <th className="px-4 py-3">Deleted At</th>
+                      <th className="px-4 py-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#eee6dc]">
+                    {deletedPayments.map((p) => (
+                      <tr key={p.id} className="hover:bg-[#fbf8f3]">
+                        <td className="px-4 py-3 font-mono font-bold text-[#676b7d]">REC-{p.id.slice(0, 8).toUpperCase()}</td>
+                        <td className="px-4 py-3 font-semibold text-[#3d3934]">{p.tenant_name}</td>
+                        <td className="px-4 py-3 font-bold text-[#866342]">{currency(p.amount)}</td>
+                        <td className="px-4 py-3 text-[#74798a]">{formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}</td>
+                        <td className="px-4 py-3 text-[#b95c3c]">{formatPaymentTimestamp(p.deleted_at, 'Asia/Kolkata', locale)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => onRestorePayment(p.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#c5e6c7] bg-[#eaf5ea] px-3 py-1 text-xs font-semibold text-[#2e7d32] hover:bg-[#d5edd7]"
+                          >
+                            <RotateCcw className="size-3" />
+                            Restore Payment
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* Deleted Tenants Section */}
+          <section className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-[#3d3934]">Deleted Resident Profiles ({deletedTenants.length})</h3>
+                <p className="text-xs text-[#85899a]">Soft-deleted residents and occupancy terms</p>
+              </div>
+            </div>
+
+            {deletedTenants.length === 0 ? (
+              <p className="text-xs text-[#999daa] italic">No deleted resident profiles.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[700px] text-left text-xs">
+                  <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                    <tr>
+                      <th className="px-4 py-3">Resident</th>
+                      <th className="px-4 py-3">Contact</th>
+                      <th className="px-4 py-3">Room</th>
+                      <th className="px-4 py-3">Monthly Rent</th>
+                      <th className="px-4 py-3">Deleted At</th>
+                      <th className="px-4 py-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#eee6dc]">
+                    {deletedTenants.map((t) => (
+                      <tr key={t.id} className="hover:bg-[#fbf8f3]">
+                        <td className="px-4 py-3 font-bold text-[#3d3934]">{t.name}</td>
+                        <td className="px-4 py-3 text-[#676b7d]">{t.phone || '—'}</td>
+                        <td className="px-4 py-3 text-[#676b7d]">Room {t.room}</td>
+                        <td className="px-4 py-3 font-semibold text-[#866342]">{currency(t.rent)}</td>
+                        <td className="px-4 py-3 text-[#b95c3c]">{formatPaymentTimestamp(t.deleted_at, 'Asia/Kolkata', locale)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => onRestoreTenant(t.id)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#c5e6c7] bg-[#eaf5ea] px-3 py-1 text-xs font-semibold text-[#2e7d32] hover:bg-[#d5edd7]"
+                          >
+                            <RotateCcw className="size-3" />
+                            Restore Resident
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
       )}
     </div>
   )
@@ -3547,6 +4301,28 @@ function SettingsTab({
           >
             Upgrade Plan
           </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-2.5 text-[#9a7651]">
+          <CircleHelp className="size-5" />
+          <h3 className="text-base font-bold text-[#3d3934]">Help & Dedicated Support</h3>
+        </div>
+        <p className="mt-1 text-xs text-[#85899a]">
+          Have questions or need technical help configuring your property? Our support team is ready to assist.
+        </p>
+        <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-4 text-xs">
+          <div>
+            <p className="font-semibold text-[#44485a]">Official Support Email</p>
+            <p className="font-mono text-[#9a7651]">{SUPPORT_EMAIL}</p>
+          </div>
+          <a
+            href={getMailtoSupport('StayNest Owner Support Request')}
+            className="inline-flex items-center justify-center rounded-lg bg-[#9a7651] px-4 py-2 text-xs font-semibold text-white hover:bg-[#866342] transition-colors"
+          >
+            Email Support
+          </a>
         </div>
       </div>
 

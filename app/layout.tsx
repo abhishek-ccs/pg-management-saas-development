@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import { Analytics } from '@vercel/analytics/next'
 import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner'
 import { StructuredData } from '@/components/seo/StructuredData'
+import { I18nProvider } from '@/lib/i18n'
 import './globals.css'
 
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staynest.in'
@@ -102,10 +103,12 @@ export default function RootLayout({
           Skip to main content
         </a>
 
-        {children}
+        <I18nProvider>
+          {children}
 
-        {/* GDPR & India DPDP Act 2023 Consent Management */}
-        <CookieConsentBanner />
+          {/* GDPR & India DPDP Act 2023 Consent Management */}
+          <CookieConsentBanner />
+        </I18nProvider>
 
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { logger } from '@/lib/logger'
+import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export default function GlobalError({
   error,
@@ -34,6 +35,15 @@ export default function GlobalError({
               Reload Application
             </button>
           </div>
+          <p className="mt-6 text-xs text-[#85899a]">
+            Need help? Contact{' '}
+            <a
+              href={getMailtoSupport('StayNest Critical Application Error')}
+              className="font-semibold text-[#9a7651] underline"
+            >
+              {SUPPORT_EMAIL}
+            </a>
+          </p>
         </main>
       </body>
     </html>

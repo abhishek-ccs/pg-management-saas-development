@@ -3,6 +3,7 @@ import { hiDictionary } from './dictionaries/hi'
 import type { Dictionary, SupportedCurrency, SupportedLocale } from './types'
 
 export * from './types'
+export * from './context'
 
 const dictionaries: Record<SupportedLocale, Dictionary> = {
   en: enDictionary,

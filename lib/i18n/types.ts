@@ -21,6 +21,20 @@ export interface Dictionary {
     overdue: string
     vacated: string
     required: string
+    undo: string
+    restored: string
+    close: string
+    view: string
+    download: string
+    share: string
+    filter: string
+    back: string
+    details: string
+    refresh: string
+    saving: string
+    deleting: string
+    success: string
+    error: string
   }
   nav: {
     overview: string
@@ -34,6 +48,8 @@ export interface Dictionary {
     reports: string
     settings: string
     signOut: string
+    deletedRecords: string
+    adminConsole: string
   }
   metrics: {
     monthlyRevenue: string
@@ -42,6 +58,116 @@ export interface Dictionary {
     occupiedBeds: string
     availableBeds: string
     activeTenants: string
+    electricityPending: string
+  }
+  landing: {
+    badge: string
+    heroTitle: string
+    heroTitleHighlight: string
+    heroSubtitle: string
+    startFreeTrial: string
+    goToDashboard: string
+    viewLiveDemo: string
+    signIn: string
+    featuresTitle: string
+    featuresSubtitle: string
+    pricingTitle: string
+    pricingSubtitle: string
+    pricingBadge: string
+    monthlyBilling: string
+    yearlyBilling: string
+    yearlySavingsBadge: string
+    perMonth: string
+    perYear: string
+    sevenDays: string
+    faqTitle: string
+    faqSubtitle: string
+    ctaTitle: string
+    ctaSubtitle: string
+    footerDesc: string
+    footerSupport: string
+    footerLegal: string
+  }
+  pricing: {
+    monthlyRateLabel: string
+    yearlyRateLabel: string
+    billedMonthly: string
+    billedAnnually: string
+    saveBanner: string
+    selectPlan: string
+    currentPlan: string
+    upgradeButton: string
+    trialHeader: string
+    trialRemaining: string
+    trialExpired: string
+  }
+  property: {
+    title: string
+    setupPrompt: string
+    editDetails: string
+    name: string
+    address: string
+    city: string
+    contactPhone: string
+    roomsCount: string
+    bedsCount: string
+    tenantsCount: string
+    deleteProperty: string
+    deleteWarning: string
+  }
+  rooms: {
+    title: string
+    addRoom: string
+    editRoom: string
+    roomNumber: string
+    floor: string
+    roomType: string
+    baseRent: string
+    bedsList: string
+    addBed: string
+    bedNumber: string
+    status: string
+    available: string
+    occupied: string
+    maintenance: string
+    deleteRoom: string
+    deleteBed: string
+  }
+  tenants: {
+    title: string
+    addTenant: string
+    editTenant: string
+    name: string
+    phone: string
+    room: string
+    bed: string
+    rent: string
+    deposit: string
+    joiningDate: string
+    dueDay: string
+    status: string
+    vacate: string
+    delete: string
+    sendReminder: string
+  }
+  payments: {
+    title: string
+    recordPayment: string
+    tenant: string
+    amount: string
+    date: string
+    paymentType: string
+    paymentMethod: string
+    notes: string
+    status: string
+    dueIn: string
+    overdueBy: string
+    overdueOverMonth: string
+    onTime: string
+    receipt: string
+    reverse: string
+    whatsappReminder: string
+    smsReminder: string
   }
   legal: {
     termsOfService: string

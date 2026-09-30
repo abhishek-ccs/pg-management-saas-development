@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Building2, ArrowLeft, ShieldCheck, Lock, Database, Server, Key } from 'lucide-react'
 import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
+import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export const metadata = {
   title: 'Security Architecture & Sub-processors | StayNest',
@@ -106,6 +107,20 @@ export default function SecurityPage() {
                 StayNest maintains a documented incident response runbook. In the unlikely event of a verified data breach impacting personal resident
                 or property records, affected customers and relevant supervisory authorities will be formally notified within 72 hours of verification
                 pursuant to GDPR and Section 8(6) of the India DPDP Act 2023.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-base font-bold text-[#2c2926]">4. Responsible Vulnerability Disclosure</h2>
+              <p className="mt-2">
+                If you discover a security vulnerability or suspect an incident, please report it immediately to our security response team at:{' '}
+                <a
+                  href={getMailtoSupport('Security Vulnerability Disclosure')}
+                  className="font-semibold text-[#9a7651] underline"
+                >
+                  {SUPPORT_EMAIL}
+                </a>
+                . We investigate all actionable reports promptly.
               </p>
             </section>
           </div>
