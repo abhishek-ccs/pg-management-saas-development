@@ -21,11 +21,52 @@ export async function getCurrentProfile() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { user: null, profile: null }
-  const { data: profile } = await supabase
+
+  // 1. Guaranteed baseline profile columns
+  const { data: baseProfile, error: baseError } = await supabase
     .from('profiles')
-    .select('id,email,full_name,role,status,must_change_password,mfa_enrolled,preferred_language')
+    .select('id, email, full_name, phone, role, status, created_at, updated_at')
     .eq('id', user.id)
     .maybeSingle()
+
+  if (baseError || !baseProfile) {
+    return { user, profile: null }
+  }
+
+  // 2. Resilient check for optional/extended security and preference columns
+  let mustChangePassword = false
+  let mfaEnrolled = false
+  let preferredLanguage = 'en'
+
+  try {
+    const { data: extProfile } = await supabase
+      .from('profiles')
+      .select('must_change_password, mfa_enrolled, preferred_language')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (extProfile) {
+      if (typeof extProfile.must_change_password === 'boolean') {
+        mustChangePassword = extProfile.must_change_password
+      }
+      if (typeof extProfile.mfa_enrolled === 'boolean') {
+        mfaEnrolled = extProfile.mfa_enrolled
+      }
+      if (extProfile.preferred_language) {
+        preferredLanguage = extProfile.preferred_language
+      }
+    }
+  } catch {
+    // Schema doesn't have extended columns yet - safe fallback
+  }
+
+  const profile = {
+    ...baseProfile,
+    must_change_password: mustChangePassword,
+    mfa_enrolled: mfaEnrolled,
+    preferred_language: preferredLanguage,
+  }
+
   return { user, profile }
 }
 
@@ -50,11 +91,16 @@ export async function createAdminClient() {
 }
 
 export async function writeAudit(action: string, targetType: string, targetId?: string, metadata: Record<string, unknown> = {}) {
-  const { user, profile } = await getCurrentProfile()
-  if (!user || !isSuperAdmin(profile)) return false
-  const admin = await createAdminClient()
-  await admin.from('platform_audit_logs').insert({ actor_id: user.id, action, target_type: targetType, target_id: targetId ?? null, metadata })
-  return true
+  try {
+    const { user, profile } = await getCurrentProfile()
+    if (!user || !isSuperAdmin(profile)) return false
+    const admin = await createAdminClient()
+    await admin.from('platform_audit_logs').insert({ actor_id: user.id, action, target_type: targetType, target_id: targetId ?? null, metadata })
+    return true
+  } catch (err) {
+    console.warn('writeAudit error:', err)
+    return false
+  }
 }
 
 export async function ensureSuperAdmin(email: string) {

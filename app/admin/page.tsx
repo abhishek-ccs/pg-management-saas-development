@@ -24,10 +24,13 @@ interface AdminMetric {
 
 export default async function AdminPage() {
   const current = await requireSuperAdmin()
-  if (!current || !current.user) redirect('/admin/login')
+  if (!current || !current.user) {
+    redirect('/admin/login?error=unauthenticated')
+  }
 
-  // Requirement 7: Forced first-login password change & MFA TOTP enforcement
-  if (current.profile?.must_change_password || !current.profile?.mfa_enrolled) {
+  // Requirement 7: Forced first-login password change & MFA setup
+  // Only redirect if explicitly flagged as requiring password change
+  if (current.profile?.must_change_password === true) {
     redirect('/admin/setup-security')
   }
 

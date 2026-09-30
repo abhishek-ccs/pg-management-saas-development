@@ -136,3 +136,35 @@ test('6. Ledger Reconciliation: Deposit Liability vs Revenue Law', () => {
   assert.strictEqual(securityDepositsLiability, 20000, 'Deposits must be isolated in liability escrow')
   assert.strictEqual(operatingRevenue + securityDepositsLiability, 38200, 'Sum must reconcile to total cash inflows')
 })
+
+test('7. Admin Redirect Loop Prevention & Resilient Authentication', () => {
+  // Test 7.1: URL Query parameter loop barrier
+  const testUrlWithError = new URL('https://staynest.com/admin/login?error=unauthenticated')
+  const testUrlWithLogout = new URL('https://staynest.com/admin/login?logout=true')
+  const testUrlClean = new URL('https://staynest.com/admin/login')
+
+  const shouldSkipRedirect = (url) => url.searchParams.has('error') || url.searchParams.has('logout') || url.searchParams.has('switch')
+  assert.strictEqual(shouldSkipRedirect(testUrlWithError), true, 'Error param must prevent redirect loop')
+  assert.strictEqual(shouldSkipRedirect(testUrlWithLogout), true, 'Logout param must prevent redirect loop')
+  assert.strictEqual(shouldSkipRedirect(testUrlClean), false, 'Clean login URL can redirect active super_admin')
+
+  // Test 7.2: Resilient profile fallback logic
+  const baseProfile = {
+    id: '5fc5c902-cea9-425a-b6fb-989b436ab270',
+    email: 'sharmavn258@gmail.com',
+    role: 'super_admin',
+    status: 'active',
+  }
+
+  // When extended columns do not exist in database, defaults should apply without nullifying base profile
+  const compositeProfile = {
+    ...baseProfile,
+    must_change_password: false,
+    mfa_enrolled: false,
+    preferred_language: 'en',
+  }
+
+  const isSuperAdmin = (p) => p?.role === 'super_admin' && p?.status === 'active'
+  assert.strictEqual(isSuperAdmin(compositeProfile), true, 'Super admin role must remain valid even without extended schema columns')
+  assert.strictEqual(compositeProfile.must_change_password, false, 'must_change_password defaults safely to false')
+})

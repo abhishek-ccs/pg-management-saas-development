@@ -29,13 +29,22 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   const pathname = request.nextUrl.pathname
 
+  // Helper: preserve updated session cookies across redirects
+  function redirectWithCookies(targetUrl: URL | string, status: number = 307) {
+    const redirectResponse = NextResponse.redirect(targetUrl, status)
+    response.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie.name, cookie.value, cookie)
+    })
+    return redirectResponse
+  }
+
   // 1. Unauthenticated guards
   if (!user && pathname.startsWith('/dashboard')) {
-    return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url))
+    return redirectWithCookies(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url))
   }
 
   if (!user && pathname.startsWith('/admin') && !pathname.startsWith('/admin/login')) {
-    return NextResponse.redirect(new URL(`/admin/login?next=${encodeURIComponent(pathname)}`, request.url))
+    return redirectWithCookies(new URL(`/admin/login?next=${encodeURIComponent(pathname)}`, request.url))
   }
 
   // 2. Authenticated guards & Role-Based Access Control
@@ -51,9 +60,9 @@ export async function updateSession(request: NextRequest) {
 
       if (profile?.status !== 'suspended') {
         if (profile?.role === 'super_admin') {
-          return NextResponse.redirect(new URL('/admin', request.url))
+          return redirectWithCookies(new URL('/admin', request.url))
         }
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+        return redirectWithCookies(new URL('/dashboard', request.url))
       }
     }
 
@@ -66,20 +75,28 @@ export async function updateSession(request: NextRequest) {
         .maybeSingle()
 
       if (profile?.role !== 'super_admin' || profile?.status !== 'active') {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+        return redirectWithCookies(new URL('/dashboard', request.url))
       }
     }
 
     // Admin login page: If already logged in as super_admin, go directly to /admin
+    // CRITICAL REDIRECT LOOP GUARD: Do not redirect if URL has query parameters indicating
+    // error, logout, unauthorized state, or explicit intent to switch users.
     if (pathname === '/admin/login') {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role,status')
-        .eq('id', user.id)
-        .maybeSingle()
+      const hasErrorParam = request.nextUrl.searchParams.has('error')
+      const hasLogoutParam = request.nextUrl.searchParams.has('logout')
+      const hasSwitchParam = request.nextUrl.searchParams.has('switch')
 
-      if (profile?.role === 'super_admin' && profile?.status === 'active') {
-        return NextResponse.redirect(new URL('/admin', request.url))
+      if (!hasErrorParam && !hasLogoutParam && !hasSwitchParam) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role,status')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (profile?.role === 'super_admin' && profile?.status === 'active') {
+          return redirectWithCookies(new URL('/admin', request.url))
+        }
       }
     }
 
@@ -92,9 +109,9 @@ export async function updateSession(request: NextRequest) {
         .maybeSingle()
 
       if (profile?.role === 'super_admin' && profile?.status === 'active') {
-        return NextResponse.redirect(new URL('/admin', request.url))
+        return redirectWithCookies(new URL('/admin', request.url))
       }
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+      return redirectWithCookies(new URL('/dashboard', request.url))
     }
 
     // Suspended account guard for dashboard
@@ -107,7 +124,7 @@ export async function updateSession(request: NextRequest) {
 
       if (profile?.status === 'suspended') {
         await supabase.auth.signOut()
-        return NextResponse.redirect(new URL('/login?error=suspended', request.url))
+        return redirectWithCookies(new URL('/login?error=suspended', request.url))
       }
     }
   }

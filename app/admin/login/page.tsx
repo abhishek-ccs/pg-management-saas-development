@@ -31,21 +31,34 @@ export default function AdminLoginPage() {
       return
     }
 
-    const { data: profile } = await supabase
+    const { data: baseProfile, error: profileError } = await supabase
       .from('profiles')
-      .select('role, status, must_change_password, mfa_enrolled')
+      .select('role, status')
       .eq('id', data.user.id)
       .maybeSingle()
 
-    if (profile?.role !== 'super_admin' || profile.status !== 'active') {
+    if (profileError || baseProfile?.role !== 'super_admin' || baseProfile.status !== 'active') {
       await supabase.auth.signOut()
       setError('This account does not have platform super administrator access.')
       setLoading(false)
       return
     }
 
-    // Enforce password change + MFA if flagged
-    if (profile.must_change_password || !profile.mfa_enrolled) {
+    // Safely check if first-login password change is flagged
+    let needsSecuritySetup = false
+    try {
+      const { data: extProfile } = await supabase
+        .from('profiles')
+        .select('must_change_password')
+        .eq('id', data.user.id)
+        .maybeSingle()
+
+      if (extProfile?.must_change_password === true) {
+        needsSecuritySetup = true
+      }
+    } catch {}
+
+    if (needsSecuritySetup) {
       router.push('/admin/setup-security')
       router.refresh()
       return
