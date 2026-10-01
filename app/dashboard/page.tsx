@@ -177,9 +177,56 @@ export function getRoomMaxCapacity(roomType: string, fallbackBeds?: number): num
   return fallbackBeds && fallbackBeds > 0 ? fallbackBeds : 2
 }
 
+export interface BedStatusInfo {
+  isAvailable: boolean
+  label: string
+}
+
+/**
+ * Calculates the real-time operational availability of a bed.
+ * A bed is ONLY available if:
+ * 1. It is not currently occupied by another active tenant.
+ * 2. Its parent room is NOT at full capacity (Single=1, Double=2, Triple=3, Four=4).
+ * 3. Its status is not set to maintenance or unavailable.
+ */
+export function getEffectiveBedStatus(
+  bed: Bed,
+  rooms: Room[],
+  tenants: Tenant[],
+  currentTenantId?: string | null
+): BedStatusInfo {
+  // 1. Bed occupied by another active resident
+  const occupant = tenants.find(
+    (t) => t.bed_id === bed.id && t.status !== 'Vacated' && t.id !== currentTenantId
+  )
+  if (occupant) {
+    return { isAvailable: false, label: 'OCCUPIED' }
+  }
+
+  // 2. Parent room capacity invariant
+  const parentRoom = rooms.find((r) => r.id === bed.room_id)
+  if (parentRoom) {
+    const cap = getRoomMaxCapacity(parentRoom.room_type)
+    const activeInRoom = tenants.filter(
+      (t) => t.room_id === parentRoom.id && t.status !== 'Vacated' && t.id !== currentTenantId
+    ).length
+    if (activeInRoom >= cap) {
+      return { isAvailable: false, label: 'ROOM FULL' }
+    }
+  }
+
+  // 3. Database status check
+  if (bed.status && bed.status !== 'available') {
+    return { isAvailable: false, label: bed.status.toUpperCase() }
+  }
+
+  return { isAvailable: true, label: 'AVAILABLE' }
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const supabase = createClient()
+
 
   // Navigation & UI state
   const { t, locale } = useI18n()
@@ -978,22 +1025,18 @@ export default function DashboardPage() {
     e.preventDefault()
     if (!userId) return
 
-    const sessionCheck = await ensureFreshSession(supabase)
-    if (!sessionCheck.valid) {
-      flash('Your session has expired. Please sign in again.')
-      router.push('/login?next=/dashboard')
-      return
-    }
+    // CRITICAL: Extract HTMLFormElement and FormData synchronously before any asynchronous await!
+    const form = e.currentTarget
+    const fd = new FormData(form)
 
-    const fd = new FormData(e.currentTarget)
-    const name = String(fd.get('name')).trim()
-    const phone = String(fd.get('phone')).trim()
-    const roomId = String(fd.get('room_id')) || null
-    const bedId = String(fd.get('bed_id')) || null
+    const name = String(fd.get('name') || '').trim()
+    const phone = String(fd.get('phone') || '').trim()
+    const roomId = String(fd.get('room_id') || '') || null
+    const bedId = String(fd.get('bed_id') || '') || null
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
     const dueDay = Math.min(Math.max(Number(fd.get('rent_due_day') || 5), 1), 31)
-    const joiningDate = String(fd.get('joining_date')) || new Date().toISOString().slice(0, 10)
+    const joiningDate = String(fd.get('joining_date') || '') || new Date().toISOString().slice(0, 10)
 
     if (!name || rent <= 0) {
       flash('Please provide a valid tenant name and monthly rent.')
@@ -1004,6 +1047,14 @@ export default function DashboardPage() {
       flash('Please enter a valid 10-15 digit tenant contact phone number.')
       return
     }
+
+    const sessionCheck = await ensureFreshSession(supabase)
+    if (!sessionCheck.valid) {
+      flash('Your session has expired. Please sign in again.')
+      router.push('/login?next=/dashboard')
+      return
+    }
+
 
     // 1. Room Capacity Validation
     if (roomId && roomId !== 'unassigned') {
@@ -1125,22 +1176,18 @@ export default function DashboardPage() {
     e.preventDefault()
     if (!userId || !editingTenant) return
 
-    const sessionCheck = await ensureFreshSession(supabase)
-    if (!sessionCheck.valid) {
-      flash('Your session has expired. Please sign in again.')
-      router.push('/login?next=/dashboard')
-      return
-    }
+    // CRITICAL: Extract HTMLFormElement and FormData synchronously before any asynchronous await!
+    const form = e.currentTarget
+    const fd = new FormData(form)
 
-    const fd = new FormData(e.currentTarget)
-    const name = String(fd.get('name')).trim()
-    const phone = String(fd.get('phone')).trim()
-    const roomId = String(fd.get('room_id')) || null
-    const bedId = String(fd.get('bed_id')) || null
+    const name = String(fd.get('name') || '').trim()
+    const phone = String(fd.get('phone') || '').trim()
+    const roomId = String(fd.get('room_id') || '') || null
+    const bedId = String(fd.get('bed_id') || '') || null
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
     const dueDay = Math.min(Math.max(Number(fd.get('rent_due_day') || editingTenant.rent_due_day || 5), 1), 31)
-    const joiningDate = String(fd.get('joining_date')) || editingTenant.joiningDate || new Date().toISOString().slice(0, 10)
+    const joiningDate = String(fd.get('joining_date') || '') || editingTenant.joiningDate || new Date().toISOString().slice(0, 10)
     const status = String(fd.get('status') || editingTenant.status) as Tenant['status']
 
     if (!name || rent <= 0) {
@@ -1152,6 +1199,14 @@ export default function DashboardPage() {
       flash('Please enter a valid 10-15 digit phone number.')
       return
     }
+
+    const sessionCheck = await ensureFreshSession(supabase)
+    if (!sessionCheck.valid) {
+      flash('Your session has expired. Please sign in again.')
+      router.push('/login?next=/dashboard')
+      return
+    }
+
 
     // Validate room capacity on reassignment
     if (roomId && roomId !== 'unassigned' && roomId !== editingTenant.room_id && status !== 'Vacated') {
@@ -2101,8 +2156,25 @@ export default function DashboardPage() {
               }}
               onAddRoom={() => setShowRoomModal(true)}
               onAddTenant={() => {
-                setTenantFormRoomId(currentPropertyRooms[0]?.id || 'unassigned')
-                setTenantFormRent(currentPropertyRooms[0]?.base_rent || 0)
+                const availableRoom = currentPropertyRooms.find((r) => {
+                  const cap = getRoomMaxCapacity(r.room_type)
+                  const cur = currentPropertyTenants.filter((t) => t.room_id === r.id && t.status !== 'Vacated').length
+                  return cur < cap
+                })
+                const rId = availableRoom?.id || 'unassigned'
+                setTenantFormRoomId(rId)
+                setTenantFormRent(availableRoom?.base_rent || 0)
+
+                if (rId !== 'unassigned') {
+                  const availBed = currentPropertyBeds.find((b) => {
+                    if (b.room_id !== rId) return false
+                    const eff = getEffectiveBedStatus(b, currentPropertyRooms, currentPropertyTenants)
+                    return eff.isAvailable
+                  })
+                  setTenantFormBedId(availBed?.id || 'unassigned')
+                } else {
+                  setTenantFormBedId('unassigned')
+                }
                 setShowTenantModal(true)
               }}
               onRecordPayment={() => {
@@ -2163,8 +2235,25 @@ export default function DashboardPage() {
               property={property}
               locale={locale}
               onAddTenant={() => {
-                setTenantFormRoomId(currentPropertyRooms[0]?.id || 'unassigned')
-                setTenantFormRent(currentPropertyRooms[0]?.base_rent || 0)
+                const availableRoom = currentPropertyRooms.find((r) => {
+                  const cap = getRoomMaxCapacity(r.room_type)
+                  const cur = currentPropertyTenants.filter((t) => t.room_id === r.id && t.status !== 'Vacated').length
+                  return cur < cap
+                })
+                const rId = availableRoom?.id || 'unassigned'
+                setTenantFormRoomId(rId)
+                setTenantFormRent(availableRoom?.base_rent || 0)
+
+                if (rId !== 'unassigned') {
+                  const availBed = currentPropertyBeds.find((b) => {
+                    if (b.room_id !== rId) return false
+                    const eff = getEffectiveBedStatus(b, currentPropertyRooms, currentPropertyTenants)
+                    return eff.isAvailable
+                  })
+                  setTenantFormBedId(availBed?.id || 'unassigned')
+                } else {
+                  setTenantFormBedId('unassigned')
+                }
                 setShowTenantModal(true)
               }}
               onEditTenant={(t: Tenant) => setEditingTenant(t)}
@@ -2502,9 +2591,15 @@ export default function DashboardPage() {
                     const selRoom = rooms.find((r) => r.id === selId)
                     if (selRoom) {
                       setTenantFormRent(selRoom.base_rent)
-                      // Auto select first available bed
-                      const avail = beds.find((b) => b.room_id === selId && b.status === 'available')
-                      if (avail) setTenantFormBedId(avail.id)
+                      // Auto select first truly available bed
+                      const avail = beds.find((b) => {
+                        if (b.room_id !== selId) return false
+                        const eff = getEffectiveBedStatus(b, rooms, tenants)
+                        return eff.isAvailable
+                      })
+                      setTenantFormBedId(avail ? avail.id : 'unassigned')
+                    } else {
+                      setTenantFormBedId('unassigned')
                     }
                   }}
                   className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
@@ -2534,11 +2629,14 @@ export default function DashboardPage() {
                   <option value="unassigned">Unassigned</option>
                   {beds
                     .filter((b) => tenantFormRoomId === 'unassigned' || b.room_id === tenantFormRoomId)
-                    .map((b) => (
-                      <option key={b.id} value={b.id} disabled={b.status !== 'available'}>
-                        Bed {b.bed_number} ({b.status.toUpperCase()})
-                      </option>
-                    ))}
+                    .map((b) => {
+                      const eff = getEffectiveBedStatus(b, rooms, tenants)
+                      return (
+                        <option key={b.id} value={b.id} disabled={!eff.isAvailable}>
+                          Bed {b.bed_number} ({eff.label})
+                        </option>
+                      )
+                    })}
                 </select>
               </label>
             </div>
@@ -2614,15 +2712,21 @@ export default function DashboardPage() {
                   className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
                 >
                   <option value="unassigned">Unassigned</option>
-                  {beds.map((b) => (
-                    <option
-                      key={b.id}
-                      value={b.id}
-                      disabled={b.status !== 'available' && b.id !== editingTenant.bed_id}
-                    >
-                      Bed {b.bed_number} ({b.status.toUpperCase()})
-                    </option>
-                  ))}
+                  {beds.map((b) => {
+                    const isCurrent = b.id === editingTenant.bed_id
+                    const eff = getEffectiveBedStatus(b, rooms, tenants, editingTenant.id)
+                    const canSelect = eff.isAvailable || isCurrent
+                    const label = isCurrent ? 'CURRENT BED' : eff.label
+                    return (
+                      <option
+                        key={b.id}
+                        value={b.id}
+                        disabled={!canSelect}
+                      >
+                        Bed {b.bed_number} ({label})
+                      </option>
+                    )
+                  })}
                 </select>
               </label>
             </div>

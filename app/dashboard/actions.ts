@@ -94,6 +94,47 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
 
     // 3. Bed Assignment Conflict Check
     if (bedId) {
+      const { data: bedRecord } = await supabase
+        .from('beds')
+        .select('id, room_id, status')
+        .eq('id', bedId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+
+      if (bedRecord) {
+        if (bedRecord.status !== 'available') {
+          return { success: false, error: 'The selected bed is not available for assignment.' }
+        }
+
+        const bedRoomId = roomId || bedRecord.room_id
+        if (bedRoomId && bedRoomId !== roomId) {
+          const { data: bRoom } = await supabase
+            .from('rooms')
+            .select('id, room_number, room_type')
+            .eq('id', bedRoomId)
+            .eq('owner_id', user.id)
+            .maybeSingle()
+
+          if (bRoom) {
+            const { count: actCount } = await supabase
+              .from('tenants')
+              .select('id', { count: 'exact', head: true })
+              .eq('room_id', bedRoomId)
+              .eq('owner_id', user.id)
+              .neq('status', 'Vacated')
+
+            const type = (bRoom.room_type || '').toLowerCase()
+            const maxCap = type === 'single' ? 1 : type === 'double' ? 2 : type === 'triple' ? 3 : 4
+            if ((actCount || 0) >= maxCap) {
+              return {
+                success: false,
+                error: `Capacity exceeded: Room ${bRoom.room_number} (${bRoom.room_type}) only accommodates ${maxCap} resident(s).`,
+              }
+            }
+          }
+        }
+      }
+
       const { data: occupiedBed } = await supabase
         .from('tenants')
         .select('id, full_name')

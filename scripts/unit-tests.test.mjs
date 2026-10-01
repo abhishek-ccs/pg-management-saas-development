@@ -332,3 +332,150 @@ test('11. Production-Safe Baseline Tenant & Payment Payloads', () => {
   assert.ok(Object.keys(sanitized).every((col) => PROD_TENANT_COLUMNS.has(col)), 'All keys must exist in production schema')
 })
 
+test('12. FormData HTMLFormElement Lifecycle & Asynchronous Event Recoupling', async () => {
+  // Mock mockFormElement
+  class MockHTMLFormElement {
+    constructor(entries) {
+      this.entries = entries
+    }
+  }
+
+  // Mock FormData that verifies parameter 1 is indeed an HTMLFormElement
+  class SafeFormData {
+    constructor(form) {
+      if (!form || !(form instanceof MockHTMLFormElement)) {
+        throw new TypeError("Failed to construct 'FormData': parameter 1 is not of type 'HTMLFormElement'")
+      }
+      this.data = new Map(Object.entries(form.entries))
+    }
+    get(key) {
+      return this.data.get(key)
+    }
+  }
+
+  // Simulate React synthetic event
+  const mockForm = new MockHTMLFormElement({ name: 'Vikram Singh', rent: '8500' })
+  const mockEvent = {
+    currentTarget: mockForm,
+  }
+
+  // INCORRECT PATTERN: Accessing e.currentTarget after await (event recycled)
+  async function simulateBuggyHandler(e) {
+    // Simulating await ensureFreshSession(...)
+    await new Promise((res) => setTimeout(res, 5))
+    // Event loop has recycled synthetic event
+    e.currentTarget = null
+    return new SafeFormData(e.currentTarget)
+  }
+
+  await assert.rejects(
+    async () => {
+      await simulateBuggyHandler(mockEvent)
+    },
+    {
+      name: 'TypeError',
+      message: /parameter 1 is not of type 'HTMLFormElement'/,
+    },
+    'Buggy handler must throw TypeError when e.currentTarget is accessed after await'
+  )
+
+  // CORRECT PATTERN: Capturing form reference synchronously BEFORE any await
+  async function simulateSafeHandler(e) {
+    const form = e.currentTarget
+    const fd = new SafeFormData(form) // Captured synchronously!
+    const name = fd.get('name')
+    const rent = Number(fd.get('rent'))
+
+    // Now async await can run safely
+    await new Promise((res) => setTimeout(res, 5))
+    return { name, rent, success: true }
+  }
+
+  const safeEvent = { currentTarget: mockForm }
+  const result = await simulateSafeHandler(safeEvent)
+  assert.strictEqual(result.success, true)
+  assert.strictEqual(result.name, 'Vikram Singh')
+  assert.strictEqual(result.rent, 8500)
+})
+
+test('13. Operational Bed Availability & Full-Room Invariant Law', () => {
+  const rooms = [
+    { id: 'room-single-1', room_number: 'A205', room_type: 'Single' },
+    { id: 'room-double-1', room_number: 'B102', room_type: 'Double' },
+    { id: 'room-triple-1', room_number: 'C301', room_type: 'Triple' },
+  ]
+
+  const beds = [
+    { id: 'bed-a205-a', room_id: 'room-single-1', bed_number: 'A205-A', status: 'available' },
+    { id: 'bed-b102-a', room_id: 'room-double-1', bed_number: 'B102-A', status: 'available' },
+    { id: 'bed-b102-b', room_id: 'room-double-1', bed_number: 'B102-B', status: 'available' },
+    { id: 'bed-c301-a', room_id: 'room-triple-1', bed_number: 'C301-A', status: 'available' },
+  ]
+
+  // Scenario 1: Room A205 (Single) already has 1 active resident
+  const tenantsCase1 = [
+    { id: 'tenant-1', room_id: 'room-single-1', bed_id: 'bed-a205-a', status: 'active', name: 'Rohan' },
+  ]
+
+  // getEffectiveBedStatus logic
+  function getEffectiveBedStatus(bed, allRooms, allTenants, currentTenantId = null) {
+    const occupant = allTenants.find(
+      (t) => t.bed_id === bed.id && t.status !== 'Vacated' && t.id !== currentTenantId
+    )
+    if (occupant) {
+      return { isAvailable: false, label: 'OCCUPIED' }
+    }
+
+    const parentRoom = allRooms.find((r) => r.id === bed.room_id)
+    if (parentRoom) {
+      const type = parentRoom.room_type.toLowerCase()
+      const cap = type.includes('single') ? 1 : type.includes('double') ? 2 : type.includes('triple') ? 3 : 4
+      const activeInRoom = allTenants.filter(
+        (t) => t.room_id === parentRoom.id && t.status !== 'Vacated' && t.id !== currentTenantId
+      ).length
+      if (activeInRoom >= cap) {
+        return { isAvailable: false, label: 'ROOM FULL' }
+      }
+    }
+
+    if (bed.status && bed.status !== 'available') {
+      return { isAvailable: false, label: bed.status.toUpperCase() }
+    }
+
+    return { isAvailable: true, label: 'AVAILABLE' }
+  }
+
+  // Bed A205-A must NEVER be presented as AVAILABLE
+  const bedStatusCase1 = getEffectiveBedStatus(beds[0], rooms, tenantsCase1)
+  assert.strictEqual(bedStatusCase1.isAvailable, false, 'Bed in full room must not be available')
+  assert.ok(
+    bedStatusCase1.label === 'ROOM FULL' || bedStatusCase1.label === 'OCCUPIED',
+    `Expected label to be ROOM FULL or OCCUPIED, got: ${bedStatusCase1.label}`
+  )
+
+  // Scenario 2: Room A205 has 1 active resident who doesn't have bed_id set (edge case)
+  // Bed in database is 'available', but room is at capacity (1/1)
+  const tenantsCase2 = [
+    { id: 'tenant-1', room_id: 'room-single-1', bed_id: null, status: 'active', name: 'Rohan' },
+  ]
+  const bedStatusCase2 = getEffectiveBedStatus(beds[0], rooms, tenantsCase2)
+  assert.strictEqual(bedStatusCase2.isAvailable, false, 'Bed must not be available if parent room is full')
+  assert.strictEqual(bedStatusCase2.label, 'ROOM FULL', 'Must report ROOM FULL even if bed flag was available')
+
+  // Scenario 3: Room B102 (Double) has 1 active resident on bed-b102-a
+  const tenantsCase3 = [
+    { id: 'tenant-2', room_id: 'room-double-1', bed_id: 'bed-b102-a', status: 'active', name: 'Priya' },
+  ]
+  const bedAStatus = getEffectiveBedStatus(beds[1], rooms, tenantsCase3)
+  const bedBStatus = getEffectiveBedStatus(beds[2], rooms, tenantsCase3)
+  assert.strictEqual(bedAStatus.isAvailable, false, 'Occupied bed is not available')
+  assert.strictEqual(bedAStatus.label, 'OCCUPIED')
+  assert.strictEqual(bedBStatus.isAvailable, true, 'Second bed in double room is available')
+  assert.strictEqual(bedBStatus.label, 'AVAILABLE')
+
+  // Scenario 4: Editing tenant should allow keeping current bed
+  const editStatus = getEffectiveBedStatus(beds[1], rooms, tenantsCase3, 'tenant-2')
+  assert.strictEqual(editStatus.isAvailable, true, 'Current tenant can retain their own bed')
+})
+
+
