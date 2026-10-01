@@ -3,7 +3,11 @@ import { updateSession } from '@/lib/supabase/proxy'
 import { applySecurityHeaders } from '@/lib/security/headers'
 import { checkRateLimit, ROUTE_LIMITS } from '@/lib/security/rate-limiter'
 
-export async function middleware(request: NextRequest) {
+/**
+ * Next.js 16 Proxy Convention (replaces deprecated middleware.ts convention)
+ * Handles rate limiting, session refresh, security headers, and route protection.
+ */
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
              request.headers.get('x-real-ip') || 
@@ -44,6 +48,10 @@ export async function middleware(request: NextRequest) {
   // 3. Inject Strict Enterprise Security Headers (CSP, HSTS, X-Frame-Options, etc.)
   return applySecurityHeaders(sessionResponse, pathname)
 }
+
+// Backwards-compatible middleware export
+export const middleware = proxy
+export default proxy
 
 export const config = {
   matcher: [

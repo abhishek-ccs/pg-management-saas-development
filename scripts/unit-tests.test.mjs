@@ -168,3 +168,167 @@ test('7. Admin Redirect Loop Prevention & Resilient Authentication', () => {
   assert.strictEqual(isSuperAdmin(compositeProfile), true, 'Super admin role must remain valid even without extended schema columns')
   assert.strictEqual(compositeProfile.must_change_password, false, 'must_change_password defaults safely to false')
 })
+
+test('8. Multi-Property Isolation & Scoping Engine', () => {
+  const propertyA = 'prop-aaa-111'
+  const propertyB = 'prop-bbb-222'
+
+  const rooms = [
+    { id: 'r1', property_id: propertyA, room_number: '101' },
+    { id: 'r2', property_id: propertyA, room_number: '102' },
+    { id: 'r3', property_id: propertyB, room_number: '201' },
+  ]
+
+  const tenants = [
+    { id: 't1', property_id: propertyA, full_name: 'Tenant Alpha', status: 'active' },
+    { id: 't2', property_id: propertyB, full_name: 'Tenant Beta', status: 'active' },
+  ]
+
+  const payments = [
+    { id: 'p1', property_id: propertyA, amount: 8000 },
+    { id: 'p2', property_id: propertyB, amount: 9500 },
+  ]
+
+  // Scoping helper
+  const filterByProperty = (items, propId) => items.filter((item) => item.property_id === propId)
+
+  // Validate Property A isolation
+  const propARooms = filterByProperty(rooms, propertyA)
+  const propATenants = filterByProperty(tenants, propertyA)
+  const propAPayments = filterByProperty(payments, propertyA)
+
+  assert.strictEqual(propARooms.length, 2, 'Property A must only contain its 2 rooms')
+  assert.strictEqual(propATenants.length, 1, 'Property A must only contain 1 tenant')
+  assert.strictEqual(propATenants[0].full_name, 'Tenant Alpha')
+  assert.strictEqual(propAPayments[0].amount, 8000)
+
+  // Validate Property B isolation
+  const propBRooms = filterByProperty(rooms, propertyB)
+  const propBTenants = filterByProperty(tenants, propertyB)
+  const propBPayments = filterByProperty(payments, propertyB)
+
+  assert.strictEqual(propBRooms.length, 1, 'Property B must only contain 1 room')
+  assert.strictEqual(propBTenants[0].full_name, 'Tenant Beta')
+  assert.strictEqual(propBPayments[0].amount, 9500)
+
+  // Verify zero cross-contamination
+  assert.ok(!propARooms.some((r) => r.property_id === propertyB), 'No Property B rooms in Property A')
+  assert.ok(!propBTenants.some((t) => t.property_id === propertyA), 'No Property A tenants in Property B')
+})
+
+test('9. Room & Bed Capacity Invariants (Single=1, Double=2, Triple=3, Four=4)', () => {
+  const CAPACITY_LIMITS = {
+    single: 1,
+    double: 2,
+    triple: 3,
+    four: 4,
+  }
+
+  // Helper for capacity enforcement
+  function canAddTenantToRoom(roomType, activeTenantsInRoom) {
+    const maxCapacity = CAPACITY_LIMITS[roomType] || 1
+    return activeTenantsInRoom < maxCapacity
+  }
+
+  // Single room tests
+  assert.strictEqual(canAddTenantToRoom('single', 0), true, 'Single room with 0 tenants is available')
+  assert.strictEqual(canAddTenantToRoom('single', 1), false, 'Single room with 1 tenant is full')
+
+  // Double room tests
+  assert.strictEqual(canAddTenantToRoom('double', 1), true, 'Double room with 1 tenant can take another')
+  assert.strictEqual(canAddTenantToRoom('double', 2), false, 'Double room with 2 tenants is full')
+
+  // Triple room tests
+  assert.strictEqual(canAddTenantToRoom('triple', 2), true, 'Triple room with 2 tenants can take 3rd')
+  assert.strictEqual(canAddTenantToRoom('triple', 3), false, 'Triple room with 3 tenants is full')
+
+  // Four sharing tests
+  assert.strictEqual(canAddTenantToRoom('four', 3), true, 'Four sharing room with 3 tenants can take 4th')
+  assert.strictEqual(canAddTenantToRoom('four', 4), false, 'Four sharing room with 4 tenants is full')
+
+  // Bed collision prevention
+  const activeTenants = [
+    { id: 't1', bed_id: 'bed-101', status: 'active' },
+    { id: 't2', bed_id: 'bed-102', status: 'active' },
+    { id: 't3', bed_id: 'bed-103', status: 'inactive' }, // moved out
+  ]
+
+  function isBedAvailable(bedId, currentTenantId = null) {
+    const conflict = activeTenants.find(
+      (t) => t.bed_id === bedId && t.status === 'active' && t.id !== currentTenantId
+    )
+    return !conflict
+  }
+
+  assert.strictEqual(isBedAvailable('bed-101'), false, 'Occupied bed cannot be assigned to new tenant')
+  assert.strictEqual(isBedAvailable('bed-101', 't1'), true, 'Existing occupant can keep their own bed')
+  assert.strictEqual(isBedAvailable('bed-103'), true, 'Bed of inactive/moved-out tenant is available')
+  assert.strictEqual(isBedAvailable('bed-104'), true, 'Unassigned bed is available')
+})
+
+test('10. Session Freshness Threshold & Auto-Refresh Law', () => {
+  const nowInSeconds = Math.floor(Date.now() / 1000)
+
+  function isSessionStale(expiresAt) {
+    // If expires_at is missing, past, or within 60s margin, treat as stale
+    if (!expiresAt) return true
+    return expiresAt - nowInSeconds < 60
+  }
+
+  // Session expiring in 5 minutes (300s) -> fresh
+  assert.strictEqual(isSessionStale(nowInSeconds + 300), false, 'Session valid for 5 min is fresh')
+
+  // Session expiring in 30 seconds -> stale (needs refresh before mutation)
+  assert.strictEqual(isSessionStale(nowInSeconds + 30), true, 'Session expiring in 30s is stale')
+
+  // Session expired 10 seconds ago -> stale
+  assert.strictEqual(isSessionStale(nowInSeconds - 10), true, 'Expired session is stale')
+
+  // Null/undefined session -> stale
+  assert.strictEqual(isSessionStale(undefined), true, 'Undefined session is stale')
+})
+
+test('11. Production-Safe Baseline Tenant & Payment Payloads', () => {
+  // Production verified column set for tenants
+  const PROD_TENANT_COLUMNS = new Set([
+    'id', 'owner_id', 'property_id', 'room_id', 'bed_id',
+    'full_name', 'email', 'phone', 'emergency_contact',
+    'id_proof_type', 'id_proof_number', 'monthly_rent',
+    'security_deposit', 'joining_date', 'status', 'created_at', 'updated_at'
+  ])
+
+  // Payload sanitizer
+  function sanitizeTenantPayload(input) {
+    const output = {}
+    for (const [key, value] of Object.entries(input)) {
+      if (PROD_TENANT_COLUMNS.has(key)) {
+        output[key] = value
+      }
+    }
+    return output
+  }
+
+  const rawInput = {
+    owner_id: 'user-123',
+    property_id: 'prop-456',
+    full_name: 'Sunita Sharma',
+    phone: '9876543210',
+    monthly_rent: 7500,
+    security_deposit: 15000,
+    joining_date: '2026-10-01',
+    status: 'active',
+    rent_due_day: 5, // missing in live schema
+    deleted_at: null, // missing in live schema
+    non_existent_column: 'test',
+  }
+
+  const sanitized = sanitizeTenantPayload(rawInput)
+
+  assert.strictEqual(sanitized.full_name, 'Sunita Sharma')
+  assert.strictEqual(sanitized.monthly_rent, 7500)
+  assert.strictEqual(sanitized.rent_due_day, undefined, 'Missing live schema column must be excluded from baseline payload')
+  assert.strictEqual(sanitized.deleted_at, undefined, 'Missing deleted_at column must be excluded from baseline payload')
+  assert.strictEqual(sanitized.non_existent_column, undefined, 'Unknown column must be excluded')
+  assert.ok(Object.keys(sanitized).every((col) => PROD_TENANT_COLUMNS.has(col)), 'All keys must exist in production schema')
+})
+

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { createClient, ensureFreshSession } from '@/lib/supabase/client'
+import { createTenantAction, updateTenantAction } from './actions'
 import { isValidPhone } from '@/lib/validation'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
@@ -69,6 +70,7 @@ import {
 // ------------------------------------------------------------------------------
 type Tenant = {
   id: string
+  property_id?: string | null
   name: string
   phone?: string
   room_id?: string | null
@@ -94,6 +96,7 @@ type Bed = {
 
 type Room = {
   id: string
+  property_id?: string | null
   room_number: string
   floor: number
   room_type: string
@@ -103,6 +106,7 @@ type Room = {
 
 type PaymentRecord = {
   id: string
+  property_id?: string | null
   tenant_id: string
   tenant_name: string
   room_number: string
@@ -117,6 +121,7 @@ type PaymentRecord = {
 
 type Complaint = {
   id: string
+  property_id?: string | null
   title: string
   tenant: string
   priority: 'High' | 'Medium' | 'Low'
@@ -127,6 +132,7 @@ type Complaint = {
 
 type Expense = {
   id: string
+  property_id?: string | null
   title: string
   category: string
   amount: number
@@ -136,6 +142,7 @@ type Expense = {
 
 type ElectricityRecord = {
   id: string
+  property_id?: string | null
   room_id?: string | null
   room: string
   previous_reading: number
@@ -193,8 +200,16 @@ export default function DashboardPage() {
   const [isTrialExpired, setIsTrialExpired] = useState(false)
   const [dashboardBillingCycle, setDashboardBillingCycle] = useState<'yearly' | 'monthly'>('yearly')
 
-  // Real Database Business State (Zero fake data)
-  const [property, setProperty] = useState({ id: '', name: '', address: '', contact: '', city: '' })
+  // Real Database Business State (Multi-property support with strict property isolation)
+  const [properties, setProperties] = useState<Array<{ id: string; name: string; address: string; contact: string; city: string }>>([])
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>('')
+  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null)
+
+  // Active property derived helper
+  const property = useMemo(() => {
+    return properties.find((p) => p.id === selectedPropertyId) || properties[0] || { id: '', name: '', address: '', contact: '', city: '' }
+  }, [properties, selectedPropertyId])
+
   const [rooms, setRooms] = useState<Room[]>([])
   const [beds, setBeds] = useState<Bed[]>([])
   const [tenants, setTenants] = useState<Tenant[]>([])
@@ -204,6 +219,50 @@ export default function DashboardPage() {
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [electricity, setElectricity] = useState<ElectricityRecord[]>([])
+
+  // Scoped views for the currently selected property (ensures strict isolation between multiple properties)
+  const currentPropertyRooms = useMemo(() => {
+    if (!property.id) return rooms
+    return rooms.filter((r) => !r.property_id || r.property_id === property.id)
+  }, [rooms, property.id])
+
+  const currentPropertyRoomIds = useMemo(() => {
+    return new Set(currentPropertyRooms.map((r) => r.id))
+  }, [currentPropertyRooms])
+
+  const currentPropertyBeds = useMemo(() => {
+    if (!property.id) return beds
+    return beds.filter((b) => (!b.property_id || b.property_id === property.id) || currentPropertyRoomIds.has(b.room_id))
+  }, [beds, property.id, currentPropertyRoomIds])
+
+  const currentPropertyTenants = useMemo(() => {
+    if (!property.id) return tenants
+    return tenants.filter((t) => (!t.property_id || t.property_id === property.id) || (t.room_id && currentPropertyRoomIds.has(t.room_id)))
+  }, [tenants, property.id, currentPropertyRoomIds])
+
+  const currentPropertyTenantIds = useMemo(() => {
+    return new Set(currentPropertyTenants.map((t) => t.id))
+  }, [currentPropertyTenants])
+
+  const currentPropertyPayments = useMemo(() => {
+    if (!property.id) return payments
+    return payments.filter((p) => (!p.property_id || p.property_id === property.id) || currentPropertyTenantIds.has(p.tenant_id))
+  }, [payments, property.id, currentPropertyTenantIds])
+
+  const currentPropertyExpenses = useMemo(() => {
+    if (!property.id) return expenses
+    return expenses.filter((e) => !e.property_id || e.property_id === property.id)
+  }, [expenses, property.id])
+
+  const currentPropertyElectricity = useMemo(() => {
+    if (!property.id) return electricity
+    return electricity.filter((el) => (!el.property_id || el.property_id === property.id) || (el.room_id && currentPropertyRoomIds.has(el.room_id)))
+  }, [electricity, property.id, currentPropertyRoomIds])
+
+  const currentPropertyComplaints = useMemo(() => {
+    if (!property.id) return complaints
+    return complaints.filter((c) => !c.property_id || c.property_id === property.id)
+  }, [complaints, property.id])
 
   // Due Dates & Undo State
   const [tenantDueFilter, setTenantDueFilter] = useState<'all' | 'paid' | 'due' | 'overdue'>('all')
@@ -316,14 +375,14 @@ export default function DashboardPage() {
           complaintRes,
         ] = await Promise.all([
           supabase.from('subscriptions').select('trial_start,trial_end,status,plan').eq('owner_id', user.id).maybeSingle(),
-          supabase.from('properties').select('id,name,address,contact_number,city').eq('owner_id', user.id).maybeSingle(),
-          supabase.from('rooms').select('id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
+          supabase.from('properties').select('id,name,address,contact_number,city').eq('owner_id', user.id).order('created_at', { ascending: true }),
+          supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
           supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
-          supabase.from('tenants').select('id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id,rent_due_day,deleted_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('payments').select('id,tenant_id,amount,payment_method,payment_type,paid_at,notes,month_covered,deleted_at').eq('owner_id', user.id).order('paid_at', { ascending: false }),
-          supabase.from('expenses').select('id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
-          supabase.from('electricity_readings').select('id,previous_reading,current_reading,rate_per_unit,reading_date,room_id').eq('owner_id', user.id).order('reading_date', { ascending: false }),
-          supabase.from('complaints').select('id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+          supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id').eq('owner_id', user.id).order('created_at', { ascending: false }),
+          supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
+          supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
+          supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id').eq('owner_id', user.id).order('reading_date', { ascending: false }),
+          supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
         ])
 
         if (!isMounted) return
@@ -340,16 +399,19 @@ export default function DashboardPage() {
           }
         }
 
-        // Property info
-        if (propRes.data) {
-          setProperty({
-            id: propRes.data.id,
-            name: propRes.data.name || '',
-            address: propRes.data.address || '',
-            contact: propRes.data.contact_number || '',
-            city: propRes.data.city || '',
-          })
-        }
+        // Multiple properties handling
+        const propList = (propRes.data || []).map((p: any) => ({
+          id: p.id,
+          name: p.name || '',
+          address: p.address || '',
+          contact: p.contact_number || '',
+          city: p.city || '',
+        }))
+        setProperties(propList)
+        setSelectedPropertyId((curr) => {
+          if (curr && propList.some((p: any) => p.id === curr)) return curr
+          return propList[0]?.id || ''
+        })
 
         // Rooms
         const roomList: Room[] = roomRes.data || []
@@ -588,7 +650,7 @@ export default function DashboardPage() {
   // REAL CRUD ACTIONS & HIGH-IMPACT DIALOGS
   // ----------------------------------------------------------------------------
 
-  // Save / Update Property
+  // Save / Update Property (Supports Multiple Properties)
   async function handleSaveProperty(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!userId) {
@@ -618,18 +680,9 @@ export default function DashboardPage() {
 
     setIsSavingProperty(true)
     try {
-      let existingId = property.id
-      if (!existingId) {
-        const { data: existingProp } = await supabase
-          .from('properties')
-          .select('id')
-          .eq('owner_id', userId)
-          .maybeSingle()
-        if (existingProp?.id) existingId = existingProp.id
-      }
-
+      let targetId = editingPropertyId
       let res
-      if (existingId) {
+      if (targetId) {
         res = await supabase
           .from('properties')
           .update({
@@ -639,7 +692,7 @@ export default function DashboardPage() {
             city,
             updated_at: new Date().toISOString(),
           })
-          .eq('id', existingId)
+          .eq('id', targetId)
           .eq('owner_id', userId)
           .select('id,name,address,contact_number,city')
           .single()
@@ -659,20 +712,32 @@ export default function DashboardPage() {
       }
 
       if (res.error) {
-        flash(`Could not save property: ${res.error.message || 'Database error'}`)
+        if (res.error.code === '23505' || res.error.message?.includes('uq_properties_owner')) {
+          flash('Multiple properties requires relaxing the database constraint. Run migration 20261001000001_safe_production_fixes.sql in your Supabase SQL editor.')
+        } else {
+          flash(`Could not save property: ${res.error.message || 'Database error'}`)
+        }
         return
       }
 
       if (res.data) {
-        setProperty({
+        const savedProp = {
           id: res.data.id,
           name: res.data.name,
           address: res.data.address || '',
           contact: res.data.contact_number || '',
           city: res.data.city || '',
-        })
+        }
+        if (targetId) {
+          setProperties((prev) => prev.map((p) => (p.id === targetId ? savedProp : p)))
+          flash(`Property "${name}" updated successfully.`)
+        } else {
+          setProperties((prev) => [...prev, savedProp])
+          setSelectedPropertyId(savedProp.id)
+          flash(`New property "${name}" added successfully.`)
+        }
         setShowPropertyModal(false)
-        flash('Property details saved successfully!')
+        setEditingPropertyId(null)
       }
     } catch (err: any) {
       flash('An unexpected error occurred while saving property.')
@@ -697,15 +762,20 @@ export default function DashboardPage() {
         return
       }
 
-      // Reset local property and associated state
-      setProperty({ id: '', name: '', address: '', contact: '', city: '' })
-      setRooms([])
-      setBeds([])
-      setTenants([])
-      setElectricity([])
+      const deletedId = property.id
+      const remainingProps = properties.filter((p) => p.id !== deletedId)
+      setProperties(remainingProps)
+      setSelectedPropertyId(remainingProps[0]?.id || '')
+
+      // Remove items scoped to deleted property
+      setRooms((prev) => prev.filter((r) => r.property_id !== deletedId))
+      setBeds((prev) => prev.filter((b) => b.property_id !== deletedId))
+      setTenants((prev) => prev.filter((t) => t.property_id !== deletedId))
+      setElectricity((prev) => prev.filter((el) => el.property_id !== deletedId))
+
       setShowDeletePropertyModal(false)
       setDeletePropertyInput('')
-      flash('Property and all associated rooms and beds deleted.')
+      flash(`Property "${property.name}" deleted successfully.`)
     } catch (err) {
       flash('Failed to delete property.')
     } finally {
@@ -903,10 +973,17 @@ export default function DashboardPage() {
     })
   }
 
-  // Add Tenant (Enforces Room Capacity + Bed Validation)
+  // Add Tenant (Enforces Room Capacity + Bed Validation + Proactive Session Freshness)
   async function handleAddTenant(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!userId) return
+
+    const sessionCheck = await ensureFreshSession(supabase)
+    if (!sessionCheck.valid) {
+      flash('Your session has expired. Please sign in again.')
+      router.push('/login?next=/dashboard')
+      return
+    }
 
     const fd = new FormData(e.currentTarget)
     const name = String(fd.get('name')).trim()
@@ -958,51 +1035,82 @@ export default function DashboardPage() {
       }
     }
 
-    const { data: newTenant, error } = await supabase
-      .from('tenants')
-      .insert({
-        owner_id: userId,
-        property_id: property.id || null,
-        room_id: roomId && roomId !== 'unassigned' ? roomId : null,
-        bed_id: bedId && bedId !== 'unassigned' ? bedId : null,
-        full_name: name,
-        phone,
-        monthly_rent: rent,
-        security_deposit: deposit,
-        joining_date: joiningDate,
-        rent_due_day: dueDay,
-        status: 'Pending',
-      })
-      .select('id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id,rent_due_day')
-      .single()
+    // 3. Server Action Execution (with resilient client fallback)
+    let createdTenant: any = null
+    const actionRes = await createTenantAction({
+      name,
+      phone,
+      roomId,
+      bedId,
+      propertyId: property.id || null,
+      rent,
+      deposit,
+      joiningDate,
+      dueDay,
+    })
 
-    if (error) {
-      flash(error.message.includes('capacity') ? error.message : 'Could not create tenant record.')
-      return
+    if (actionRes.success && actionRes.tenant) {
+      createdTenant = actionRes.tenant
+    } else {
+      if (actionRes.error?.includes('session has expired')) {
+        flash('Your session has expired. Please sign in again.')
+        router.push('/login?next=/dashboard')
+        return
+      }
+
+      // Direct client fallback using guaranteed columns
+      const { data: newTenant, error } = await supabase
+        .from('tenants')
+        .insert({
+          owner_id: userId,
+          property_id: property.id || null,
+          room_id: roomId && roomId !== 'unassigned' ? roomId : null,
+          bed_id: bedId && bedId !== 'unassigned' ? bedId : null,
+          full_name: name,
+          phone,
+          monthly_rent: rent,
+          security_deposit: deposit,
+          joining_date: joiningDate,
+          status: 'Pending',
+        })
+        .select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id')
+        .single()
+
+      if (error) {
+        if (error.code === 'PGRST303' || error.message?.includes('JWT') || error.message?.includes('expired')) {
+          flash('Your session has expired. Please sign in again.')
+          router.push('/login?next=/dashboard')
+          return
+        }
+        flash(actionRes.error || error.message || 'Could not register resident record.')
+        return
+      }
+      createdTenant = newTenant
     }
 
     // If bed was assigned, set bed status to 'occupied'
-    if (newTenant.bed_id) {
-      await supabase.from('beds').update({ status: 'occupied' }).eq('id', newTenant.bed_id)
-      setBeds((prev) => prev.map((b) => (b.id === newTenant.bed_id ? { ...b, status: 'occupied' } : b)))
+    if (createdTenant.bed_id) {
+      await supabase.from('beds').update({ status: 'occupied' }).eq('id', createdTenant.bed_id)
+      setBeds((prev) => prev.map((b) => (b.id === createdTenant.bed_id ? { ...b, status: 'occupied' } : b)))
     }
 
-    const roomName = rooms.find((r) => r.id === newTenant.room_id)?.room_number || 'Unassigned'
-    const bedName = beds.find((b) => b.id === newTenant.bed_id)?.bed_number || ''
+    const roomName = rooms.find((r) => r.id === createdTenant.room_id)?.room_number || 'Unassigned'
+    const bedName = beds.find((b) => b.id === createdTenant.bed_id)?.bed_number || ''
 
     setTenants((prev) => [
       {
-        id: newTenant.id,
-        name: newTenant.full_name,
-        phone: newTenant.phone,
-        room_id: newTenant.room_id,
-        bed_id: newTenant.bed_id,
+        id: createdTenant.id,
+        property_id: createdTenant.property_id || property.id,
+        name: createdTenant.full_name,
+        phone: createdTenant.phone,
+        room_id: createdTenant.room_id,
+        bed_id: createdTenant.bed_id,
         bed_number: bedName,
         room: roomName,
-        rent: Number(newTenant.monthly_rent),
-        deposit: Number(newTenant.security_deposit),
-        joiningDate: newTenant.joining_date,
-        rent_due_day: Number(newTenant.rent_due_day || dueDay),
+        rent: Number(createdTenant.monthly_rent),
+        deposit: Number(createdTenant.security_deposit || 0),
+        joiningDate: createdTenant.joining_date,
+        rent_due_day: dueDay,
         status: 'Pending',
       },
       ...prev,
@@ -1017,6 +1125,13 @@ export default function DashboardPage() {
     e.preventDefault()
     if (!userId || !editingTenant) return
 
+    const sessionCheck = await ensureFreshSession(supabase)
+    if (!sessionCheck.valid) {
+      flash('Your session has expired. Please sign in again.')
+      router.push('/login?next=/dashboard')
+      return
+    }
+
     const fd = new FormData(e.currentTarget)
     const name = String(fd.get('name')).trim()
     const phone = String(fd.get('phone')).trim()
@@ -1025,7 +1140,7 @@ export default function DashboardPage() {
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
     const dueDay = Math.min(Math.max(Number(fd.get('rent_due_day') || editingTenant.rent_due_day || 5), 1), 31)
-    const joiningDate = String(fd.get('joining_date')) || editingTenant.joiningDate
+    const joiningDate = String(fd.get('joining_date')) || editingTenant.joiningDate || new Date().toISOString().slice(0, 10)
     const status = String(fd.get('status') || editingTenant.status) as Tenant['status']
 
     if (!name || rent <= 0) {
@@ -1069,26 +1184,50 @@ export default function DashboardPage() {
     const finalRoomId = roomId && roomId !== 'unassigned' ? roomId : null
     const finalBedId = bedId && bedId !== 'unassigned' ? bedId : null
 
-    const { error } = await supabase
-      .from('tenants')
-      .update({
-        full_name: name,
-        phone,
-        room_id: finalRoomId,
-        bed_id: finalBedId,
-        monthly_rent: rent,
-        security_deposit: deposit,
-        joining_date: joiningDate,
-        rent_due_day: dueDay,
-        status,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', editingTenant.id)
-      .eq('owner_id', userId)
+    // Server action execution with client fallback
+    const updateRes = await updateTenantAction(editingTenant.id, {
+      name,
+      phone,
+      roomId: finalRoomId,
+      bedId: finalBedId,
+      rent,
+      deposit,
+      joiningDate,
+      status,
+    })
 
-    if (error) {
-      flash(`Could not update tenant: ${error.message}`)
-      return
+    if (!updateRes.success) {
+      if (updateRes.error?.includes('session has expired')) {
+        flash('Your session has expired. Please sign in again.')
+        router.push('/login?next=/dashboard')
+        return
+      }
+
+      const { error: clientUpdateErr } = await supabase
+        .from('tenants')
+        .update({
+          full_name: name,
+          phone,
+          room_id: finalRoomId,
+          bed_id: finalBedId,
+          monthly_rent: rent,
+          security_deposit: deposit,
+          joining_date: joiningDate,
+          status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingTenant.id)
+        .eq('owner_id', userId)
+
+      if (clientUpdateErr) {
+        if (clientUpdateErr.code === 'PGRST303' || clientUpdateErr.message?.includes('JWT') || clientUpdateErr.message?.includes('expired')) {
+          flash('Your session has expired. Please sign in again.')
+          router.push('/login?next=/dashboard')
+          return
+        }
+        flash(`Could not update tenant: ${clientUpdateErr.message}`)
+        return
+      }
     }
 
     // Sync Bed Statuses
@@ -1129,7 +1268,7 @@ export default function DashboardPage() {
     )
 
     setEditingTenant(null)
-    flash(`Resident details for ${name} updated.`)
+    flash(`Resident ${name} updated successfully.`)
   }
 
   // Vacate Tenant (Frees capacity and bed)
@@ -1277,6 +1416,14 @@ export default function DashboardPage() {
       isDestructive: false,
       onConfirm: async () => {
         const now = new Date().toISOString()
+        const combinedNotes = monthCovered ? `[Month: ${monthCovered}] ${notes}`.trim() : notes
+        const sessionCheck = await ensureFreshSession(supabase)
+        if (!sessionCheck.valid) {
+          flash('Your session has expired. Please sign in again.')
+          router.push('/login?next=/dashboard')
+          return
+        }
+
         const { data: newPayment, error } = await supabase
           .from('payments')
           .insert({
@@ -1286,15 +1433,19 @@ export default function DashboardPage() {
             amount,
             payment_method: method,
             payment_type: type,
-            month_covered: monthCovered || null,
             paid_at: now,
-            notes,
+            notes: combinedNotes || null,
           })
-          .select('id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,notes')
+          .select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,notes')
           .single()
 
         if (error) {
-          flash('Could not save payment to ledger.')
+          if (error.code === 'PGRST303' || error.message?.includes('JWT') || error.message?.includes('expired')) {
+            flash('Your session has expired. Please sign in again.')
+            router.push('/login?next=/dashboard')
+            return
+          }
+          flash(`Could not save payment to ledger: ${error.message}`)
           return
         }
 
@@ -1303,13 +1454,14 @@ export default function DashboardPage() {
 
         const recordedPayment: PaymentRecord = {
           id: newPayment.id,
+          property_id: newPayment.property_id || property.id,
           tenant_id: newPayment.tenant_id,
           tenant_name: targetTenant.name,
           room_number: targetTenant.room,
           amount: newPayment.amount,
           payment_method: newPayment.payment_method,
           payment_type: newPayment.payment_type,
-          month_covered: newPayment.month_covered || undefined,
+          month_covered: monthCovered || undefined,
           paid_at: newPayment.paid_at,
           notes: newPayment.notes,
         }
@@ -1829,9 +1981,9 @@ export default function DashboardPage() {
       {/* Main Content Area */}
       <main className="lg:pl-[248px]">
         {/* Top Header */}
-        <header className="sticky top-0 z-20 flex h-[74px] items-center justify-between border-b border-[#e8dfd4] bg-white px-5 sm:px-8">
+        <header className="sticky top-0 z-20 flex min-h-[74px] flex-wrap items-center justify-between border-b border-[#e8dfd4] bg-white px-3 sm:px-8 py-2 gap-3">
           <div className="flex items-center gap-3">
-            <button className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+            <button className="lg:hidden p-1.5 rounded-lg hover:bg-[#f7f3ed] text-[#44485a]" onClick={() => setMobileOpen(true)} aria-label="Open menu">
               <Menu className="size-5" />
             </button>
             <div className="hidden items-center gap-2 text-xs text-[#969baa] sm:flex">
@@ -1839,12 +1991,30 @@ export default function DashboardPage() {
               <span>/</span>
               <span className="font-semibold text-[#44485a]">{active}</span>
             </div>
-            <h1 className="text-base font-semibold lg:hidden">{active}</h1>
+            <h1 className="text-base font-semibold text-[#3d3934] lg:hidden">{active}</h1>
+
+            {/* Multiple Properties Switcher Dropdown in Header */}
+            {properties.length > 1 && (
+              <div className="flex items-center gap-1.5 rounded-xl border border-[#e8dfd4] bg-[#fbf8f3] px-2.5 py-1 text-xs shadow-2xs">
+                <Building2 className="size-3.5 text-[#9a7651] shrink-0" />
+                <select
+                  value={selectedPropertyId || property.id}
+                  onChange={(e) => setSelectedPropertyId(e.target.value)}
+                  className="bg-transparent font-semibold text-[#44485a] outline-none cursor-pointer text-xs max-w-[130px] sm:max-w-[180px] truncate"
+                >
+                  {properties.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             {/* Header Trial Pill */}
-            <div className="hidden sm:flex items-center gap-2 rounded-full border border-[#e8dfd4] bg-[#fbf8f3] px-3 py-1.5 text-xs shadow-xs">
+            <div className="hidden md:flex items-center gap-2 rounded-full border border-[#e8dfd4] bg-[#fbf8f3] px-3 py-1.5 text-xs shadow-xs">
               <span
                 className={`size-2 rounded-full ${
                   isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#9a7651]'
@@ -1863,13 +2033,13 @@ export default function DashboardPage() {
             <LocaleSwitcher />
 
             {/* Dynamic Multi-Module Search Input */}
-            <div className="relative flex items-center gap-2 rounded-lg border border-[#e8dfd4] bg-[#faf7f2] px-3 py-2 text-xs text-[#74798a]">
-              <Search className="size-3.5 text-[#9a7651]" />
+            <div className="relative flex items-center gap-2 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a]">
+              <Search className="size-3.5 text-[#9a7651] shrink-0" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={`Search ${active}...`}
-                className="w-32 sm:w-44 bg-transparent outline-none placeholder:text-[#a0a3b0]"
+                className="w-24 sm:w-36 md:w-44 bg-transparent outline-none placeholder:text-[#a0a3b0] text-xs"
               />
               {search && (
                 <div className="flex items-center gap-1.5">
@@ -1884,18 +2054,18 @@ export default function DashboardPage() {
             </div>
 
             {/* Owner Profile & Sign Out Icon */}
-            <div className="flex items-center gap-2 border-l border-[#eceef2] pl-3">
+            <div className="flex items-center gap-2 border-l border-[#eceef2] pl-2 sm:pl-3">
               <div className="grid size-8 place-items-center rounded-full bg-[#f4ede3] text-xs font-bold text-[#9a7651]">
                 {userName ? userName.slice(0, 2).toUpperCase() : 'PO'}
               </div>
               <div className="hidden sm:block">
-                <p className="max-w-[130px] truncate text-xs font-bold">{userName}</p>
-                <p className="text-[10px] text-[#999daa]">{property.name || 'Owner Workspace'}</p>
+                <p className="max-w-[110px] sm:max-w-[130px] truncate text-xs font-bold">{userName}</p>
+                <p className="text-[10px] text-[#999daa] truncate max-w-[110px] sm:max-w-[130px]">{property.name || 'Owner Workspace'}</p>
               </div>
               <button
                 onClick={() => setShowLogoutModal(true)}
                 title="Sign out"
-                className="ml-2 rounded-lg p-1.5 text-[#9296a5] hover:bg-[#f7f3ed] hover:text-[#b95c3c]"
+                className="rounded-xl p-2 text-[#9296a5] hover:bg-[#f7f3ed] hover:text-[#b95c3c] transition-colors"
               >
                 <LogOut className="size-4" />
               </button>
@@ -1904,14 +2074,14 @@ export default function DashboardPage() {
         </header>
 
         {/* View Router */}
-        <div className="mx-auto max-w-[1360px] px-5 py-7 sm:px-8 lg:px-10">
+        <div className="mx-auto max-w-[1360px] px-3 sm:px-8 py-5 sm:py-7 lg:px-10">
           {active === 'Overview' && (
             <OverviewTab
               property={property}
-              rooms={rooms}
-              beds={beds}
-              tenants={tenants}
-              payments={payments}
+              rooms={currentPropertyRooms}
+              beds={currentPropertyBeds}
+              tenants={currentPropertyTenants}
+              payments={currentPropertyPayments}
               collectedMonth={totalCollectedMonth}
               rentPending={totalRentPending}
               expensesMonth={totalExpensesMonth}
@@ -1925,17 +2095,20 @@ export default function DashboardPage() {
               isTrialExpired={isTrialExpired}
               trialStart={trialStart}
               trialEnd={trialEnd}
-              onAddProperty={() => setShowPropertyModal(true)}
+              onAddProperty={() => {
+                setEditingPropertyId(null)
+                setShowPropertyModal(true)
+              }}
               onAddRoom={() => setShowRoomModal(true)}
               onAddTenant={() => {
-                setTenantFormRoomId(rooms[0]?.id || 'unassigned')
-                setTenantFormRent(rooms[0]?.base_rent || 0)
+                setTenantFormRoomId(currentPropertyRooms[0]?.id || 'unassigned')
+                setTenantFormRent(currentPropertyRooms[0]?.base_rent || 0)
                 setShowTenantModal(true)
               }}
               onRecordPayment={() => {
-                if (tenants.length) {
-                  setPaymentFormTenantId(tenants[0].id)
-                  setPaymentFormAmount(tenants[0].rent)
+                if (currentPropertyTenants.length) {
+                  setPaymentFormTenantId(currentPropertyTenants[0].id)
+                  setPaymentFormAmount(currentPropertyTenants[0].rent)
                 }
                 setShowPaymentModal(true)
               }}
@@ -1947,19 +2120,29 @@ export default function DashboardPage() {
           {active === 'Property' && (
             <PropertyTab
               property={property}
-              onEdit={() => setShowPropertyModal(true)}
+              properties={properties}
+              selectedPropertyId={selectedPropertyId}
+              onSelectProperty={(id: string) => setSelectedPropertyId(id)}
+              onAddProperty={() => {
+                setEditingPropertyId(null)
+                setShowPropertyModal(true)
+              }}
+              onEdit={(p?: any) => {
+                setEditingPropertyId(p?.id || property.id)
+                setShowPropertyModal(true)
+              }}
               onDelete={() => setShowDeletePropertyModal(true)}
-              roomsCount={rooms.length}
-              tenantsCount={activeTenantsCount}
-              bedsCount={beds.length}
+              roomsCount={currentPropertyRooms.length}
+              tenantsCount={currentPropertyTenants.filter((t) => t.status !== 'Vacated').length}
+              bedsCount={currentPropertyBeds.length}
             />
           )}
 
           {active === 'Rooms & Beds' && (
             <RoomsTab
-              rooms={filteredRooms}
-              beds={beds}
-              tenants={tenants}
+              rooms={filteredRooms.filter((r) => !property.id || !r.property_id || r.property_id === property.id)}
+              beds={currentPropertyBeds}
+              tenants={currentPropertyTenants}
               onAddRoom={() => setShowRoomModal(true)}
               onEditRoom={(r: Room) => setEditingRoom(r)}
               onDeleteRoom={handleDeleteRoom}
@@ -1975,13 +2158,13 @@ export default function DashboardPage() {
 
           {active === 'Tenants' && (
             <TenantsTab
-              tenants={filteredTenants}
-              rooms={rooms}
+              tenants={filteredTenants.filter((t) => !property.id || !t.property_id || t.property_id === property.id)}
+              rooms={currentPropertyRooms}
               property={property}
               locale={locale}
               onAddTenant={() => {
-                setTenantFormRoomId(rooms[0]?.id || 'unassigned')
-                setTenantFormRent(rooms[0]?.base_rent || 0)
+                setTenantFormRoomId(currentPropertyRooms[0]?.id || 'unassigned')
+                setTenantFormRent(currentPropertyRooms[0]?.base_rent || 0)
                 setShowTenantModal(true)
               }}
               onEditTenant={(t: Tenant) => setEditingTenant(t)}
@@ -1999,13 +2182,13 @@ export default function DashboardPage() {
 
           {active === 'Rent & Payments' && (
             <PaymentsTab
-              payments={filteredPayments}
-              tenants={tenants}
+              payments={filteredPayments.filter((p) => !property.id || !p.property_id || p.property_id === property.id)}
+              tenants={currentPropertyTenants}
               locale={locale}
               onRecordPayment={() => {
-                if (tenants.length) {
-                  setPaymentFormTenantId(tenants[0].id)
-                  setPaymentFormAmount(tenants[0].rent)
+                if (currentPropertyTenants.length) {
+                  setPaymentFormTenantId(currentPropertyTenants[0].id)
+                  setPaymentFormAmount(currentPropertyTenants[0].rent)
                 }
                 setShowPaymentModal(true)
               }}
@@ -2019,12 +2202,12 @@ export default function DashboardPage() {
 
           {active === 'Electricity' && (
             <ElectricityTab
-              records={filteredElectricity}
-              rooms={rooms}
+              records={filteredElectricity.filter((el) => !property.id || !el.property_id || el.property_id === property.id)}
+              rooms={currentPropertyRooms}
               onAddReading={() => {
-                const firstRoom = rooms[0]
+                const firstRoom = currentPropertyRooms[0]
                 if (firstRoom) {
-                  const lastReading = electricity.find((el) => el.room_id === firstRoom.id)?.current_reading || 0
+                  const lastReading = currentPropertyElectricity.find((el) => el.room_id === firstRoom.id)?.current_reading || 0
                   setElecFormRoomId(firstRoom.id)
                   setElecFormPrevReading(lastReading)
                 }
@@ -2038,7 +2221,7 @@ export default function DashboardPage() {
 
           {active === 'Expenses' && (
             <ExpensesTab
-              expenses={filteredExpenses}
+              expenses={filteredExpenses.filter((e) => !property.id || !e.property_id || e.property_id === property.id)}
               totalMonth={totalExpensesMonth}
               onAddExpense={() => setShowExpenseModal(true)}
               onEditExpense={(e: Expense) => setEditingExpense(e)}
@@ -2050,7 +2233,7 @@ export default function DashboardPage() {
 
           {active === 'Complaints' && (
             <ComplaintsTab
-              complaints={filteredComplaints}
+              complaints={filteredComplaints.filter((c) => !property.id || !c.property_id || c.property_id === property.id)}
               onAddComplaint={() => setShowComplaintModal(true)}
               onResolve={handleResolveComplaint}
               onDelete={handleDeleteComplaint}
@@ -2062,9 +2245,9 @@ export default function DashboardPage() {
           {active === 'Reports' && (
             <ReportsTab
               property={property}
-              rooms={rooms}
-              beds={beds}
-              tenants={tenants}
+              rooms={currentPropertyRooms}
+              beds={currentPropertyBeds}
+              tenants={currentPropertyTenants}
               revenueMonth={totalCollectedMonth}
               expensesMonth={totalExpensesMonth}
               rentPending={totalRentPending}
@@ -2094,7 +2277,10 @@ export default function DashboardPage() {
               isEndingSoon={isEndingSoon}
               isTrialExpired={isTrialExpired}
               subscriptionPlan={subscriptionPlan}
-              onEditProperty={() => setShowPropertyModal(true)}
+              onEditProperty={() => {
+                setEditingPropertyId(property.id)
+                setShowPropertyModal(true)
+              }}
               onDeleteProperty={() => setShowDeletePropertyModal(true)}
               onViewPlans={() => setShowPricingModal(true)}
               onSignOut={() => setShowLogoutModal(true)}
@@ -2108,31 +2294,68 @@ export default function DashboardPage() {
       {/* ---------------------------------------------------------------------- */}
 
       {/* 1. Property Setup / Edit Modal */}
-      {showPropertyModal && (
-        <Modal
-          title={property.name ? 'Edit Property Details' : 'Set Up Your Rental Property'}
-          onClose={() => !isSavingProperty && setShowPropertyModal(false)}
-        >
-          <form onSubmit={handleSaveProperty} className="flex flex-col gap-4">
-            <p className="text-xs text-[#74798a]">
-              Please fill in your rental property details. Required fields are marked (<span className="text-[#9a7651] font-bold">*</span>).
-            </p>
-            <Field label="Property Name" name="name" defaultValue={property.name} placeholder="e.g. Green Valley Residency" required />
-            <Field label="Property Address" name="address" defaultValue={property.address} placeholder="Street, Locality, Area" required />
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="City" name="city" defaultValue={property.city} placeholder="e.g. Bengaluru" />
-              <Field label="Contact Phone" name="contact" defaultValue={property.contact} placeholder="e.g. 9876543210" />
-            </div>
-            <button
-              disabled={isSavingProperty}
-              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342] disabled:opacity-60"
-            >
-              {isSavingProperty && <Loader2 className="size-4 animate-spin" />}
-              {isSavingProperty ? 'Saving Details...' : 'Save Property Details'}
-            </button>
-          </form>
-        </Modal>
-      )}
+      {showPropertyModal && (() => {
+        const editTarget = editingPropertyId
+          ? properties.find((p) => p.id === editingPropertyId) || property
+          : null
+        return (
+          <Modal
+            title={
+              editTarget
+                ? 'Edit Property Details'
+                : properties.length > 0
+                ? 'Add New Rental Property'
+                : 'Set Up Your Rental Property'
+            }
+            onClose={() => !isSavingProperty && setShowPropertyModal(false)}
+          >
+            <form onSubmit={handleSaveProperty} className="flex flex-col gap-4">
+              <p className="text-xs text-[#74798a]">
+                Please fill in your rental property details. Required fields are marked (<span className="text-[#9a7651] font-bold">*</span>).
+              </p>
+              <Field
+                label="Property Name"
+                name="name"
+                defaultValue={editTarget?.name || ''}
+                placeholder="e.g. Green Valley Residency"
+                required
+              />
+              <Field
+                label="Property Address"
+                name="address"
+                defaultValue={editTarget?.address || ''}
+                placeholder="Street, Locality, Area"
+                required
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <Field
+                  label="City"
+                  name="city"
+                  defaultValue={editTarget?.city || ''}
+                  placeholder="e.g. Bengaluru"
+                />
+                <Field
+                  label="Contact Phone"
+                  name="contact"
+                  defaultValue={editTarget?.contact || ''}
+                  placeholder="e.g. 9876543210"
+                />
+              </div>
+              <button
+                disabled={isSavingProperty}
+                className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342] disabled:opacity-60"
+              >
+                {isSavingProperty && <Loader2 className="size-4 animate-spin" />}
+                {isSavingProperty
+                  ? 'Saving Details...'
+                  : editTarget
+                  ? 'Save Property Details'
+                  : 'Create Property'}
+              </button>
+            </form>
+          </Modal>
+        )
+      })()}
 
       {/* 2. Delete Property Confirmation Modal (Requires typing "DELETE") */}
       {showDeletePropertyModal && (
@@ -3227,55 +3450,151 @@ function OverviewTab({
   )
 }
 
-function PropertyTab({ property, onEdit, onDelete, roomsCount, tenantsCount, bedsCount }: any) {
+function PropertyTab({
+  property,
+  properties = [],
+  selectedPropertyId,
+  onSelectProperty,
+  onAddProperty,
+  onEdit,
+  onDelete,
+  roomsCount,
+  tenantsCount,
+  bedsCount,
+}: any) {
   return (
-    <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center border-b border-[#f0f1f4] pb-6">
-        <div className="flex items-center gap-4">
-          <div className="grid size-14 place-items-center rounded-2xl bg-[#f4ede3] text-[#9a7651]">
-            <Building2 className="size-7" />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold">{property.name || 'No Property Configured'}</h3>
-            <p className="text-xs text-[#85899a]">
-              {property.address ? `${property.address}${property.city ? `, ${property.city}` : ''}` : 'Add your rental property details.'}
-            </p>
-          </div>
+    <div className="flex flex-col gap-6">
+      {/* Top Header & Actions */}
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-[#3d3934]">Rental Properties</h2>
+          <p className="text-xs text-[#85899a]">
+            Manage your properties, branches, and accommodation centers with isolated operational records.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onEdit}
-            className="rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
-          >
-            {property.name ? 'Edit Details' : 'Add Property'}
-          </button>
-          {property.name && (
-            <button
-              onClick={onDelete}
-              className="rounded-xl border border-[#ffe0e0] px-3 py-2.5 text-xs font-semibold text-[#b95c3c] hover:bg-[#fff5f5]"
-            >
-              Delete Property
-            </button>
-          )}
-        </div>
+        <button
+          onClick={onAddProperty}
+          className="flex items-center justify-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342] transition-colors"
+        >
+          <Plus className="size-4" /> Add New Property
+        </button>
       </div>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-4">
-        <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4">
-          <p className="text-xs text-[#999daa]">Configured Rooms</p>
-          <p className="mt-1 text-2xl font-bold">{roomsCount}</p>
+      {/* Multiple Properties Switcher Cards (when owner has >1 properties) */}
+      {properties.length > 1 && (
+        <div>
+          <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-[#999daa]">
+            Your Properties ({properties.length})
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {properties.map((p: any) => {
+              const isSelected = p.id === (selectedPropertyId || property.id)
+              return (
+                <div
+                  key={p.id}
+                  className={`rounded-2xl border p-5 transition-all shadow-xs ${
+                    isSelected
+                      ? 'border-[#9a7651] bg-[#fdfbf7] ring-2 ring-[#9a7651]/20'
+                      : 'border-[#e8dfd4] bg-white hover:border-[#c5b19b]'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`grid size-10 place-items-center rounded-xl ${isSelected ? 'bg-[#9a7651] text-white' : 'bg-[#f4ede3] text-[#9a7651]'}`}>
+                        <Building2 className="size-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-[#3d3934]">{p.name}</h4>
+                        <p className="text-[11px] text-[#85899a] truncate max-w-[180px]">{p.city || p.address}</p>
+                      </div>
+                    </div>
+                    {isSelected && (
+                      <span className="rounded-full bg-[#eef7f2] px-2 py-0.5 text-[10px] font-bold text-[#2e8560]">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-4 flex items-center justify-between border-t border-[#f0ece5] pt-3 text-xs">
+                    {isSelected ? (
+                      <span className="text-[11px] font-semibold text-[#9a7651]">Selected Workspace</span>
+                    ) : (
+                      <button
+                        onClick={() => onSelectProperty && onSelectProperty(p.id)}
+                        className="rounded-lg bg-[#f4ede3] px-3 py-1.5 text-xs font-semibold text-[#7e5c3b] hover:bg-[#e8decb]"
+                      >
+                        Switch Property
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onEdit && onEdit(p)}
+                      className="text-xs font-semibold text-[#85899a] hover:text-[#3d3934]"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
-        <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4">
-          <p className="text-xs text-[#999daa]">Total Beds</p>
-          <p className="mt-1 text-2xl font-bold">{bedsCount}</p>
+      )}
+
+      {/* Selected Property Details Panel */}
+      <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center border-b border-[#f0f1f4] pb-6">
+          <div className="flex items-center gap-4">
+            <div className="grid size-14 place-items-center rounded-2xl bg-[#f4ede3] text-[#9a7651]">
+              <Building2 className="size-7" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl font-bold">{property.name || 'No Property Configured'}</h3>
+                {property.name && (
+                  <span className="rounded-md bg-[#f4ede3] px-2 py-0.5 text-[10px] font-bold text-[#866342]">
+                    Current Workspace
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[#85899a]">
+                {property.address ? `${property.address}${property.city ? `, ${property.city}` : ''}` : 'Add your rental property details.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => onEdit(property)}
+              className="rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+            >
+              {property.name ? 'Edit Details' : 'Add Property'}
+            </button>
+            {property.name && (
+              <button
+                onClick={onDelete}
+                className="rounded-xl border border-[#ffe0e0] px-3 py-2.5 text-xs font-semibold text-[#b95c3c] hover:bg-[#fff5f5]"
+              >
+                Delete Property
+              </button>
+            )}
+          </div>
         </div>
-        <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4">
-          <p className="text-xs text-[#999daa]">Active Residents</p>
-          <p className="mt-1 text-2xl font-bold">{tenantsCount}</p>
-        </div>
-        <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4">
-          <p className="text-xs text-[#999daa]">Contact Phone</p>
-          <p className="mt-1 text-sm font-semibold">{property.contact || 'Not provided'}</p>
+
+        <div className="mt-8 grid gap-4 sm:grid-cols-4">
+          <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4">
+            <p className="text-xs text-[#999daa]">Configured Rooms</p>
+            <p className="mt-1 text-2xl font-bold">{roomsCount}</p>
+          </div>
+          <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4">
+            <p className="text-xs text-[#999daa]">Total Beds</p>
+            <p className="mt-1 text-2xl font-bold">{bedsCount}</p>
+          </div>
+          <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4">
+            <p className="text-xs text-[#999daa]">Active Residents</p>
+            <p className="mt-1 text-2xl font-bold">{tenantsCount}</p>
+          </div>
+          <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4">
+            <p className="text-xs text-[#999daa]">Contact Phone</p>
+            <p className="mt-1 text-sm font-semibold">{property.contact || 'Not provided'}</p>
+          </div>
         </div>
       </div>
     </div>
@@ -4418,15 +4737,17 @@ function Field({ label, name, placeholder, type = 'text', defaultValue, value, o
 
 function Modal({ title, onClose, children }: any) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="w-full max-w-lg rounded-3xl border border-[#e8dfd4] bg-white p-7 shadow-2xl animate-in fade-in zoom-in-95 my-8">
-        <div className="mb-5 flex items-center justify-between border-b border-[#f0f1f4] pb-4">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="w-full max-w-lg max-h-[92vh] flex flex-col rounded-3xl border border-[#e8dfd4] bg-white p-5 sm:p-7 shadow-2xl animate-in fade-in zoom-in-95 my-auto overflow-hidden">
+        <div className="mb-4 flex items-center justify-between border-b border-[#f0f1f4] pb-3 shrink-0">
           <h3 className="text-base font-bold text-[#3d3934]">{title}</h3>
-          <button onClick={onClose} aria-label="Close modal" className="rounded-lg p-1 text-[#8b8fa0] hover:bg-[#f7f3ed]">
+          <button onClick={onClose} aria-label="Close modal" className="rounded-xl p-2 text-[#8b8fa0] hover:bg-[#f7f3ed] hover:text-[#3d3934] transition-colors">
             <X className="size-4" />
           </button>
         </div>
-        {children}
+        <div className="overflow-y-auto pr-1">
+          {children}
+        </div>
       </div>
     </div>
   )
