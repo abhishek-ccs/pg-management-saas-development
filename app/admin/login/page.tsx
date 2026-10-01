@@ -76,13 +76,13 @@ export default function AdminLoginPage() {
             <ShieldCheck className="size-5" />
           </div>
           <div>
-            <p className="font-bold">StayNest</p>
+            <p className="font-bold">StayBook</p>
             <p className="text-[11px] uppercase tracking-[0.16em] text-[#cbbfaf]">Platform Admin</p>
           </div>
         </div>
 
         <h1 className="text-2xl font-bold tracking-tight">Admin sign in</h1>
-        <p className="mt-2 text-sm text-[#cbbfaf]">Manage the StayNest platform securely.</p>
+        <p className="mt-2 text-sm text-[#cbbfaf]">Manage the StayBook platform securely.</p>
 
         <form onSubmit={submit} className="mt-7 flex flex-col gap-4">
           <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#eadbca]">

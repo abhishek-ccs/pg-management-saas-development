@@ -5,28 +5,28 @@ import { StructuredData } from '@/components/seo/StructuredData'
 import { I18nProvider } from '@/lib/i18n'
 import './globals.css'
 
-const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staynest.in'
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staybook.in'
 
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: {
-    default: 'StayNest | PG & Rental Property Management Software',
-    template: '%s | StayNest',
+    default: 'StayBook | Modern Property & Rental Management Software',
+    template: '%s | StayBook',
   },
   description:
-    'Modern cloud PG and rental property management SaaS. Track bed occupancy, manage tenants, log electricity meter units, automate rent receipts, and reconcile ledgers.',
+    'Modern cloud property and rental management SaaS for PGs, hostels, apartments, and rental houses. Track occupancy, manage residents, log utilities, automate rent receipts, and reconcile ledgers.',
   keywords: [
+    'property management software',
     'PG management software',
     'hostel management system',
-    'paying guest management app',
-    'rent ledger SaaS',
+    'apartment rental management',
     'tenant management software',
-    'co-living management',
-    'StayNest',
+    'rent ledger SaaS',
+    'StayBook',
   ],
-  authors: [{ name: 'StayNest Technologies' }],
-  creator: 'StayNest Technologies',
-  publisher: 'StayNest Technologies',
+  authors: [{ name: 'StayBook Technologies' }],
+  creator: 'StayBook Technologies',
+  publisher: 'StayBook Technologies',
   formatDetection: {
     email: false,
     address: false,
@@ -36,24 +36,24 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'en_IN',
     url: baseUrl,
-    siteName: 'StayNest Property Management SaaS',
-    title: 'StayNest | PG & Rental Property Management Software',
+    siteName: 'StayBook Property Management SaaS',
+    title: 'StayBook | Modern Property & Rental Management Software',
     description:
-      'Replace spreadsheets with a calm, accurate PG and rental property management system. Real-time bed occupancy, rent collection, and tenant management.',
+      'Replace spreadsheets with a calm, accurate rental property management system for PGs, hostels, apartments, and rental houses.',
     images: [
       {
         url: '/icon.svg',
         width: 512,
         height: 512,
-        alt: 'StayNest PG Management SaaS',
+        alt: 'StayBook Property Management SaaS',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'StayNest | PG & Rental Property Management Software',
+    title: 'StayBook | Modern Property & Rental Management Software',
     description:
-      'Modern cloud PG and rental property management SaaS. Track bed occupancy, manage tenants, and reconcile ledgers.',
+      'Modern cloud property and rental management SaaS for PGs, hostels, apartments, and houses.',
     images: ['/icon.svg'],
   },
   robots: {

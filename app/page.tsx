@@ -72,25 +72,25 @@ export default function LandingPage() {
 
   const faqs = [
     {
-      q: locale === 'hi' ? 'StayNest क्या है?' : 'What is StayNest?',
+      q: locale === 'hi' ? 'StayBook क्या है?' : 'What is StayBook?',
       a:
         locale === 'hi'
-          ? 'StayNest पीजी स्वामियों, हॉस्टलों और रेंटल प्रबंधकों के लिए विशेष रूप से बनाया गया एक क्लाउड सॉफ्टवेयर है। यह कमरों की बनावट, बिस्तर क्षमता, किरायेदार ऑनबोर्डिंग, किराया बहीखाता, बिजली बिल और दैनिक खर्चों को एक सरल डैशबोर्ड में केंद्रित करता है।'
-          : 'StayNest is a dedicated rental property and PG/hostel management workspace designed for property owners and operators. It centralizes all your daily property operations—including property details, room configurations, bed capacities, tenant onboarding, rent collection tracking, utility readings, expense records, and maintenance complaints—into one seamless, intuitive dashboard.',
+          ? 'StayBook पीजी, हॉस्टल, अपार्टमेंट, मकान और रेंटल प्रॉपर्टी स्वामियों के लिए बनाया गया एक आधुनिक क्लाउड सॉफ्टवेयर है। यह कमरों, यूनिट्स, किरायेदार रिकॉर्ड, देय तिथियों, बिजली बिल और मासिक बहीखाते को एक शांत कार्यक्षेत्र में प्रबंधित करता है।'
+          : 'StayBook is a modern property and rental management workspace designed for owners and managers of PGs, hostels, apartments, rental houses, and societies. It centralizes all your daily property operations—including property details, unit and room configurations, resident onboarding, rent collection, utilities, and financial ledgers—into one calm, intuitive dashboard.',
     },
     {
-      q: locale === 'hi' ? 'StayNest का उपयोग कौन कर सकता है?' : 'Who can use StayNest?',
+      q: locale === 'hi' ? 'StayBook का उपयोग कौन कर सकता है?' : 'Who can use StayBook?',
       a:
         locale === 'hi'
-          ? 'StayNest पेइंग गेस्ट (PG), छात्र हॉस्टल, को-लिविंग और रेंटल संपत्तियों के मालिकों और प्रबंधकों के लिए आदर्श है जो पुराने कागजी रजिस्टरों और जटिल स्प्रेडशीट को अलविदा कहना चाहते हैं।'
-          : 'StayNest is built specifically for owners and managers of Paying Guest (PG) accommodations, co-living facilities, student hostels, serviced apartments, and residential rental properties of any size who want to replace messy spreadsheets and manual notebooks with an organized system.',
+          ? 'StayBook पेइंग गेस्ट (PG), हॉस्टल, रेंटल हाउस, अपार्टमेंट, फ्लैट और आवासीय सोसायटियों के स्वामियों और प्रबंधकों के लिए निर्मित है जो स्प्रेडशीट और कागजी बहीखाते से मुक्त होना चाहते हैं।'
+          : 'StayBook is built specifically for owners and managers of PGs, student hostels, apartments, flats, independent rental houses, and residential societies of any size who want an organized, accurate property management system.',
     },
     {
       q: locale === 'hi' ? '7-दिवसीय निःशुल्क ट्रायल में क्या शामिल है?' : 'What does the 7-day free trial include?',
       a:
         locale === 'hi'
-          ? 'प्रत्येक नए खाते को बिना किसी अग्रिम भुगतान के 7 दिनों के लिए StayNest के सभी फीचर्स का पूर्ण उपयोग मिलता है। आप कमरे बना सकते हैं, किरायेदारों को जोड़ सकते हैं, और रसीदें जारी कर सकते हैं।'
-          : 'Every new account comes with unrestricted access to the complete StayNest workspace for 7 full days with zero upfront payment. You can set up your property profile, configure rooms and beds, onboard tenants, log rent and utility payments, record operational expenses, and test all reporting tools.',
+          ? 'प्रत्येक नए खाते को बिना किसी अग्रिम भुगतान के 7 दिनों के लिए StayBook के सभी फीचर्स का पूर्ण उपयोग मिलता है। आप प्रॉपर्टी जोड़ सकते हैं, कमरे व यूनिट्स बना सकते हैं, और रसीदें जारी कर सकते हैं।'
+          : 'Every new account comes with unrestricted access to the complete StayBook workspace for 7 full days with zero upfront payment. You can set up your properties, configure rooms or units, onboard residents, record rent and payments, and access all reporting tools.',
     },
     {
       q: locale === 'hi' ? 'ट्रायल समाप्त होने के बाद क्या होता है?' : 'What happens when my trial ends?',
@@ -103,8 +103,8 @@ export default function LandingPage() {
       q: locale === 'hi' ? 'क्या मैं पेशेवर भुगतान रसीदें डाउनलोड कर सकता हूँ?' : 'Can I download professional payment receipts?',
       a:
         locale === 'hi'
-          ? 'हाँ! जब भी आप किराया या बिल भुगतान दर्ज करते हैं, StayNest तुरंत एक औपचारिक रसीद तैयार करता है जिसे आप व्हाट्सएप पर साझा कर सकते हैं या पीडीएफ के रूप में डाउनलोड/प्रिंट कर सकते हैं।'
-          : 'Yes. Every time you record a rent or utility payment, StayNest generates a formal, formatted receipt featuring resident details, payment method, date, and amount breakdown. You can easily view, print, or save it directly as a clean PDF to share with your tenants.',
+          ? 'हाँ! जब भी आप किराया या बिल भुगतान दर्ज करते हैं, StayBook तुरंत एक औपचारिक रसीद तैयार करता है जिसे आप व्हाट्सएप पर साझा कर सकते हैं या पीडीएफ के रूप में डाउनलोड/प्रिंट कर सकते हैं।'
+          : 'Yes. Every time you record a rent or utility payment, StayBook generates a formal, formatted receipt featuring resident details, payment method, date, and amount breakdown. You can easily view, print, or save it directly as a clean PDF to share with your tenants.',
     },
   ]
 
@@ -118,7 +118,7 @@ export default function LandingPage() {
               <Building2 className="size-5" />
             </span>
             <span>
-              <span className="block text-[15px] font-bold tracking-tight">StayNest</span>
+              <span className="block text-[15px] font-bold tracking-tight">StayBook</span>
               <span className="block text-[9px] font-medium uppercase tracking-[0.18em] text-[#a08d79]">
                 {t.common.appName}
               </span>
@@ -206,7 +206,7 @@ export default function LandingPage() {
             <div className="mb-7 flex items-center justify-between">
               <div>
                 <p className="text-xs text-[#a08d79]">{locale === 'hi' ? 'आपका कार्यक्षेत्र' : 'Your workspace'}</p>
-                <p className="mt-1 text-lg font-bold">StayNest Dashboard</p>
+                <p className="mt-1 text-lg font-bold">StayBook Dashboard</p>
               </div>
               <span className="rounded-full bg-[#f4ede3] px-2.5 py-1 text-[10px] font-semibold text-[#9a7651]">
                 {t.pricing.trialHeader}
@@ -319,8 +319,8 @@ export default function LandingPage() {
               </div>
               <p className="mt-3 text-xs leading-5 text-[#776d62]">
                 {locale === 'hi'
-                  ? 'StayNest के सभी टूल्स का 7 दिन तक पूर्ण उपयोग करके देखें।'
-                  : 'Full access to all StayNest tools to configure your property and see how it works for you.'}
+                  ? 'StayBook के सभी टूल्स का 7 दिन तक पूर्ण उपयोग करके देखें।'
+                  : 'Full access to all StayBook tools to configure your property and see how it works for you.'}
               </p>
               <ul className="mt-6 flex flex-col gap-2.5 text-xs text-[#555a6c]">
                 <li className="flex items-center gap-2">
@@ -502,13 +502,13 @@ export default function LandingPage() {
                 <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
                   <Building2 className="size-5" />
                 </span>
-                <span className="text-lg font-bold">StayNest</span>
+                <span className="text-lg font-bold">StayBook</span>
               </div>
               <p className="mt-4 max-w-sm text-xs leading-6 text-[#cbbfaf]">
                 {t.landing.footerDesc}
               </p>
               <p className="mt-4 text-[11px] text-[#9a9187]">
-                &copy; {new Date().getFullYear()} StayNest Technologies. Built for PG & Rental property owners.
+                &copy; {new Date().getFullYear()} StayBook Technologies. Built for property owners & managers.
               </p>
             </div>
 
@@ -547,7 +547,7 @@ export default function LandingPage() {
               <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
                 <li>
                   <a
-                    href={getMailtoSupport('StayNest Support Inquiry')}
+                    href={getMailtoSupport('StayBook Support Inquiry')}
                     className="hover:text-white hover:underline"
                   >
                     {SUPPORT_EMAIL}
@@ -558,7 +558,7 @@ export default function LandingPage() {
                     {locale === 'hi' ? 'शिकायत निवारण अधिकारी:' : 'Grievance Officer:'}
                   </span>
                   <a
-                    href={getMailtoSupport('StayNest Grievance Redressal')}
+                    href={getMailtoSupport('StayBook Grievance Redressal')}
                     className="hover:text-white hover:underline"
                   >
                     {SUPPORT_EMAIL}
@@ -566,6 +566,15 @@ export default function LandingPage() {
                 </li>
                 <li className="pt-2">
                   <LocaleSwitcher />
+                </li>
+                <li className="pt-2 border-t border-[#403a34]">
+                  <Link
+                    href="/admin/login"
+                    className="text-[11px] text-[#8b8277] hover:text-[#f8f0e5] transition-colors flex items-center gap-1.5"
+                  >
+                    <span className="size-1.5 rounded-full bg-[#8b8277]" />
+                    {locale === 'hi' ? 'स्टाफ लॉगिन' : 'Staff Login'}
+                  </Link>
                 </li>
               </ul>
             </div>

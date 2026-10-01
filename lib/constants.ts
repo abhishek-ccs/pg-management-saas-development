@@ -1,5 +1,5 @@
 /**
- * StayNest Global Constants
+ * StayBook Global Constants
  * Single source of truth for platform configuration and support contact.
  */
 
@@ -9,7 +9,7 @@ export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'getstayne
  * Generates a pre-filled, properly encoded mailto URL for customer support.
  */
 export function getMailtoSupport(
-  subject: string = 'StayNest Support Inquiry',
+  subject: string = 'StayBook Support Inquiry',
   body?: string
 ): string {
   const params = new URLSearchParams()
@@ -19,5 +19,6 @@ export function getMailtoSupport(
   return `mailto:${SUPPORT_EMAIL}${query ? `?${query}` : ''}`
 }
 
-export const APP_NAME = 'StayNest'
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://staynest.in'
+export const APP_NAME = 'StayBook'
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://staybook.in'
+

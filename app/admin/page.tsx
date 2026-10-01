@@ -116,7 +116,7 @@ export default async function AdminPage() {
               <ShieldCheck className="size-5" />
             </div>
             <div>
-              <p className="text-sm font-bold">StayNest Platform</p>
+              <p className="text-sm font-bold">StayBook Platform</p>
               <p className="text-[11px] text-[#9296a5]">Super Admin Console · {current.user.email}</p>
             </div>
           </div>

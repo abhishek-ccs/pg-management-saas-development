@@ -144,7 +144,7 @@ export default function SignupPage() {
             <Building2 className="size-5" />
           </div>
           <div>
-            <p className="font-bold">StayNest</p>
+            <p className="font-bold">StayBook</p>
             <p className="text-[11px] uppercase tracking-[0.16em] text-[#9296a5]">
               {step === 'otp' ? 'Email verification' : 'Create your owner account'}
             </p>
@@ -234,7 +234,7 @@ export default function SignupPage() {
 
             <p className="mt-4 text-center text-xs text-[#a08d79]">
               <Link href="/" className="hover:underline">
-                Back to StayNest
+                Back to StayBook
               </Link>
             </p>
           </>

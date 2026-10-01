@@ -61,7 +61,7 @@ export default function LoginPage() {
             <Building2 className="size-5" />
           </div>
           <div>
-            <p className="font-bold">StayNest</p>
+            <p className="font-bold">StayBook</p>
             <p className="text-[11px] uppercase tracking-[0.16em] text-[#9296a5]">Secure sign in</p>
           </div>
         </div>
@@ -136,7 +136,7 @@ export default function LoginPage() {
 
         <p className="mt-3 text-center text-xs text-[#a08d79]">
           <Link href="/" className="hover:underline">
-            Back to StayNest
+            Back to StayBook
           </Link>
         </p>
 

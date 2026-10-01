@@ -167,6 +167,23 @@ const navigation = [
 
 const currency = (val: number) => `₹${Number(val || 0).toLocaleString('en-IN')}`
 
+export type PropertyType = 'pg_hostel' | 'apartment' | 'house' | 'other'
+
+export function getPropertyType(prop?: { rules?: string | null } | null): PropertyType {
+  if (!prop?.rules) return 'pg_hostel'
+  try {
+    const parsed = JSON.parse(prop.rules)
+    if (parsed && typeof parsed === 'object' && parsed.property_type) {
+      return parsed.property_type as PropertyType
+    }
+  } catch {
+    if (['apartment', 'house', 'other', 'pg_hostel'].includes(prop.rules.trim())) {
+      return prop.rules.trim() as PropertyType
+    }
+  }
+  return 'pg_hostel'
+}
+
 // Room Capacity Calculation: Single = 1, Double = 2, Triple = 3, Four = 4
 export function getRoomMaxCapacity(roomType: string, fallbackBeds?: number): number {
   const lower = (roomType || '').toLowerCase()
@@ -248,14 +265,22 @@ export default function DashboardPage() {
   const [dashboardBillingCycle, setDashboardBillingCycle] = useState<'yearly' | 'monthly'>('yearly')
 
   // Real Database Business State (Multi-property support with strict property isolation)
-  const [properties, setProperties] = useState<Array<{ id: string; name: string; address: string; contact: string; city: string }>>([])
+  const [properties, setProperties] = useState<Array<{ id: string; name: string; address: string; contact: string; city: string; rules?: string | null }>>([])
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>('')
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null)
 
   // Active property derived helper
   const property = useMemo(() => {
-    return properties.find((p) => p.id === selectedPropertyId) || properties[0] || { id: '', name: '', address: '', contact: '', city: '' }
+    return properties.find((p) => p.id === selectedPropertyId) || properties[0] || { id: '', name: '', address: '', contact: '', city: '', rules: null }
   }, [properties, selectedPropertyId])
+
+  const propertyType = useMemo(() => getPropertyType(property), [property])
+  const isPgHostel = propertyType === 'pg_hostel'
+
+  const isSuperAdminUser = useMemo(() => {
+    const email = (userEmail || '').trim().toLowerCase()
+    return email === 'abhishekrawat67320@gmail.com' || email === 'sharmavn258@gmail.com'
+  }, [userEmail])
 
   const [rooms, setRooms] = useState<Room[]>([])
   const [beds, setBeds] = useState<Bed[]>([])
@@ -422,7 +447,7 @@ export default function DashboardPage() {
           complaintRes,
         ] = await Promise.all([
           supabase.from('subscriptions').select('trial_start,trial_end,status,plan').eq('owner_id', user.id).maybeSingle(),
-          supabase.from('properties').select('id,name,address,contact_number,city').eq('owner_id', user.id).order('created_at', { ascending: true }),
+          supabase.from('properties').select('id,name,address,contact_number,city,rules').eq('owner_id', user.id).order('created_at', { ascending: true }),
           supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
           supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
           supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id').eq('owner_id', user.id).order('created_at', { ascending: false }),
@@ -453,6 +478,7 @@ export default function DashboardPage() {
           address: p.address || '',
           contact: p.contact_number || '',
           city: p.city || '',
+          rules: p.rules || null,
         }))
         setProperties(propList)
         setSelectedPropertyId((curr) => {
@@ -709,6 +735,7 @@ export default function DashboardPage() {
     const address = String(fd.get('address') || '').trim()
     const contact = String(fd.get('contact') || '').trim()
     const city = String(fd.get('city') || '').trim()
+    const propertyType = (String(fd.get('property_type') || 'pg_hostel').trim()) as PropertyType
 
     if (!name) {
       flash('Property Name is required.')
@@ -725,6 +752,21 @@ export default function DashboardPage() {
       return
     }
 
+    let existingRulesObj: Record<string, any> = {}
+    if (editingPropertyId) {
+      const currentTarget = properties.find((p) => p.id === editingPropertyId)
+      if (currentTarget?.rules) {
+        try {
+          existingRulesObj = JSON.parse(currentTarget.rules)
+        } catch {}
+      }
+    }
+    const packedRules = JSON.stringify({
+      ...existingRulesObj,
+      property_type: propertyType,
+      updated_at: new Date().toISOString(),
+    })
+
     setIsSavingProperty(true)
     try {
       let targetId = editingPropertyId
@@ -737,11 +779,12 @@ export default function DashboardPage() {
             address,
             contact_number: contact,
             city,
+            rules: packedRules,
             updated_at: new Date().toISOString(),
           })
           .eq('id', targetId)
           .eq('owner_id', userId)
-          .select('id,name,address,contact_number,city')
+          .select('id,name,address,contact_number,city,rules')
           .single()
       } else {
         res = await supabase
@@ -752,9 +795,10 @@ export default function DashboardPage() {
             address,
             contact_number: contact,
             city,
+            rules: packedRules,
             updated_at: new Date().toISOString(),
           })
-          .select('id,name,address,contact_number,city')
+          .select('id,name,address,contact_number,city,rules')
           .single()
       }
 
@@ -774,6 +818,7 @@ export default function DashboardPage() {
           address: res.data.address || '',
           contact: res.data.contact_number || '',
           city: res.data.city || '',
+          rules: res.data.rules || packedRules,
         }
         if (targetId) {
           setProperties((prev) => prev.map((p) => (p.id === targetId ? savedProp : p)))
@@ -1941,7 +1986,7 @@ export default function DashboardPage() {
               <Building2 className="size-5" />
             </div>
             <div>
-              <p className="text-[15px] font-bold tracking-tight">StayNest</p>
+              <p className="text-[15px] font-bold tracking-tight">StayBook</p>
               <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#969baa]">Property SaaS</p>
             </div>
           </div>
@@ -1957,6 +2002,12 @@ export default function DashboardPage() {
               const Icon = item.icon
               const isActive = active === item.label
               const openCount = item.label === 'Complaints' ? complaints.filter((c) => c.status !== 'Resolved').length : 0
+              const displayLabel =
+                item.label === 'Rooms & Beds'
+                  ? isPgHostel ? 'Rooms & Beds' : 'Rooms & Units'
+                  : item.label === 'Tenants'
+                  ? isPgHostel ? 'Residents' : 'Residents / Tenants'
+                  : item.label
               return (
                 <button
                   key={item.label}
@@ -1969,7 +2020,7 @@ export default function DashboardPage() {
                   }`}
                 >
                   <Icon className="size-[17px]" />
-                  {item.label}
+                  {displayLabel}
                   {openCount > 0 && (
                     <span className="ml-auto rounded-full bg-[#f4ede3] px-2 py-0.5 text-[10px] font-bold text-[#9a7651]">
                       {openCount}
@@ -2083,6 +2134,18 @@ export default function DashboardPage() {
                   : `Trial: ${daysRemaining ?? 7}d remaining`}
               </span>
             </div>
+
+            {/* Discreet Admin Console Button for Verified Super Admins */}
+            {isSuperAdminUser && (
+              <a
+                href="/admin"
+                title="Open StayBook Super Admin Console"
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#866342] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
+              >
+                <ShieldCheck className="size-3.5 text-[#9a7651]" />
+                <span>Staff Admin</span>
+              </a>
+            )}
 
             {/* Bilingual Language Switcher */}
             <LocaleSwitcher />
@@ -2358,6 +2421,7 @@ export default function DashboardPage() {
             <SettingsTab
               userName={userName}
               userEmail={userEmail}
+              isSuperAdminUser={isSuperAdminUser}
               property={property}
               trialStart={trialStart}
               trialEnd={trialEnd}
@@ -2409,6 +2473,19 @@ export default function DashboardPage() {
                 placeholder="e.g. Green Valley Residency"
                 required
               />
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                Property Type
+                <select
+                  name="property_type"
+                  defaultValue={getPropertyType(editTarget)}
+                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                >
+                  <option value="pg_hostel">PG / Hostel (Room & Bed Sharing)</option>
+                  <option value="apartment">Apartment / Society Flat (Whole Unit)</option>
+                  <option value="house">Rental House / Independent Floor</option>
+                  <option value="other">Other Managed Rental Property</option>
+                </select>
+              </label>
               <Field
                 label="Property Address"
                 name="address"
@@ -2496,27 +2573,54 @@ export default function DashboardPage() {
 
       {/* 3. Add Room Modal */}
       {showRoomModal && (
-        <Modal title="Add Room & Beds" onClose={() => setShowRoomModal(false)}>
+        <Modal title={isPgHostel ? 'Add Room & Beds' : 'Add Unit / Room'} onClose={() => setShowRoomModal(false)}>
           <form onSubmit={handleAddRoom} className="flex flex-col gap-4">
-            <Field label="Room Number / Name" name="room_number" placeholder="e.g. 101, A-2" required />
+            <Field
+              label={isPgHostel ? 'Room Number / Name' : 'Unit / Flat / Room Number'}
+              name="room_number"
+              placeholder={isPgHostel ? 'e.g. 101, A-2' : 'e.g. Flat 301, Unit 4B, Room 12'}
+              required
+            />
             <div className="grid grid-cols-2 gap-3">
               <Field label="Floor Number" name="floor" type="number" defaultValue="1" required />
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-                Room Type
+                {isPgHostel ? 'Room Type' : 'Unit Type'}
                 <select name="room_type" className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
-                  <option value="Single">Single Occupancy (1 Bed)</option>
-                  <option value="Double Sharing">Double Sharing (2 Beds)</option>
-                  <option value="Triple Sharing">Triple Sharing (3 Beds)</option>
-                  <option value="Four Sharing">Four Sharing (4 Beds)</option>
+                  {isPgHostel ? (
+                    <>
+                      <option value="Single">Single Occupancy (1 Bed)</option>
+                      <option value="Double Sharing">Double Sharing (2 Beds)</option>
+                      <option value="Triple Sharing">Triple Sharing (3 Beds)</option>
+                      <option value="Four Sharing">Four Sharing (4 Beds)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Full Unit">Full Unit / Apartment</option>
+                      <option value="1 BHK">1 BHK Flat</option>
+                      <option value="2 BHK">2 BHK Flat</option>
+                      <option value="3 BHK">3 BHK Flat</option>
+                      <option value="Studio">Studio / Private Room</option>
+                    </>
+                  )}
                 </select>
               </label>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Initial Bed Count" name="beds_count" type="number" defaultValue="2" min="1" required />
-              <Field label="Monthly Base Rent (₹)" name="base_rent" type="number" placeholder="8500" required />
+            <div className={isPgHostel ? 'grid grid-cols-2 gap-3' : 'block'}>
+              {isPgHostel ? (
+                <Field label="Initial Bed Count" name="beds_count" type="number" defaultValue="2" min="1" required />
+              ) : (
+                <input type="hidden" name="beds_count" value="1" />
+              )}
+              <Field
+                label={isPgHostel ? 'Monthly Base Rent (₹)' : 'Monthly Rent (₹)'}
+                name="base_rent"
+                type="number"
+                placeholder="8500"
+                required
+              />
             </div>
             <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Configure Room & Beds
+              {isPgHostel ? 'Configure Room & Beds' : 'Create Unit / Room'}
             </button>
           </form>
         </Modal>
@@ -2524,24 +2628,47 @@ export default function DashboardPage() {
 
       {/* 4. Edit Room Modal */}
       {editingRoom && (
-        <Modal title={`Edit Room ${editingRoom.room_number}`} onClose={() => setEditingRoom(null)}>
+        <Modal title={isPgHostel ? `Edit Room ${editingRoom.room_number}` : `Edit Unit ${editingRoom.room_number}`} onClose={() => setEditingRoom(null)}>
           <form onSubmit={handleUpdateRoom} className="flex flex-col gap-4">
-            <Field label="Room Number / Name" name="room_number" defaultValue={editingRoom.room_number} required />
+            <Field
+              label={isPgHostel ? 'Room Number / Name' : 'Unit / Flat / Room Number'}
+              name="room_number"
+              defaultValue={editingRoom.room_number}
+              required
+            />
             <div className="grid grid-cols-2 gap-3">
               <Field label="Floor Number" name="floor" type="number" defaultValue={editingRoom.floor} required />
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-                Room Type
+                {isPgHostel ? 'Room Type' : 'Unit Type'}
                 <select name="room_type" defaultValue={editingRoom.room_type} className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
-                  <option value="Single">Single Occupancy (1 Bed)</option>
-                  <option value="Double Sharing">Double Sharing (2 Beds)</option>
-                  <option value="Triple Sharing">Triple Sharing (3 Beds)</option>
-                  <option value="Four Sharing">Four Sharing (4 Beds)</option>
+                  {isPgHostel ? (
+                    <>
+                      <option value="Single">Single Occupancy (1 Bed)</option>
+                      <option value="Double Sharing">Double Sharing (2 Beds)</option>
+                      <option value="Triple Sharing">Triple Sharing (3 Beds)</option>
+                      <option value="Four Sharing">Four Sharing (4 Beds)</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Full Unit">Full Unit / Apartment</option>
+                      <option value="1 BHK">1 BHK Flat</option>
+                      <option value="2 BHK">2 BHK Flat</option>
+                      <option value="3 BHK">3 BHK Flat</option>
+                      <option value="Studio">Studio / Private Room</option>
+                    </>
+                  )}
                 </select>
               </label>
             </div>
-            <Field label="Monthly Base Rent (₹)" name="base_rent" type="number" defaultValue={editingRoom.base_rent} required />
+            <Field
+              label={isPgHostel ? 'Monthly Base Rent (₹)' : 'Monthly Rent (₹)'}
+              name="base_rent"
+              type="number"
+              defaultValue={editingRoom.base_rent}
+              required
+            />
             <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Save Room Changes
+              Save Changes
             </button>
           </form>
         </Modal>
@@ -2579,9 +2706,9 @@ export default function DashboardPage() {
             <Field label="Full Name" name="name" placeholder="Resident full name" required />
             <Field label="Contact Phone" name="phone" placeholder="10-15 digit mobile number" required />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className={isPgHostel ? 'grid grid-cols-2 gap-3' : 'block'}>
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-                Assign Room
+                {isPgHostel ? 'Assign Room' : 'Assign Unit / Flat / Room'}
                 <select
                   name="room_id"
                   value={tenantFormRoomId}
@@ -2606,39 +2733,45 @@ export default function DashboardPage() {
                 >
                   <option value="unassigned">Unassigned</option>
                   {rooms.map((r) => {
-                    const cap = getRoomMaxCapacity(r.room_type)
+                    const cap = getRoomMaxCapacity(r.room_type, 1)
                     const cur = tenants.filter((t) => t.room_id === r.id && t.status !== 'Vacated').length
                     const isFull = cur >= cap
                     return (
                       <option key={r.id} value={r.id} disabled={isFull}>
-                        Room {r.room_number} ({r.room_type}) {isFull ? '— FULL' : `— ${cur}/${cap}`}
+                        {isPgHostel
+                          ? `Room ${r.room_number} (${r.room_type}) ${isFull ? '— FULL' : `— ${cur}/${cap}`}`
+                          : `Unit ${r.room_number} (${r.room_type}) ${isFull ? '— OCCUPIED' : '— Available'}`}
                       </option>
                     )
                   })}
                 </select>
               </label>
 
-              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-                Assign Bed
-                <select
-                  name="bed_id"
-                  value={tenantFormBedId}
-                  onChange={(e) => setTenantFormBedId(e.target.value)}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
-                >
-                  <option value="unassigned">Unassigned</option>
-                  {beds
-                    .filter((b) => tenantFormRoomId === 'unassigned' || b.room_id === tenantFormRoomId)
-                    .map((b) => {
-                      const eff = getEffectiveBedStatus(b, rooms, tenants)
-                      return (
-                        <option key={b.id} value={b.id} disabled={!eff.isAvailable}>
-                          Bed {b.bed_number} ({eff.label})
-                        </option>
-                      )
-                    })}
-                </select>
-              </label>
+              {isPgHostel ? (
+                <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                  Assign Bed
+                  <select
+                    name="bed_id"
+                    value={tenantFormBedId}
+                    onChange={(e) => setTenantFormBedId(e.target.value)}
+                    className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  >
+                    <option value="unassigned">Unassigned</option>
+                    {beds
+                      .filter((b) => tenantFormRoomId === 'unassigned' || b.room_id === tenantFormRoomId)
+                      .map((b) => {
+                        const eff = getEffectiveBedStatus(b, rooms, tenants)
+                        return (
+                          <option key={b.id} value={b.id} disabled={!eff.isAvailable}>
+                            Bed {b.bed_number} ({eff.label})
+                          </option>
+                        )
+                      })}
+                  </select>
+                </label>
+              ) : (
+                <input type="hidden" name="bed_id" value={tenantFormBedId} />
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -2682,9 +2815,9 @@ export default function DashboardPage() {
             <Field label="Full Name" name="name" defaultValue={editingTenant.name} required />
             <Field label="Contact Phone" name="phone" defaultValue={editingTenant.phone} required />
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className={isPgHostel ? 'grid grid-cols-2 gap-3' : 'block'}>
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-                Room Assignment
+                {isPgHostel ? 'Room Assignment' : 'Unit Assignment'}
                 <select
                   name="room_id"
                   defaultValue={editingTenant.room_id || 'unassigned'}
@@ -2692,43 +2825,49 @@ export default function DashboardPage() {
                 >
                   <option value="unassigned">Unassigned</option>
                   {rooms.map((r) => {
-                    const cap = getRoomMaxCapacity(r.room_type)
+                    const cap = getRoomMaxCapacity(r.room_type, 1)
                     const cur = tenants.filter((t) => t.room_id === r.id && t.status !== 'Vacated' && t.id !== editingTenant.id).length
                     const isFull = cur >= cap && r.id !== editingTenant.room_id
                     return (
                       <option key={r.id} value={r.id} disabled={isFull}>
-                        Room {r.room_number} ({r.room_type}) {isFull ? '— FULL' : `— ${cur}/${cap}`}
+                        {isPgHostel
+                          ? `Room ${r.room_number} (${r.room_type}) ${isFull ? '— FULL' : `— ${cur}/${cap}`}`
+                          : `Unit ${r.room_number} (${r.room_type}) ${isFull ? '— OCCUPIED' : '— Available'}`}
                       </option>
                     )
                   })}
                 </select>
               </label>
 
-              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-                Bed Assignment
-                <select
-                  name="bed_id"
-                  defaultValue={editingTenant.bed_id || 'unassigned'}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
-                >
-                  <option value="unassigned">Unassigned</option>
-                  {beds.map((b) => {
-                    const isCurrent = b.id === editingTenant.bed_id
-                    const eff = getEffectiveBedStatus(b, rooms, tenants, editingTenant.id)
-                    const canSelect = eff.isAvailable || isCurrent
-                    const label = isCurrent ? 'CURRENT BED' : eff.label
-                    return (
-                      <option
-                        key={b.id}
-                        value={b.id}
-                        disabled={!canSelect}
-                      >
-                        Bed {b.bed_number} ({label})
-                      </option>
-                    )
-                  })}
-                </select>
-              </label>
+              {isPgHostel ? (
+                <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                  Bed Assignment
+                  <select
+                    name="bed_id"
+                    defaultValue={editingTenant.bed_id || 'unassigned'}
+                    className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  >
+                    <option value="unassigned">Unassigned</option>
+                    {beds.map((b) => {
+                      const isCurrent = b.id === editingTenant.bed_id
+                      const eff = getEffectiveBedStatus(b, rooms, tenants, editingTenant.id)
+                      const canSelect = eff.isAvailable || isCurrent
+                      const label = isCurrent ? 'CURRENT BED' : eff.label
+                      return (
+                        <option
+                          key={b.id}
+                          value={b.id}
+                          disabled={!canSelect}
+                        >
+                          Bed {b.bed_number} ({label})
+                        </option>
+                      )
+                    })}
+                  </select>
+                </label>
+              ) : (
+                <input type="hidden" name="bed_id" value={editingTenant.bed_id || 'unassigned'} />
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -3066,7 +3205,7 @@ export default function DashboardPage() {
           <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-6 text-sm" id="printable-receipt">
             <div className="flex items-start justify-between border-b border-[#e4d9cc] pb-4">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#9a7651]">StayNest Official Receipt</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#9a7651]">StayBook Official Receipt</span>
                 <h4 className="mt-1 text-base font-bold text-[#3d3934]">{property.name || 'Rental Property'}</h4>
                 <p className="text-xs text-[#85899a]">{property.address || 'Address on file'}</p>
               </div>
@@ -3119,7 +3258,7 @@ export default function DashboardPage() {
                 </button>
                 <a
                   href={`https://wa.me/?text=${encodeURIComponent(
-                    `*StayNest Official Rent Receipt*\nReceipt: REC-${selectedReceipt.id.slice(0, 8).toUpperCase()}\nProperty: ${property.name || 'StayNest'}\nResident: ${selectedReceipt.tenant_name} (Room ${selectedReceipt.room_number})\nAmount: ${currency(selectedReceipt.amount)}\nType: ${selectedReceipt.payment_type.toUpperCase()}\nMethod: ${selectedReceipt.payment_method.toUpperCase()}\nPaid At: ${formatPaymentTimestamp(selectedReceipt.paid_at, 'Asia/Kolkata', locale)}\n${selectedReceipt.month_covered ? `Period: ${selectedReceipt.month_covered}\n` : ''}Status: CONFIRMED & PAID`
+                    `*StayBook Official Rent Receipt*\nReceipt: REC-${selectedReceipt.id.slice(0, 8).toUpperCase()}\nProperty: ${property.name || 'StayBook'}\nResident: ${selectedReceipt.tenant_name} (Room ${selectedReceipt.room_number})\nAmount: ${currency(selectedReceipt.amount)}\nType: ${selectedReceipt.payment_type.toUpperCase()}\nMethod: ${selectedReceipt.payment_method.toUpperCase()}\nPaid At: ${formatPaymentTimestamp(selectedReceipt.paid_at, 'Asia/Kolkata', locale)}\n${selectedReceipt.month_covered ? `Period: ${selectedReceipt.month_covered}\n` : ''}Status: CONFIRMED & PAID`
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -3229,11 +3368,11 @@ export default function DashboardPage() {
 
       {/* 16. Subscription / Pricing Modal */}
       {showPricingModal && (
-        <Modal title="StayNest Subscription Plans" onClose={() => setShowPricingModal(false)}>
+        <Modal title="StayBook Subscription Plans" onClose={() => setShowPricingModal(false)}>
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <p className="text-xs text-[#74798a]">
-                Choose the plan that fits your PG scale. Save with annual billing or switch anytime.
+                Choose the plan that fits your property scale. Save with annual billing or switch anytime.
               </p>
               {/* Billing Cycle Toggle - Yearly as Default */}
               <div className="inline-flex items-center self-start sm:self-auto rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-1 text-xs">
@@ -3405,12 +3544,12 @@ function OverviewTab({
         <div>
           <p className="mb-1 text-[12px] font-medium text-[#8b8fa0]">{today}</p>
           <h2 className="text-[26px] font-bold tracking-[-0.04em]">
-            {property.name ? property.name : 'Welcome to StayNest'}
+            {property.name ? property.name : 'Welcome to StayBook'}
           </h2>
           <p className="mt-1 text-sm text-[#85899a]">
             {property.name
               ? `${property.address ? `${property.address}, ` : ''}${property.city || ''}`
-              : 'Complete your property setup to manage rooms, beds, and residents.'}
+              : 'Complete your property setup to manage rooms, units, and residents.'}
           </p>
         </div>
         <div className="flex gap-2">
@@ -3432,35 +3571,110 @@ function OverviewTab({
         </div>
       </div>
 
-      {/* Property Setup Prompt if empty */}
-      {!property.name && (
-        <div className="mb-6 flex flex-col justify-between gap-4 rounded-2xl border-2 border-dashed border-[#d8c2aa] bg-[#fdfbf7] p-5 sm:flex-row sm:items-center">
-          <div className="flex items-start gap-3.5">
-            <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#f4ede3] text-[#9a7651]">
-              <Building2 className="size-5" />
-            </div>
+      {/* 3-Step Guided Setup Checklist for Property Owners */}
+      {(!property.name || rooms.length === 0 || tenants.length === 0) && (
+        <div className="mb-8 rounded-2xl border border-[#e8dfd4] bg-white p-5 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[#eee6dc] pb-3 mb-4">
             <div>
-              <h3 className="text-sm font-bold text-[#443e38]">Step 1: Set Up Your Rental Property</h3>
-              <p className="mt-0.5 text-xs text-[#7d746a]">
-                Configure your PG name, address, and contact details to begin configuring rooms, beds, and tenants.
+              <h3 className="text-sm font-bold text-[#3d3934]">Setup & Onboarding Checklist</h3>
+              <p className="text-xs text-[#85899a]">Complete these 3 simple steps to get your rental property operational.</p>
+            </div>
+            <span className="self-start sm:self-auto rounded-full bg-[#faf7f2] px-3 py-1 text-xs font-semibold text-[#866342] border border-[#e8dfd4]">
+              {(!property.name ? 0 : rooms.length === 0 ? 1 : tenants.length === 0 ? 2 : 3)} / 3 Completed
+            </span>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            {/* Step 1: Property */}
+            <div className={`rounded-xl border p-3.5 transition-colors ${property.name ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#e8dfd4] bg-[#faf7f2]'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#74798a]">Step 1</span>
+                {property.name ? (
+                  <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
+                    <CheckCircle2 className="size-3.5" /> Done
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
+                )}
+              </div>
+              <p className="text-xs font-bold text-[#3d3934]">Property Profile</p>
+              <p className="mt-0.5 text-[11px] text-[#74798a] truncate">
+                {property.name ? property.name : 'Create your property profile'}
               </p>
+              {!property.name ? (
+                <button
+                  onClick={onAddProperty}
+                  className="mt-3 w-full rounded-lg bg-[#9a7651] py-1.5 text-xs font-semibold text-white hover:bg-[#866342]"
+                >
+                  Set Up Property
+                </button>
+              ) : (
+                <button
+                  onClick={onAddProperty}
+                  className="mt-3 w-full rounded-lg border border-[#cce9db] bg-white py-1.5 text-xs font-semibold text-[#328d68] hover:bg-[#f4faf7]"
+                >
+                  Edit Profile
+                </button>
+              )}
+            </div>
+
+            {/* Step 2: Rooms & Units */}
+            <div className={`rounded-xl border p-3.5 transition-colors ${rooms.length > 0 ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#e8dfd4] bg-[#faf7f2]'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#74798a]">Step 2</span>
+                {rooms.length > 0 ? (
+                  <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
+                    <CheckCircle2 className="size-3.5" /> Done ({rooms.length})
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
+                )}
+              </div>
+              <p className="text-xs font-bold text-[#3d3934]">Rooms & Units</p>
+              <p className="mt-0.5 text-[11px] text-[#74798a]">
+                {rooms.length > 0 ? `${rooms.length} configured` : 'Add your first room or unit'}
+              </p>
+              <button
+                onClick={onAddRoom}
+                className={`mt-3 w-full rounded-lg py-1.5 text-xs font-semibold ${rooms.length > 0 ? 'border border-[#cce9db] bg-white text-[#328d68] hover:bg-[#f4faf7]' : 'bg-[#9a7651] text-white hover:bg-[#866342]'}`}
+              >
+                {rooms.length > 0 ? '+ Add More Units' : '+ Add First Unit'}
+              </button>
+            </div>
+
+            {/* Step 3: Residents */}
+            <div className={`rounded-xl border p-3.5 transition-colors ${tenants.length > 0 ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#e8dfd4] bg-[#faf7f2]'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#74798a]">Step 3</span>
+                {tenants.length > 0 ? (
+                  <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
+                    <CheckCircle2 className="size-3.5" /> Done ({tenants.length})
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
+                )}
+              </div>
+              <p className="text-xs font-bold text-[#3d3934]">Residents / Tenants</p>
+              <p className="mt-0.5 text-[11px] text-[#74798a]">
+                {tenants.length > 0 ? `${tenants.length} onboarded` : 'Onboard your first resident'}
+              </p>
+              <button
+                onClick={onAddTenant}
+                className={`mt-3 w-full rounded-lg py-1.5 text-xs font-semibold ${tenants.length > 0 ? 'border border-[#cce9db] bg-white text-[#328d68] hover:bg-[#f4faf7]' : 'bg-[#9a7651] text-white hover:bg-[#866342]'}`}
+              >
+                {tenants.length > 0 ? '+ Onboard More' : '+ Onboard Resident'}
+              </button>
             </div>
           </div>
-          <button
-            onClick={onAddProperty}
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
-          >
-            <Plus className="size-4" /> Complete Property Setup
-          </button>
         </div>
       )}
 
       {/* Real-Time Metrics Row */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="Rooms & Beds"
-          value={`${rooms.length} Rooms`}
-          note={`${availableBedsCount} available · ${occupiedBedsCount} occupied`}
+          label={getPropertyType(property) === 'pg_hostel' ? "Rooms & Beds" : "Rooms & Units"}
+          value={`${rooms.length} ${getPropertyType(property) === 'pg_hostel' ? 'Rooms' : 'Units'}`}
+          note={getPropertyType(property) === 'pg_hostel' ? `${availableBedsCount} available · ${occupiedBedsCount} occupied` : `${rooms.length} configured · ${activeTenantsCount} occupied`}
           Icon={DoorOpen}
           i={0}
         />
@@ -3531,7 +3745,7 @@ function OverviewTab({
           <div className="grid gap-2.5">
             {[
               ['Configure Property', Building2, onAddProperty],
-              ['Add Room & Beds', DoorOpen, onAddRoom],
+              [getPropertyType(property) === 'pg_hostel' ? 'Add Room & Beds' : 'Add Unit / Room', DoorOpen, onAddRoom],
               ['Onboard Resident', Users, onAddTenant],
               ['Record Payment', Wallet, onRecordPayment],
             ].map(([label, Icon, action]: any) => (
@@ -3983,7 +4197,7 @@ function TenantsTab({
                     phone: t.phone,
                     amount: t.rent,
                     dueDay: t.rent_due_day || 5,
-                    propertyName: property?.name || 'StayNest PG',
+                    propertyName: property?.name || 'StayBook Property',
                     locale,
                   })
 
@@ -4621,6 +4835,7 @@ function ReportsTab({ property, rooms, beds, tenants, revenueMonth, expensesMont
 function SettingsTab({
   userName,
   userEmail,
+  isSuperAdminUser,
   property,
   trialStart,
   trialEnd,
@@ -4659,7 +4874,7 @@ function SettingsTab({
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-base font-bold text-[#3d3934]">Property Configuration</h3>
-            <p className="text-xs text-[#85899a]">Primary PG workspace profile.</p>
+            <p className="text-xs text-[#85899a]">Primary property workspace profile.</p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -4741,13 +4956,38 @@ function SettingsTab({
             <p className="font-mono text-[#9a7651]">{SUPPORT_EMAIL}</p>
           </div>
           <a
-            href={getMailtoSupport('StayNest Owner Support Request')}
+            href={getMailtoSupport('StayBook Owner Support Request')}
             className="inline-flex items-center justify-center rounded-lg bg-[#9a7651] px-4 py-2 text-xs font-semibold text-white hover:bg-[#866342] transition-colors"
           >
             Email Support
           </a>
         </div>
       </div>
+
+      {/* Discreet Platform Admin Console Shortcut for Verified Administrators */}
+      {isSuperAdminUser && (
+        <div className="rounded-2xl border border-[#9a7651]/30 bg-[#faf7f2] p-6 shadow-sm">
+          <div className="flex items-center gap-2.5 text-[#9a7651]">
+            <ShieldCheck className="size-5" />
+            <h3 className="text-base font-bold text-[#3d3934]">StayBook Super Admin Console</h3>
+          </div>
+          <p className="mt-1 text-xs text-[#85899a]">
+            Your email (<strong className="text-[#3d3934]">{userEmail}</strong>) is verified as a platform administrator.
+          </p>
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-xs text-[#676b7d]">
+              Manage global customer tenants, subscriptions, audit logs, and platform system health.
+            </p>
+            <a
+              href="/admin"
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#2c2926] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#1a1816] transition-colors"
+            >
+              <ShieldCheck className="size-4 text-[#d8c2aa]" />
+              Open Admin Console →
+            </a>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-[#ffe4e4] bg-[#fffbfb] p-6">
         <h3 className="text-base font-bold text-[#b95c3c]">Session & Sign Out</h3>
@@ -4756,7 +4996,7 @@ function SettingsTab({
           onClick={onSignOut}
           className="mt-4 rounded-xl border border-[#b95c3c] bg-white px-4 py-2 text-xs font-semibold text-[#b95c3c] hover:bg-[#fff5f5]"
         >
-          Sign Out of StayNest
+          Sign Out of StayBook
         </button>
       </div>
     </div>

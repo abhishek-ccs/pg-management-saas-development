@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test'
 
-test.describe('StayNest Production Launch Verification', () => {
+test.describe('StayBook Production Launch Verification', () => {
   test('1. Landing page loads with valid semantic structure', async ({ page }) => {
     await page.goto('/')
-    await expect(page).toHaveTitle(/StayNest/)
+    await expect(page).toHaveTitle(/StayBook/)
 
     // Verify main landmark
     const main = page.locator('#main-content')

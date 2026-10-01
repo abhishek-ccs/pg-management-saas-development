@@ -148,8 +148,8 @@ export function generateWhatsAppReminder(params: {
   const formattedPhone = cleanPhone.startsWith('91') && cleanPhone.length === 12 ? cleanPhone : cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
 
   const amountStr = `₹${amount.toLocaleString('en-IN')}`
-  const messageEn = `Hello ${tenantName},\n\nThis is a friendly rent reminder from ${propertyName || 'StayNest PG'}. Your monthly rent of ${amountStr} is due on the ${dueDay}th of this month.\n\nPlease complete your payment at your earliest convenience. Thank you!`
-  const messageHi = `नमस्ते ${tenantName},\n\n${propertyName || 'StayNest PG'} से आपके मासिक किराए का स्मरण पत्र। आपका मासिक किराया ${amountStr} इस महीने की ${dueDay} तारीख को देय है।\n\nकृपया समय पर भुगतान सुनिश्चित करें। धन्यवाद!`
+  const messageEn = `Hello ${tenantName},\n\nThis is a friendly rent reminder from ${propertyName || 'StayBook Property'}. Your monthly rent of ${amountStr} is due on the ${dueDay}th of this month.\n\nPlease complete your payment at your earliest convenience. Thank you!`
+  const messageHi = `नमस्ते ${tenantName},\n\n${propertyName || 'StayBook Property'} से आपके मासिक किराए का स्मरण पत्र। आपका मासिक किराया ${amountStr} इस महीने की ${dueDay} तारीख को देय है।\n\nकृपया समय पर भुगतान सुनिश्चित करें। धन्यवाद!`
 
   const text = encodeURIComponent(locale === 'hi' ? messageHi : messageEn)
   return formattedPhone ? `https://wa.me/${formattedPhone}?text=${text}` : `https://wa.me/?text=${text}`
@@ -171,8 +171,8 @@ export function generateSmsReminder(params: {
   const amountStr = `₹${amount.toLocaleString('en-IN')}`
   const message =
     locale === 'hi'
-      ? `नमस्ते ${tenantName}, ${propertyName || 'StayNest PG'} का किराया ${amountStr} देय तारीख (${dueDay}) तक अवश्य जमा करें।`
-      : `Dear ${tenantName}, kindly note your rent of ${amountStr} for ${propertyName || 'StayNest PG'} is due on the ${dueDay}th. Thank you.`
+      ? `नमस्ते ${tenantName}, ${propertyName || 'StayBook Property'} का किराया ${amountStr} देय तारीख (${dueDay}) तक अवश्य जमा करें।`
+      : `Dear ${tenantName}, kindly note your rent of ${amountStr} for ${propertyName || 'StayBook Property'} is due on the ${dueDay}th. Thank you.`
 
   return `sms:${cleanPhone}?body=${encodeURIComponent(message)}`
 }
