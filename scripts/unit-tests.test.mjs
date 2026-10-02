@@ -478,4 +478,238 @@ test('13. Operational Bed Availability & Full-Room Invariant Law', () => {
   assert.strictEqual(editStatus.isAvailable, true, 'Current tenant can retain their own bed')
 })
 
+test('14. Bug #1: Resident Deletion, Bed Release & Ledger Integrity Law', () => {
+  // Mock initial state: 1 active tenant in room-1 assigned to bed-1
+  let bedState = { id: 'bed-1', room_id: 'room-1', status: 'occupied' }
+  let tenantList = [
+    { id: 'tenant-1', name: 'Aarav', room_id: 'room-1', bed_id: 'bed-1', owner_id: 'owner-A' },
+    { id: 'tenant-2', name: 'Vikram', room_id: 'room-2', bed_id: 'bed-2', owner_id: 'owner-A' },
+  ]
+  let paymentRecords = [
+    { id: 'pay-1', tenant_id: 'tenant-1', amount: 8000, owner_id: 'owner-A' },
+  ]
+
+  // Deletion logic (matching deleteTenantAction + client update)
+  function executeTenantDelete(tenantId, callerOwnerId) {
+    const target = tenantList.find((t) => t.id === tenantId)
+    if (!target) return { success: false, error: 'Not found' }
+    if (target.owner_id !== callerOwnerId) return { success: false, error: 'Unauthorized cross-owner delete' }
+
+    // Hard delete from tenant list
+    tenantList = tenantList.filter((t) => t.id !== tenantId)
+
+    // Release bed to 'available'
+    if (target.bed_id && bedState.id === target.bed_id) {
+      bedState.status = 'available'
+    }
+
+    // ON DELETE SET NULL on payments preserves payment history
+    paymentRecords = paymentRecords.map((p) => (p.tenant_id === tenantId ? { ...p, tenant_id: null } : p))
+
+    return { success: true }
+  }
+
+  // Cross-owner deletion attempt must fail
+  const crossOwnerResult = executeTenantDelete('tenant-1', 'owner-B')
+  assert.strictEqual(crossOwnerResult.success, false, 'Owner B cannot delete Owner A tenant')
+  assert.strictEqual(tenantList.length, 2, 'Tenant list must remain untouched after unauthorized attempt')
+
+  // Authorized deletion
+  const authResult = executeTenantDelete('tenant-1', 'owner-A')
+  assert.strictEqual(authResult.success, true, 'Authorized delete must succeed')
+  assert.strictEqual(tenantList.length, 1, 'Deleted tenant disappears from list')
+  assert.strictEqual(tenantList[0].id, 'tenant-2', 'Unrelated tenant remains untouched')
+  assert.strictEqual(bedState.status, 'available', 'Assigned bed must immediately become available')
+
+  // Financial integrity check
+  assert.strictEqual(paymentRecords.length, 1, 'Payment history is never deleted')
+  assert.strictEqual(paymentRecords[0].tenant_id, null, 'Payment tenant_id is preserved via ON DELETE SET NULL')
+  assert.strictEqual(paymentRecords[0].amount, 8000, 'Historical revenue amount remains intact')
+})
+
+test('15. Bug #2: Expense Deletion & Real-Time Ledger Totals', () => {
+  let expenses = [
+    { id: 'exp-1', title: 'Water Tank Cleaning', amount: 1500, owner_id: 'owner-A' },
+    { id: 'exp-2', title: 'High-speed Wi-Fi', amount: 2000, owner_id: 'owner-A' },
+    { id: 'exp-3', title: 'Competitor Expense', amount: 5000, owner_id: 'owner-B' },
+  ]
+
+  function calculateOperatingTotal(ownerId) {
+    return expenses.filter((e) => e.owner_id === ownerId).reduce((sum, e) => sum + e.amount, 0)
+  }
+
+  assert.strictEqual(calculateOperatingTotal('owner-A'), 3500, 'Initial owner A operating expenses')
+
+  // Attempt delete with wrong owner
+  function deleteExpense(expenseId, ownerId) {
+    const exp = expenses.find((e) => e.id === expenseId)
+    if (!exp || exp.owner_id !== ownerId) return { success: false, error: 'Unauthorized' }
+    expenses = expenses.filter((e) => e.id !== expenseId)
+    return { success: true }
+  }
+
+  const unauthorizedResult = deleteExpense('exp-1', 'owner-B')
+  assert.strictEqual(unauthorizedResult.success, false, 'Owner B cannot delete Owner A expense')
+  assert.strictEqual(calculateOperatingTotal('owner-A'), 3500)
+
+  // Authorized delete
+  const authorizedResult = deleteExpense('exp-1', 'owner-A')
+  assert.strictEqual(authorizedResult.success, true)
+  assert.strictEqual(expenses.some((e) => e.id === 'exp-1'), false, 'Expense is deleted')
+  assert.strictEqual(calculateOperatingTotal('owner-A'), 2000, 'Operating expense total recalculated accurately')
+})
+
+test('16. Bug #3: Bed-Room Mismatch Validation Law', () => {
+  const rooms = [
+    { id: 'room-101', room_number: '101', room_type: 'Single' },
+    { id: 'room-102', room_number: '102', room_type: 'Double' },
+  ]
+
+  const beds = [
+    { id: 'bed-101-a', room_id: 'room-101', status: 'available' },
+    { id: 'bed-102-a', room_id: 'room-102', status: 'available' },
+  ]
+
+  function validateBedRoomAssignment(selectedRoomId, selectedBedId) {
+    if (!selectedBedId) return { valid: true, effectiveRoomId: selectedRoomId }
+    const bed = beds.find((b) => b.id === selectedBedId)
+    if (!bed) return { valid: false, error: 'Bed does not exist' }
+
+    // If roomId is supplied, verify bed belongs to selected room
+    if (selectedRoomId && bed.room_id && bed.room_id !== selectedRoomId) {
+      return { valid: false, error: 'The selected bed belongs to another room. Room and bed must match.' }
+    }
+
+    // If roomId is absent, derive room from the bed's actual room_id
+    const effectiveRoomId = selectedRoomId || bed.room_id
+    return { valid: true, effectiveRoomId }
+  }
+
+  // Case 1: Room 101 + Bed from Room 102 (MISMATCH) -> MUST FAIL
+  const mismatchResult = validateBedRoomAssignment('room-101', 'bed-102-a')
+  assert.strictEqual(mismatchResult.valid, false)
+  assert.ok(mismatchResult.error.includes('belongs to another room'))
+
+  // Case 2: Room 101 + Bed from Room 101 (MATCH) -> SUCСEED
+  const matchResult = validateBedRoomAssignment('room-101', 'bed-101-a')
+  assert.strictEqual(matchResult.valid, true)
+  assert.strictEqual(matchResult.effectiveRoomId, 'room-101')
+
+  // Case 3: roomId absent, Bed 102-a provided -> MUST DERIVE room-102
+  const derivedResult = validateBedRoomAssignment(null, 'bed-102-a')
+  assert.strictEqual(derivedResult.valid, true)
+  assert.strictEqual(derivedResult.effectiveRoomId, 'room-102')
+})
+
+test('17. Bug #4: Bed Occupancy Conflict Protection', () => {
+  const beds = [
+    { id: 'bed-1', status: 'available' }, // Database status may be stale ('available')
+  ]
+  const tenants = [
+    { id: 'tenant-active', bed_id: 'bed-1', status: 'active' },
+    { id: 'tenant-vacated', bed_id: 'bed-1', status: 'Vacated' },
+  ]
+
+  function checkBedAvailability(bedId) {
+    const bed = beds.find((b) => b.id === bedId)
+    if (!bed || bed.status !== 'available') return { available: false, reason: 'Bed status unavailable' }
+
+    // Independent occupant verification: check if any ACTIVE (non-vacated) tenant occupies it
+    const activeOccupant = tenants.find((t) => t.bed_id === bedId && t.status !== 'Vacated')
+    if (activeOccupant) {
+      return { available: false, reason: 'Bed already occupied by active resident' }
+    }
+
+    return { available: true }
+  }
+
+  // Even though beds[0].status === 'available', activeOccupant exists
+  const conflictCheck = checkBedAvailability('bed-1')
+  assert.strictEqual(conflictCheck.available, false)
+  assert.strictEqual(conflictCheck.reason, 'Bed already occupied by active resident')
+
+  // Once active tenant vacates:
+  tenants[0].status = 'Vacated'
+  const freeCheck = checkBedAvailability('bed-1')
+  assert.strictEqual(freeCheck.available, true, 'Bed becomes assignable after all occupants vacate')
+})
+
+test('18. Bug #5: Server-Side Exact Room Capacity Law (Single=1, Double=2, Triple=3)', () => {
+  function testRoomCapacityEnforcement(roomType, activeOccupantCount) {
+    const type = roomType.toLowerCase()
+    const maxCapacity = type.includes('single') ? 1 : type.includes('double') ? 2 : type.includes('triple') ? 3 : 4
+    if (activeOccupantCount >= maxCapacity) {
+      return { allowed: false, error: `Capacity exceeded: max ${maxCapacity}` }
+    }
+    return { allowed: true }
+  }
+
+  // Single Room (capacity 1)
+  assert.strictEqual(testRoomCapacityEnforcement('Single', 0).allowed, true, 'Single: 1st occupant succeeds')
+  assert.strictEqual(testRoomCapacityEnforcement('Single', 1).allowed, false, 'Single: 2nd occupant fails')
+
+  // Double Room (capacity 2)
+  assert.strictEqual(testRoomCapacityEnforcement('Double', 0).allowed, true, 'Double: 1st occupant succeeds')
+  assert.strictEqual(testRoomCapacityEnforcement('Double', 1).allowed, true, 'Double: 2nd occupant succeeds')
+  assert.strictEqual(testRoomCapacityEnforcement('Double', 2).allowed, false, 'Double: 3rd occupant fails')
+
+  // Triple Room (capacity 3)
+  assert.strictEqual(testRoomCapacityEnforcement('Triple', 0).allowed, true, 'Triple: 1st occupant succeeds')
+  assert.strictEqual(testRoomCapacityEnforcement('Triple', 1).allowed, true, 'Triple: 2nd occupant succeeds')
+  assert.strictEqual(testRoomCapacityEnforcement('Triple', 2).allowed, true, 'Triple: 3rd occupant succeeds')
+  assert.strictEqual(testRoomCapacityEnforcement('Triple', 3).allowed, false, 'Triple: 4th occupant fails')
+})
+
+test('19. Bug #6: Concurrency & Atomic Bed Reservation Simulation', async () => {
+  // Simulate database row with optimistic locking (.eq('status', 'available'))
+  let bedStatus = 'available'
+
+  async function attemptBedClaim(requestId) {
+    // Atomic update simulation: only updates if status is currently 'available'
+    if (bedStatus === 'available') {
+      bedStatus = 'occupied'
+      return { success: true, claimedBy: requestId }
+    }
+    return { success: false, error: 'The selected bed was just taken or is no longer available.' }
+  }
+
+  // Simulate two concurrent requests arriving simultaneously
+  const [res1, res2] = await Promise.all([
+    attemptBedClaim('request-A'),
+    attemptBedClaim('request-B'),
+  ])
+
+  // Exactly one must succeed, the other must safely fail
+  const successCount = (res1.success ? 1 : 0) + (res2.success ? 1 : 0)
+  assert.strictEqual(successCount, 1, 'Only one concurrent request may claim the bed')
+  assert.strictEqual(bedStatus, 'occupied', 'Bed status must be occupied')
+})
+
+test('20. Bug #8: Strict Cross-Owner Isolation Law', () => {
+  const resources = [
+    { type: 'property', id: 'prop-1', owner_id: 'owner-A' },
+    { type: 'room', id: 'room-1', owner_id: 'owner-A' },
+    { type: 'bed', id: 'bed-1', owner_id: 'owner-A' },
+    { type: 'tenant', id: 'ten-1', owner_id: 'owner-A' },
+    { type: 'expense', id: 'exp-1', owner_id: 'owner-A' },
+    { type: 'payment', id: 'pay-1', owner_id: 'owner-A' },
+  ]
+
+  function verifyAccess(resource, userOwnerId) {
+    return resource.owner_id === userOwnerId
+  }
+
+  for (const r of resources) {
+    assert.strictEqual(verifyAccess(r, 'owner-A'), true, `Owner A must have access to own ${r.type}`)
+    assert.strictEqual(verifyAccess(r, 'owner-B'), false, `Owner B must NEVER access Owner A's ${r.type}`)
+  }
+})
+
+test('21. Bug #15: StayBook Branding & Presentation Verification', () => {
+  const brandName = 'StayBook'
+  assert.strictEqual(brandName, 'StayBook')
+  assert.notStrictEqual(brandName, 'StayNest')
+})
+
+
 

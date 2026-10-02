@@ -4,7 +4,7 @@ import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export const metadata = {
-  title: 'Security Architecture & Sub-processors | StayNest',
+  title: 'Security Architecture & Sub-processors | StayBook',
   description: 'Enterprise security standards, database encryption, Row Level Security, and sub-processor disclosures.',
 }
 
@@ -18,7 +18,7 @@ export default function SecurityPage() {
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
               <Building2 className="size-5" />
             </span>
-            <span className="text-base font-bold tracking-tight">StayNest</span>
+            <span className="text-base font-bold tracking-tight">StayBook</span>
           </Link>
           <Link
             href="/"
@@ -37,7 +37,7 @@ export default function SecurityPage() {
             <ShieldCheck className="size-6" />
             <span className="text-xs font-bold uppercase tracking-wider">Enterprise Security Posture</span>
           </div>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">StayNest Security Architecture</h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">StayBook Security Architecture</h1>
           <p className="mt-2 text-xs text-[#85899a]">
             Last Updated: September 28, 2026 · SOC 2 & ISO 27001 Aligned Controls
           </p>
@@ -46,7 +46,7 @@ export default function SecurityPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">1. Multi-Tenant Cryptographic Isolation</h2>
               <p className="mt-2">
-                StayNest implements defense-in-depth security principles. Multi-tenant customer data is isolated at the database engine level
+                StayBook implements defense-in-depth security principles. Multi-tenant customer data is isolated at the database engine level
                 utilizing PostgreSQL Row Level Security (RLS) policies. Every incoming query is bound to the verified cryptographic JWT identity of the
                 authenticated user, preventing cross-tenant data leakage even in the event of client-side code compromise.
               </p>
@@ -104,7 +104,7 @@ export default function SecurityPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">3. Incident Response & Breach Notification</h2>
               <p className="mt-2">
-                StayNest maintains a documented incident response runbook. In the unlikely event of a verified data breach impacting personal resident
+                StayBook maintains a documented incident response runbook. In the unlikely event of a verified data breach impacting personal resident
                 or property records, affected customers and relevant supervisory authorities will be formally notified within 72 hours of verification
                 pursuant to GDPR and Section 8(6) of the India DPDP Act 2023.
               </p>

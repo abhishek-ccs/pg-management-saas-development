@@ -24,7 +24,7 @@ export default function ErrorBoundary({
       <header className="border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 px-6 py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <Link href="/" className="text-base font-bold tracking-tight text-[#9a7651]">
-            StayNest
+            StayBook
           </Link>
         </div>
       </header>
@@ -65,7 +65,7 @@ export default function ErrorBoundary({
         <p className="mt-6 text-xs text-[#85899a]">
           If this issue persists, please report it to{' '}
           <a
-            href={getMailtoSupport('StayNest Error Report')}
+            href={getMailtoSupport('StayBook Error Report')}
             className="font-semibold text-[#9a7651] underline"
           >
             {SUPPORT_EMAIL}
@@ -74,7 +74,7 @@ export default function ErrorBoundary({
       </div>
 
       <footer className="border-t border-[#eee4d7] bg-[#fbf8f3] py-6 text-center text-xs text-[#776d62]">
-        <p>&copy; {new Date().getFullYear()} StayNest. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} StayBook. All rights reserved.</p>
       </footer>
     </main>
   )

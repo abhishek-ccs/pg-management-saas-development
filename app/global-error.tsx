@@ -38,7 +38,7 @@ export default function GlobalError({
           <p className="mt-6 text-xs text-[#85899a]">
             Need help? Contact{' '}
             <a
-              href={getMailtoSupport('StayNest Critical Application Error')}
+              href={getMailtoSupport('StayBook Critical Application Error')}
               className="font-semibold text-[#9a7651] underline"
             >
               {SUPPORT_EMAIL}

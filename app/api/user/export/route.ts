@@ -47,7 +47,7 @@ export async function GET() {
 
     const exportPayload = {
       exportMetadata: {
-        platform: 'StayNest PG Management SaaS',
+        platform: 'StayBook Property Management SaaS',
         version: '1.0.0',
         generatedAt: new Date().toISOString(),
         dataSubjectId: userId,
@@ -66,7 +66,7 @@ export async function GET() {
     }
 
     const timestamp = new Date().toISOString().slice(0, 10)
-    const filename = `staynest-export-${timestamp}.json`
+    const filename = `staybook-export-${timestamp}.json`
 
     return new NextResponse(JSON.stringify(exportPayload, null, 2), {
       status: 200,

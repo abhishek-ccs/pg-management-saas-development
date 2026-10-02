@@ -4,8 +4,8 @@ import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export const metadata = {
-  title: 'Cookie Policy | StayNest',
-  description: 'Detailed breakdown of essential, functional, and analytics cookies used across StayNest.',
+  title: 'Cookie Policy | StayBook',
+  description: 'Detailed breakdown of essential, functional, and analytics cookies used across StayBook.',
 }
 
 export default function CookiePolicyPage() {
@@ -18,7 +18,7 @@ export default function CookiePolicyPage() {
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
               <Building2 className="size-5" />
             </span>
-            <span className="text-base font-bold tracking-tight">StayNest</span>
+            <span className="text-base font-bold tracking-tight">StayBook</span>
           </Link>
           <Link
             href="/"
@@ -37,7 +37,7 @@ export default function CookiePolicyPage() {
             <Cookie className="size-6" />
             <span className="text-xs font-bold uppercase tracking-wider">Cookie Governance</span>
           </div>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">StayNest Cookie Policy</h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">StayBook Cookie Policy</h1>
           <p className="mt-2 text-xs text-[#85899a]">
             Effective Date: September 28, 2026 · Compliant with ePrivacy Directive & DPDP Act 2023
           </p>
@@ -61,7 +61,7 @@ export default function CookiePolicyPage() {
                   </h3>
                   <p className="mt-2 text-xs text-[#676b7d]">
                     Essential for secure authentication, CSRF validation, and maintaining active property owner sessions. Without these cookies,
-                    the StayNest SaaS dashboard cannot operate securely.
+                    the StayBook SaaS dashboard cannot operate securely.
                   </p>
                   <p className="mt-2 font-mono text-[11px] text-[#9a7651]">
                     Key Cookies: <code className="bg-[#faf7f2] px-1.5 py-0.5 rounded">sb-*-auth-token</code>, <code className="bg-[#faf7f2] px-1.5 py-0.5 rounded">staynest_consent</code>
@@ -110,7 +110,7 @@ export default function CookiePolicyPage() {
               <p className="mt-2">
                 If you have questions about our cookie practices, reach our support team at:{' '}
                 <a
-                  href={getMailtoSupport('StayNest Cookie Policy Inquiry')}
+                  href={getMailtoSupport('StayBook Cookie Policy Inquiry')}
                   className="font-semibold text-[#9a7651] underline"
                 >
                   {SUPPORT_EMAIL}

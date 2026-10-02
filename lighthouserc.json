@@ -2,7 +2,7 @@
   "ci": {
     "collect": {
       "numberOfRuns": 3,
-      "startServerCommand": "npm run start",
+      "startServerCommand": "pnpm run start",
       "url": [
         "http://localhost:3000/",
         "http://localhost:3000/privacy",

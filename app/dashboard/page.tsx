@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient, ensureFreshSession } from '@/lib/supabase/client'
-import { createTenantAction, updateTenantAction } from './actions'
+import {
+  createTenantAction,
+  updateTenantAction,
+  deleteTenantAction,
+  deleteExpenseAction,
+  deletePaymentAction,
+} from './actions'
 import { isValidPhone } from '@/lib/validation'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
@@ -406,6 +412,7 @@ export default function DashboardPage() {
     isDestructive: false,
     onConfirm: async () => {},
   })
+  const [isConfirming, setIsConfirming] = useState(false)
 
   const flash = (text: string) => {
     setNotice(text)
@@ -1398,7 +1405,7 @@ export default function DashboardPage() {
     })
   }
 
-  // Delete / Soft-Delete Tenant (with 5-second Undo Toast)
+  // Delete Resident
   async function handleDeleteTenant(tenantId: string, tenantName: string) {
     const target = tenants.find((t) => t.id === tenantId)
     if (!target || !userId) return
@@ -1406,54 +1413,23 @@ export default function DashboardPage() {
     setConfirmDialog({
       open: true,
       title: `Delete Resident ${tenantName}?`,
-      description: 'The resident will be moved to Deleted Records. You will have 5 seconds to undo immediately, and can also restore from the Deleted Records tab anytime.',
+      description: 'Are you sure you want to permanently delete this resident record? Any assigned bed will immediately be released back to available inventory.',
       actionLabel: 'Delete Resident',
       isDestructive: true,
       onConfirm: async () => {
-        const now = new Date().toISOString()
-        const { error } = await supabase
-          .from('tenants')
-          .update({ deleted_at: now, updated_at: now })
-          .eq('id', tenantId)
-          .eq('owner_id', userId)
-
-        if (error) {
-          flash(`Could not delete tenant: ${error.message}`)
+        const res = await deleteTenantAction(tenantId)
+        if (!res.success) {
+          flash(res.error || 'Could not delete resident.')
           return
         }
 
-        // Release bed if occupied
+        // Release bed in local state if occupied
         if (target.bed_id) {
-          await supabase.from('beds').update({ status: 'available' }).eq('id', target.bed_id)
           setBeds((prev) => prev.map((b) => (b.id === target.bed_id ? { ...b, status: 'available' } : b)))
         }
 
-        const softDeletedTenant = { ...target, deleted_at: now }
         setTenants((prev) => prev.filter((t) => t.id !== tenantId))
-        setDeletedTenants((prev) => [softDeletedTenant, ...prev])
-
-        // 5-second Undo Timer
-        if (undoItem?.intervalId) clearInterval(undoItem.intervalId)
-        let countdown = 5
-        const intervalId = setInterval(() => {
-          countdown -= 1
-          if (countdown <= 0) {
-            clearInterval(intervalId)
-            setUndoItem(null)
-          } else {
-            setUndoItem((curr) => (curr ? { ...curr, secondsLeft: countdown } : null))
-          }
-        }, 1000)
-
-        setUndoItem({
-          id: tenantId,
-          type: 'tenant',
-          name: tenantName,
-          secondsLeft: 5,
-          intervalId,
-        })
-
-        flash(`Resident ${tenantName} moved to Deleted Records.`)
+        flash(`Resident ${tenantName} deleted successfully.`)
       },
     })
   }
@@ -1631,7 +1607,7 @@ export default function DashboardPage() {
     flash('Payment record updated successfully.')
   }
 
-  // Delete / Soft-Delete Payment (with 5-second Undo Toast)
+  // Delete Payment
   async function handleDeletePayment(paymentId: string, amount: number, tenantName: string) {
     if (!userId) return
     const target = payments.find((p) => p.id === paymentId)
@@ -1640,48 +1616,18 @@ export default function DashboardPage() {
     setConfirmDialog({
       open: true,
       title: `Delete Payment #${paymentId.slice(0, 8).toUpperCase()}?`,
-      description: `Remove payment of ${currency(amount)} for ${tenantName}? The entry will be moved to Deleted Records. You will have 5 seconds to undo immediately, and can restore it anytime.`,
+      description: `Remove payment of ${currency(amount)} for ${tenantName}? This action permanently removes the record from your ledger.`,
       actionLabel: 'Delete Payment',
       isDestructive: true,
       onConfirm: async () => {
-        const now = new Date().toISOString()
-        const { error } = await supabase
-          .from('payments')
-          .update({ deleted_at: now, updated_at: now })
-          .eq('id', paymentId)
-          .eq('owner_id', userId)
-
-        if (error) {
-          flash(`Could not delete payment: ${error.message}`)
+        const res = await deletePaymentAction(paymentId)
+        if (!res.success) {
+          flash(res.error || 'Could not delete payment.')
           return
         }
 
-        const softDeletedPayment = { ...target, deleted_at: now }
         setPayments((prev) => prev.filter((p) => p.id !== paymentId))
-        setDeletedPayments((prev) => [softDeletedPayment, ...prev])
-
-        // 5-second Undo Timer
-        if (undoItem?.intervalId) clearInterval(undoItem.intervalId)
-        let countdown = 5
-        const intervalId = setInterval(() => {
-          countdown -= 1
-          if (countdown <= 0) {
-            clearInterval(intervalId)
-            setUndoItem(null)
-          } else {
-            setUndoItem((curr) => (curr ? { ...curr, secondsLeft: countdown } : null))
-          }
-        }, 1000)
-
-        setUndoItem({
-          id: paymentId,
-          type: 'payment',
-          name: `${tenantName} (${currency(amount)})`,
-          secondsLeft: 5,
-          intervalId,
-        })
-
-        flash(`Payment of ${currency(amount)} moved to Deleted Records.`)
+        flash(`Payment of ${currency(amount)} deleted successfully.`)
       },
     })
   }
@@ -1784,7 +1730,6 @@ export default function DashboardPage() {
         amount,
         expense_date: date,
         notes,
-        updated_at: new Date().toISOString(),
       })
       .eq('id', editingExpense.id)
       .eq('owner_id', userId)
@@ -1806,13 +1751,17 @@ export default function DashboardPage() {
     setConfirmDialog({
       open: true,
       title: `Delete Expense "${title}"?`,
-      description: 'Remove this expense entry from your accounting ledger?',
+      description: 'Remove this expense entry from your accounting ledger? This action cannot be undone.',
       actionLabel: 'Delete Entry',
       isDestructive: true,
       onConfirm: async () => {
-        await supabase.from('expenses').delete().eq('id', id).eq('owner_id', userId)
+        const res = await deleteExpenseAction(id)
+        if (!res.success) {
+          flash(res.error || 'Could not delete expense.')
+          return
+        }
         setExpenses((prev) => prev.filter((e) => e.id !== id))
-        flash('Expense entry deleted.')
+        flash('Expense entry deleted successfully.')
       },
     })
   }
@@ -2100,12 +2049,19 @@ export default function DashboardPage() {
             <h1 className="text-base font-semibold text-[#3d3934] lg:hidden">{active}</h1>
 
             {/* Multiple Properties Switcher Dropdown in Header */}
-            {properties.length > 1 && (
+            {properties.length > 0 && (
               <div className="flex items-center gap-1.5 rounded-xl border border-[#e8dfd4] bg-[#fbf8f3] px-2.5 py-1 text-xs shadow-2xs">
                 <Building2 className="size-3.5 text-[#9a7651] shrink-0" />
                 <select
                   value={selectedPropertyId || property.id}
-                  onChange={(e) => setSelectedPropertyId(e.target.value)}
+                  onChange={(e) => {
+                    if (e.target.value === '__add_new__') {
+                      setEditingPropertyId(null)
+                      setShowPropertyModal(true)
+                    } else {
+                      setSelectedPropertyId(e.target.value)
+                    }
+                  }}
                   className="bg-transparent font-semibold text-[#44485a] outline-none cursor-pointer text-xs max-w-[130px] sm:max-w-[180px] truncate"
                 >
                   {properties.map((p) => (
@@ -2113,6 +2069,7 @@ export default function DashboardPage() {
                       {p.name}
                     </option>
                   ))}
+                  <option value="__add_new__">+ Add Property...</option>
                 </select>
               </div>
             )}
@@ -2423,6 +2380,13 @@ export default function DashboardPage() {
               userEmail={userEmail}
               isSuperAdminUser={isSuperAdminUser}
               property={property}
+              properties={properties}
+              selectedPropertyId={selectedPropertyId || property.id}
+              onSelectProperty={(id: string) => setSelectedPropertyId(id)}
+              onAddProperty={() => {
+                setEditingPropertyId(null)
+                setShowPropertyModal(true)
+              }}
               trialStart={trialStart}
               trialEnd={trialEnd}
               daysRemaining={daysRemaining}
@@ -2432,6 +2396,10 @@ export default function DashboardPage() {
               subscriptionPlan={subscriptionPlan}
               onEditProperty={() => {
                 setEditingPropertyId(property.id)
+                setShowPropertyModal(true)
+              }}
+              onEditSpecificProperty={(id: string) => {
+                setEditingPropertyId(id)
                 setShowPropertyModal(true)
               }}
               onDeleteProperty={() => setShowDeletePropertyModal(true)}
@@ -3472,6 +3440,52 @@ export default function DashboardPage() {
                 className="rounded-xl bg-[#9a7651] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
               >
                 Continue with Growth Pro ({dashboardBillingCycle === 'yearly' ? `${formatINR(PRICING_CONFIG.yearlyRate)}/yr` : `${formatINR(PRICING_CONFIG.monthlyRate)}/mo`})
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* High-Impact Confirmation Dialog */}
+      {confirmDialog.open && (
+        <Modal
+          title={confirmDialog.title}
+          onClose={() => !isConfirming && setConfirmDialog((prev) => ({ ...prev, open: false }))}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-[#676b7d] leading-relaxed">{confirmDialog.description}</p>
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={isConfirming}
+                onClick={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
+                className="rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isConfirming}
+                onClick={async () => {
+                  if (isConfirming) return
+                  setIsConfirming(true)
+                  try {
+                    await confirmDialog.onConfirm()
+                    setConfirmDialog((prev) => ({ ...prev, open: false }))
+                  } catch (err) {
+                    console.error('Confirmation action error:', err)
+                  } finally {
+                    setIsConfirming(false)
+                  }
+                }}
+                className={`flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 ${
+                  confirmDialog.isDestructive
+                    ? 'bg-[#b95c3c] hover:bg-[#9e4a2e]'
+                    : 'bg-[#9a7651] hover:bg-[#866342]'
+                }`}
+              >
+                {isConfirming && <Loader2 className="size-3.5 animate-spin" />}
+                {isConfirming ? 'Processing...' : confirmDialog.actionLabel}
               </button>
             </div>
           </div>
@@ -4837,6 +4851,13 @@ function SettingsTab({
   userEmail,
   isSuperAdminUser,
   property,
+  properties = [],
+  selectedPropertyId,
+  onSelectProperty,
+  onAddProperty,
+  onEditProperty,
+  onEditSpecificProperty,
+  onDeleteProperty,
   trialStart,
   trialEnd,
   daysRemaining,
@@ -4844,8 +4865,6 @@ function SettingsTab({
   isEndingSoon,
   isTrialExpired,
   subscriptionPlan,
-  onEditProperty,
-  onDeleteProperty,
   onViewPlans,
   onSignOut,
 }: any) {
@@ -4873,32 +4892,85 @@ function SettingsTab({
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-bold text-[#3d3934]">Property Configuration</h3>
-            <p className="text-xs text-[#85899a]">Primary property workspace profile.</p>
+            <h3 className="text-base font-bold text-[#3d3934]">Properties & Locations</h3>
+            <p className="text-xs text-[#85899a]">
+              Manage multi-branch hostels, apartments, societies, and PG properties.
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onEditProperty}
-              className="rounded-lg border border-[#9a7651] px-3.5 py-1.5 text-xs font-semibold text-[#866342] hover:bg-[#fbf8f3]"
-            >
-              {property.name ? 'Edit' : 'Set Up Property'}
-            </button>
-            {property.name && (
-              <button
-                onClick={onDeleteProperty}
-                className="rounded-lg border border-[#ffe0e0] px-3 py-1.5 text-xs font-semibold text-[#b95c3c] hover:bg-[#fff5f5]"
-              >
-                Delete
-              </button>
-            )}
-          </div>
+          <button
+            onClick={onAddProperty}
+            className="flex items-center gap-1.5 rounded-lg bg-[#9a7651] px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-[#866342]"
+          >
+            <Plus className="size-3.5" />
+            Add Property
+          </button>
         </div>
-        <div className="mt-5 space-y-2 text-xs">
-          <p className="font-bold text-[#3d3934]">{property.name || 'No property set up yet'}</p>
-          <p className="text-[#676b7d]">
-            {property.address ? `${property.address}${property.city ? `, ${property.city}` : ''}` : 'Address not configured'}
-          </p>
-          <p className="text-[#676b7d]">{property.contact ? `Phone: ${property.contact}` : 'Phone not configured'}</p>
+
+        <div className="mt-4 space-y-3">
+          {(!properties || properties.length === 0) ? (
+            <div className="rounded-xl border border-[#eee6dc] bg-[#faf7f2] p-4 text-center">
+              <p className="text-xs font-semibold text-[#676b7d]">No properties configured yet.</p>
+              <button
+                onClick={onAddProperty}
+                className="mt-2 text-xs font-bold text-[#9a7651] hover:underline"
+              >
+                + Set Up Your First Property
+              </button>
+            </div>
+          ) : (
+            properties.map((p: any) => {
+              const isActive = (selectedPropertyId && p.id === selectedPropertyId) || (!selectedPropertyId && p.id === property?.id)
+              return (
+                <div
+                  key={p.id}
+                  className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border p-4 transition-all ${
+                    isActive
+                      ? 'border-[#9a7651] bg-[#fbf8f3] shadow-2xs'
+                      : 'border-[#e8dfd4] bg-white hover:border-[#cfb79f]'
+                  }`}
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-[#3d3934]">{p.name}</span>
+                      {isActive ? (
+                        <span className="rounded-md bg-[#9a7651] px-2 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
+                          Active Workspace
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => onSelectProperty && onSelectProperty(p.id)}
+                          className="rounded-md border border-[#9a7651] px-2 py-0.5 text-[10px] font-semibold text-[#866342] hover:bg-[#faf7f2]"
+                        >
+                          Switch Here
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-[#676b7d]">
+                      {p.address ? `${p.address}${p.city ? `, ${p.city}` : ''}` : 'Address not configured'}
+                    </p>
+                    {p.contact && <p className="text-[11px] text-[#85899a]">Phone: {p.contact}</p>}
+                  </div>
+
+                  <div className="flex items-center gap-2 self-start sm:self-center">
+                    <button
+                      onClick={() => onEditSpecificProperty ? onEditSpecificProperty(p.id) : onEditProperty()}
+                      className="rounded-lg border border-[#d8c2aa] px-3 py-1 text-xs font-medium text-[#866342] hover:bg-[#faf7f2]"
+                    >
+                      Edit
+                    </button>
+                    {isActive && (
+                      <button
+                        onClick={onDeleteProperty}
+                        className="rounded-lg border border-[#ffe0e0] px-3 py-1 text-xs font-medium text-[#b95c3c] hover:bg-[#fff5f5]"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
         </div>
       </div>
 

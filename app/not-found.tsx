@@ -11,7 +11,7 @@ export default function NotFound() {
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
               <Building2 className="size-5" />
             </span>
-            <span className="text-base font-bold tracking-tight">StayNest</span>
+            <span className="text-base font-bold tracking-tight">StayBook</span>
           </Link>
         </div>
       </header>
@@ -45,7 +45,7 @@ export default function NotFound() {
         <p className="mt-6 text-xs text-[#85899a]">
           Need help? Reach out to{' '}
           <a
-            href={getMailtoSupport('StayNest 404 Page Assistance')}
+            href={getMailtoSupport('StayBook 404 Page Assistance')}
             className="font-semibold text-[#9a7651] underline"
           >
             {SUPPORT_EMAIL}
@@ -54,7 +54,7 @@ export default function NotFound() {
       </div>
 
       <footer className="border-t border-[#eee4d7] bg-[#fbf8f3] py-6 text-center text-xs text-[#776d62]">
-        <p>&copy; {new Date().getFullYear()} StayNest. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} StayBook. All rights reserved.</p>
       </footer>
     </main>
   )
