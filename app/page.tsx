@@ -14,6 +14,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { StayBookLogo } from '@/components/ui/StayBookLogo'
 import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { useI18n } from '@/lib/i18n'
@@ -114,15 +115,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-20 border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
           <Link href="/" className="flex items-center gap-2.5">
-            <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
-              <Building2 className="size-5" />
-            </span>
-            <span>
-              <span className="block text-[15px] font-bold tracking-tight">StayBook</span>
-              <span className="block text-[9px] font-medium uppercase tracking-[0.18em] text-[#a08d79]">
-                {t.common.appName}
-              </span>
-            </span>
+            <StayBookLogo iconSize={38} subtitleText="PROPERTY MANAGEMENT" />
           </Link>
           <nav className="hidden items-center gap-7 text-sm text-[#776d62] md:flex">
             <Link href="#features">{t.nav.property}</Link>
@@ -135,7 +128,7 @@ export default function LandingPage() {
             {hasSession ? (
               <Link
                 href="/dashboard"
-                className="inline-flex items-center gap-1.5 rounded-xl bg-[#9a7651] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]"
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
               >
                 {t.landing.goToDashboard} <ArrowRight className="size-4" />
               </Link>
@@ -144,8 +137,8 @@ export default function LandingPage() {
                 <Link href="/login" className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-[#776d62] sm:block">
                   {t.landing.signIn}
                 </Link>
-                <Link href="/signup" className="rounded-xl bg-[#9a7651] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-                  {t.landing.startFreeTrial}
+                <Link href="/signup" className="rounded-full bg-[#8b5a2b] px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors">
+                  {t.landing.startFreeTrial} →
                 </Link>
               </>
             )}
@@ -499,10 +492,7 @@ export default function LandingPage() {
           <div className="grid gap-10 md:grid-cols-4">
             <div className="md:col-span-2">
               <div className="flex items-center gap-2.5">
-                <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
-                  <Building2 className="size-5" />
-                </span>
-                <span className="text-lg font-bold">StayBook</span>
+                <StayBookLogo iconSize={36} subtitleText="PROPERTY MANAGEMENT" />
               </div>
               <p className="mt-4 max-w-sm text-xs leading-6 text-[#cbbfaf]">
                 {t.landing.footerDesc}

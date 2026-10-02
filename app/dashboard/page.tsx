@@ -28,15 +28,19 @@ import {
   generateWhatsAppReminder,
   generateSmsReminder,
 } from '@/lib/due-dates'
+import { StayBookLogo, StayBookIcon } from '@/components/ui/StayBookLogo'
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
   BedDouble,
+  Bell,
   Building2,
   Calendar,
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   CircleHelp,
   Clock,
   DoorOpen,
@@ -51,6 +55,8 @@ import {
   MessageCircle,
   MessageSquare,
   Pencil,
+  Percent,
+  PieChart,
   Plus,
   Printer,
   Receipt,
@@ -1914,7 +1920,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f3ed] text-[#3d3934]">
+    <div className="min-h-screen bg-[#faf8f5] text-[#2c221e] font-sans">
       {/* Toast Notification */}
       {notice && (
         <div className="fixed right-5 top-5 z-50 flex items-center gap-2 rounded-xl bg-[#202536] px-4 py-3 text-xs font-semibold text-white shadow-xl transition-all animate-in fade-in slide-in-from-top-2">
@@ -1925,37 +1931,35 @@ export default function DashboardPage() {
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-[#e8dfd4] bg-white transition-transform lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-[#ebe4da] bg-white transition-transform lg:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex h-[74px] items-center justify-between border-b border-[#eee6dc] px-6">
-          <div className="flex items-center gap-2.5">
-            <div className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
-              <Building2 className="size-5" />
-            </div>
-            <div>
-              <p className="text-[15px] font-bold tracking-tight">StayBook</p>
-              <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#969baa]">Property SaaS</p>
-            </div>
-          </div>
-          <button className="lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Close menu">
+        <div className="flex h-[76px] items-center justify-between border-b border-[#ebe4da] px-5 sm:px-6 bg-white">
+          <StayBookLogo iconSize={36} />
+          <button className="lg:hidden p-1.5 rounded-lg hover:bg-[#faf7f2] text-[#6c635a]" onClick={() => setMobileOpen(false)} aria-label="Close menu">
             <X className="size-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pt-6">
-          <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#9ca0ae]">Workspace</p>
+        <div className="flex-1 overflow-y-auto px-3.5 pt-5">
+          <p className="mb-2.5 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#9c8e80]">Workspace</p>
           <nav className="flex flex-col gap-1">
             {navigation.map((item) => {
               const Icon = item.icon
               const isActive = active === item.label
               const openCount = item.label === 'Complaints' ? complaints.filter((c) => c.status !== 'Resolved').length : 0
               const displayLabel =
-                item.label === 'Rooms & Beds'
+                item.label === 'Overview'
+                  ? 'Dashboard'
+                  : item.label === 'Property'
+                  ? 'Properties'
+                  : item.label === 'Rooms & Beds'
                   ? isPgHostel ? 'Rooms & Beds' : 'Rooms & Units'
                   : item.label === 'Tenants'
                   ? isPgHostel ? 'Residents' : 'Residents / Tenants'
+                  : item.label === 'Settings'
+                  ? 'Subscription & Settings'
                   : item.label
               return (
                 <button
@@ -1964,14 +1968,16 @@ export default function DashboardPage() {
                     setActive(item.label)
                     setMobileOpen(false)
                   }}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium transition-colors ${
-                    isActive ? 'bg-[#f1e8dc] text-[#866342]' : 'text-[#74798a] hover:bg-[#faf7f2]'
+                  className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-[13px] font-medium transition-all ${
+                    isActive
+                      ? 'bg-[#f4ebe1] text-[#784d28] font-semibold shadow-2xs'
+                      : 'text-[#6a635b] hover:bg-[#faf7f2] hover:text-[#2c221e]'
                   }`}
                 >
-                  <Icon className="size-[17px]" />
-                  {displayLabel}
+                  <Icon className={`size-[17px] shrink-0 ${isActive ? 'text-[#784d28]' : 'text-[#8c7e72]'}`} />
+                  <span className="truncate">{displayLabel}</span>
                   {openCount > 0 && (
-                    <span className="ml-auto rounded-full bg-[#f4ede3] px-2 py-0.5 text-[10px] font-bold text-[#9a7651]">
+                    <span className="ml-auto rounded-full bg-[#faefe4] px-2 py-0.5 text-[10px] font-bold text-[#8b5a2b]">
                       {openCount}
                     </span>
                   )}
@@ -1982,20 +1988,20 @@ export default function DashboardPage() {
         </div>
 
         {/* Sidebar Trial Callout */}
-        <div className="p-4 border-t border-[#eee6dc]">
-          <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-4 text-xs">
+        <div className="p-4 border-t border-[#ebe4da] bg-white">
+          <div className="rounded-2xl border border-[#ebe4da] bg-[#fbf8f4] p-4 text-xs">
             <div className="mb-2 flex items-center justify-between">
-              <span className="flex items-center gap-1.5 font-bold text-[#9a7651]">
+              <span className="flex items-center gap-1.5 font-bold text-[#8b5a2b]">
                 <Sparkles className="size-3.5" />
                 7-Day Free Trial
               </span>
               <span
-                className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                   isTrialExpired
                     ? 'bg-[#ffebe8] text-[#b95c3c]'
                     : isEndingSoon
                     ? 'bg-[#fff4e5] text-[#b46b1a]'
-                    : 'bg-[#f4ede3] text-[#9a7651]'
+                    : 'bg-[#f4ede4] text-[#8b5a2b]'
                 }`}
               >
                 {isTrialExpired
@@ -2007,17 +2013,17 @@ export default function DashboardPage() {
                   : 'Active'}
               </span>
             </div>
-            <p className="mb-1 font-semibold text-[#403a34]">
+            <p className="mb-1 font-semibold text-[#2c221e]">
               {isTrialExpired ? 'Trial concluded.' : 'Active 7-day trial.'}
             </p>
-            <p className="mb-2.5 text-[11px] leading-4 text-[#74798a]">
+            <p className="mb-3 text-[11px] leading-4 text-[#7d756d]">
               {isTrialExpired
                 ? 'Upgrade anytime to continue adding business records.'
                 : 'Full workspace access with real database isolation.'}
             </p>
             <button
               onClick={() => setShowPricingModal(true)}
-              className="w-full rounded-lg bg-[#9a7651] py-2 text-center text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+              className="w-full rounded-xl bg-[#8b5a2b] py-2 text-center text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
             >
               View Plans & Upgrade
             </button>
@@ -2036,22 +2042,26 @@ export default function DashboardPage() {
       {/* Main Content Area */}
       <main className="lg:pl-[248px]">
         {/* Top Header */}
-        <header className="sticky top-0 z-20 flex min-h-[74px] flex-wrap items-center justify-between border-b border-[#e8dfd4] bg-white px-3 sm:px-8 py-2 gap-3">
+        <header className="sticky top-0 z-20 flex min-h-[74px] flex-wrap items-center justify-between border-b border-[#ebe4da] bg-white/95 backdrop-blur px-3 sm:px-8 py-2.5 gap-3">
           <div className="flex items-center gap-3">
-            <button className="lg:hidden p-1.5 rounded-lg hover:bg-[#f7f3ed] text-[#44485a]" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+            <button className="lg:hidden p-1.5 rounded-lg hover:bg-[#faf7f2] text-[#6c635a]" onClick={() => setMobileOpen(true)} aria-label="Open menu">
               <Menu className="size-5" />
             </button>
-            <div className="hidden items-center gap-2 text-xs text-[#969baa] sm:flex">
+            <div className="hidden items-center gap-2 text-xs text-[#9c8e80] sm:flex">
               <span>Workspace</span>
               <span>/</span>
-              <span className="font-semibold text-[#44485a]">{active}</span>
+              <span className="font-semibold text-[#2c221e]">
+                {active === 'Overview' ? 'Dashboard' : active}
+              </span>
             </div>
-            <h1 className="text-base font-semibold text-[#3d3934] lg:hidden">{active}</h1>
+            <h1 className="text-base font-semibold text-[#2c221e] lg:hidden">
+              {active === 'Overview' ? 'Dashboard' : active}
+            </h1>
 
             {/* Multiple Properties Switcher Dropdown in Header */}
             {properties.length > 0 && (
-              <div className="flex items-center gap-1.5 rounded-xl border border-[#e8dfd4] bg-[#fbf8f3] px-2.5 py-1 text-xs shadow-2xs">
-                <Building2 className="size-3.5 text-[#9a7651] shrink-0" />
+              <div className="flex items-center gap-1.5 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 py-1 text-xs shadow-2xs hover:border-[#d9cbbe] transition-colors">
+                <Building2 className="size-3.5 text-[#8b5a2b] shrink-0" />
                 <select
                   value={selectedPropertyId || property.id}
                   onChange={(e) => {
@@ -2062,7 +2072,7 @@ export default function DashboardPage() {
                       setSelectedPropertyId(e.target.value)
                     }
                   }}
-                  className="bg-transparent font-semibold text-[#44485a] outline-none cursor-pointer text-xs max-w-[130px] sm:max-w-[180px] truncate"
+                  className="bg-transparent font-semibold text-[#2c221e] outline-none cursor-pointer text-xs max-w-[130px] sm:max-w-[180px] truncate"
                 >
                   {properties.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -2076,14 +2086,14 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-            {/* Header Trial Pill */}
-            <div className="hidden md:flex items-center gap-2 rounded-full border border-[#e8dfd4] bg-[#fbf8f3] px-3 py-1.5 text-xs shadow-xs">
+            {/* Header Trial Pill (Matches Reference Image) */}
+            <div className="hidden md:flex items-center gap-2 rounded-full border border-[#e5dcd0] bg-[#faf6f1] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
               <span
                 className={`size-2 rounded-full ${
-                  isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#9a7651]'
+                  isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#8b5a2b]'
                 }`}
               />
-              <span className="font-semibold text-[#5a4838]">
+              <span>
                 {isTrialExpired
                   ? 'Trial Ended'
                   : hoursRemaining !== null && hoursRemaining < 48
@@ -2099,7 +2109,7 @@ export default function DashboardPage() {
                 title="Open StayBook Super Admin Console"
                 className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#866342] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
               >
-                <ShieldCheck className="size-3.5 text-[#9a7651]" />
+                <ShieldCheck className="size-3.5 text-[#8b5a2b]" />
                 <span>Staff Admin</span>
               </a>
             )}
@@ -2108,39 +2118,59 @@ export default function DashboardPage() {
             <LocaleSwitcher />
 
             {/* Dynamic Multi-Module Search Input */}
-            <div className="relative flex items-center gap-2 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a]">
-              <Search className="size-3.5 text-[#9a7651] shrink-0" />
+            <div className="relative flex items-center gap-2 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a] focus-within:border-[#8b5a2b] transition-colors">
+              <Search className="size-3.5 text-[#8b5a2b] shrink-0" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={`Search ${active}...`}
-                className="w-24 sm:w-36 md:w-44 bg-transparent outline-none placeholder:text-[#a0a3b0] text-xs"
+                placeholder={`Search ${active === 'Overview' ? 'Dashboard' : active}...`}
+                className="w-24 sm:w-36 md:w-44 bg-transparent outline-none placeholder:text-[#a09488] text-xs text-[#2c221e]"
               />
               {search && (
                 <div className="flex items-center gap-1.5">
-                  <span className="rounded bg-[#f1e8dc] px-1.5 py-0.5 text-[10px] font-bold text-[#866342]">
+                  <span className="rounded bg-[#f4ebe1] px-1.5 py-0.5 text-[10px] font-bold text-[#8b5a2b]">
                     {currentSearchCount}
                   </span>
-                  <button onClick={() => setSearch('')} title="Clear search" className="hover:text-[#3d3934]">
+                  <button onClick={() => setSearch('')} title="Clear search" className="hover:text-[#2c221e]">
                     <X className="size-3.5" />
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Owner Profile & Sign Out Icon */}
-            <div className="flex items-center gap-2 border-l border-[#eceef2] pl-2 sm:pl-3">
-              <div className="grid size-8 place-items-center rounded-full bg-[#f4ede3] text-xs font-bold text-[#9a7651]">
-                {userName ? userName.slice(0, 2).toUpperCase() : 'PO'}
+            {/* Notification Bell */}
+            <button
+              onClick={() => setActive('Complaints')}
+              title="Tickets & Notifications"
+              className="relative grid size-9 place-items-center rounded-full text-[#766e65] hover:bg-[#faf7f2] hover:text-[#2c221e] transition-colors"
+              aria-label="View notifications"
+            >
+              <Bell className="size-4" />
+              {complaints.filter((c) => c.status !== 'Resolved').length > 0 && (
+                <span className="absolute top-2 right-2 size-2 rounded-full bg-[#b95c3c] ring-2 ring-white" />
+              )}
+            </button>
+
+            {/* Owner Profile & Sign Out Icon (Matches Reference Image) */}
+            <div className="flex items-center gap-2.5 border-l border-[#ebe4da] pl-2 sm:pl-3">
+              <div className="grid size-9 place-items-center rounded-full bg-[#8b5a2b] text-white text-xs font-bold shadow-2xs ring-2 ring-[#f4ebe1]">
+                {userName ? userName.slice(0, 1).toUpperCase() : 'O'}
               </div>
-              <div className="hidden sm:block">
-                <p className="max-w-[110px] sm:max-w-[130px] truncate text-xs font-bold">{userName}</p>
-                <p className="text-[10px] text-[#999daa] truncate max-w-[110px] sm:max-w-[130px]">{property.name || 'Owner Workspace'}</p>
+              <div className="hidden sm:block leading-tight">
+                <div className="flex items-center gap-1">
+                  <p className="max-w-[110px] sm:max-w-[130px] truncate text-xs font-bold text-[#2c221e]">
+                    {userName || 'Owner'}
+                  </p>
+                  <ChevronDown className="size-3 text-[#9c8e80]" />
+                </div>
+                <p className="text-[10px] font-medium text-[#8c7e72] truncate max-w-[110px] sm:max-w-[130px]">
+                  Property Owner
+                </p>
               </div>
               <button
                 onClick={() => setShowLogoutModal(true)}
                 title="Sign out"
-                className="rounded-xl p-2 text-[#9296a5] hover:bg-[#f7f3ed] hover:text-[#b95c3c] transition-colors"
+                className="rounded-xl p-2 text-[#9296a5] hover:bg-[#faf7f2] hover:text-[#b95c3c] transition-colors"
               >
                 <LogOut className="size-4" />
               </button>
@@ -2153,10 +2183,14 @@ export default function DashboardPage() {
           {active === 'Overview' && (
             <OverviewTab
               property={property}
+              properties={properties}
               rooms={currentPropertyRooms}
               beds={currentPropertyBeds}
               tenants={currentPropertyTenants}
               payments={currentPropertyPayments}
+              expenses={currentPropertyExpenses}
+              electricity={currentPropertyElectricity}
+              complaints={currentPropertyComplaints}
               collectedMonth={totalCollectedMonth}
               rentPending={totalRentPending}
               expensesMonth={totalExpensesMonth}
@@ -2170,6 +2204,7 @@ export default function DashboardPage() {
               isTrialExpired={isTrialExpired}
               trialStart={trialStart}
               trialEnd={trialEnd}
+              userName={userName}
               onAddProperty={() => {
                 setEditingPropertyId(null)
                 setShowPropertyModal(true)
@@ -3519,25 +3554,46 @@ export default function DashboardPage() {
 // TAB COMPONENTS
 // ------------------------------------------------------------------------------
 
+function formatRelativeTime(dateStr?: string | null): string {
+  if (!dateStr) return 'Recently'
+  const time = new Date(dateStr).getTime()
+  if (isNaN(time)) return 'Recently'
+  const diffSec = Math.floor((Date.now() - time) / 1000)
+  if (diffSec < 60) return 'Just now'
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}h ago`
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffDay < 30) return `${diffDay}d ago`
+  const diffMonth = Math.floor(diffDay / 30)
+  return `${diffMonth}mo ago`
+}
+
 function OverviewTab({
   property,
-  rooms,
-  beds,
-  tenants,
-  payments,
-  collectedMonth,
-  rentPending,
-  expensesMonth,
-  electricityPending,
-  activeTenantsCount,
-  availableBedsCount,
-  occupiedBedsCount,
+  properties = [],
+  rooms = [],
+  beds = [],
+  tenants = [],
+  payments = [],
+  expenses = [],
+  electricity = [],
+  complaints = [],
+  collectedMonth = 0,
+  rentPending = 0,
+  expensesMonth = 0,
+  electricityPending = 0,
+  activeTenantsCount = 0,
+  availableBedsCount = 0,
+  occupiedBedsCount = 0,
   daysRemaining,
   hoursRemaining,
   isEndingSoon,
   isTrialExpired,
   trialStart,
   trialEnd,
+  userName = '',
   onAddProperty,
   onAddRoom,
   onAddTenant,
@@ -3545,39 +3601,158 @@ function OverviewTab({
   onViewPlans,
   onNavigate,
 }: any) {
-  const today = new Intl.DateTimeFormat('en-IN', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date())
+  // Time-of-day personalized greeting
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening'
+  const ownerFirstName = userName ? userName.split(' ')[0] : 'Owner'
+
+  // Metric 1: Properties count
+  const propertiesCount = properties && properties.length > 0 ? properties.length : (property.name ? 1 : 0)
+
+  // Metric 2: Rooms count
+  const roomsCount = rooms ? rooms.length : 0
+
+  // Metric 3: Active Residents
+  const residentsCount = activeTenantsCount || (tenants ? tenants.filter((t: any) => t.status !== 'Vacated').length : 0)
+
+  // Metric 4: Real Occupancy percentage calculation
+  const totalCapacity = beds && beds.length > 0
+    ? beds.length
+    : rooms && rooms.length > 0
+    ? rooms.reduce((acc: number, r: any) => acc + getRoomMaxCapacity(r.room_type), 0)
+    : 0
+
+  const occupancyPercent = totalCapacity > 0
+    ? Math.min(100, Math.round((residentsCount / totalCapacity) * 100))
+    : (residentsCount > 0 ? 100 : 0)
+
+  // Chronological real activity stream
+  const recentActivities = useMemo(() => {
+    const list: Array<{
+      id: string
+      type: 'payment' | 'tenant' | 'electricity' | 'expense'
+      title: string
+      subtitle: string
+      time: string
+      timestamp: number
+      iconBg: string
+      iconColor: string
+    }> = []
+
+    // 1. Real payments
+    ;(payments || []).forEach((p: PaymentRecord) => {
+      if (!p) return
+      list.push({
+        id: `pay-${p.id}`,
+        type: 'payment',
+        title: `Rent received from ${p.tenant_name || 'Resident'}`,
+        subtitle: `₹${Number(p.amount || 0).toLocaleString('en-IN')} • ${p.room_number ? `Room ${p.room_number}` : 'Rent Payment'}`,
+        time: formatRelativeTime(p.paid_at),
+        timestamp: p.paid_at ? new Date(p.paid_at).getTime() : 0,
+        iconBg: 'bg-[#edf7f1]',
+        iconColor: 'text-[#2f7e53]',
+      })
+    })
+
+    // 2. Real onboarded tenants
+    ;(tenants || []).forEach((t: Tenant) => {
+      if (!t) return
+      list.push({
+        id: `ten-${t.id}`,
+        type: 'tenant',
+        title: 'New tenant added',
+        subtitle: `${t.name} • ${t.room && t.room !== 'Unassigned' ? `Room ${t.room}` : 'Resident Record'}`,
+        time: formatRelativeTime(t.joiningDate),
+        timestamp: t.joiningDate ? new Date(t.joiningDate).getTime() : 0,
+        iconBg: 'bg-[#fdf0ee]',
+        iconColor: 'text-[#c05642]',
+      })
+    })
+
+    // 3. Real electricity bills
+    ;(electricity || []).forEach((el: ElectricityRecord) => {
+      if (!el) return
+      const units = Math.max(0, Number(el.current_reading || 0) - Number(el.previous_reading || 0))
+      const bill = units * Number(el.rate_per_unit || 0)
+      list.push({
+        id: `elec-${el.id}`,
+        type: 'electricity',
+        title: 'Electricity bill updated',
+        subtitle: `₹${bill > 0 ? bill.toLocaleString('en-IN') : Number(el.rate_per_unit || 0).toLocaleString('en-IN')} • ${el.room || 'Main Meter'}`,
+        time: formatRelativeTime(el.reading_date),
+        timestamp: el.reading_date ? new Date(el.reading_date).getTime() : 0,
+        iconBg: 'bg-[#fef7ea]',
+        iconColor: 'text-[#b87a1e]',
+      })
+    })
+
+    // 4. Real expenses
+    ;(expenses || []).forEach((ex: Expense) => {
+      if (!ex) return
+      list.push({
+        id: `exp-${ex.id}`,
+        type: 'expense',
+        title: `Expense logged: ${ex.title}`,
+        subtitle: `₹${Number(ex.amount || 0).toLocaleString('en-IN')} • ${ex.category || 'General'}`,
+        time: formatRelativeTime(ex.expense_date),
+        timestamp: ex.expense_date ? new Date(ex.expense_date).getTime() : 0,
+        iconBg: 'bg-[#f6efe7]',
+        iconColor: 'text-[#8b5a2b]',
+      })
+    })
+
+    list.sort((a: any, b: any) => b.timestamp - a.timestamp)
+    return list.slice(0, 5)
+  }, [payments, tenants, electricity, expenses])
+
+  // Real upcoming & overdue dues
+  const upcomingDues = useMemo(() => {
+    const pendingTenants = (tenants || []).filter(
+      (t: Tenant) => t && t.status !== 'Vacated' && (t.status === 'Pending' || t.status === 'Overdue')
+    )
+
+    return pendingTenants
+      .map((t: Tenant) => {
+        const dueInfo = calculateRentDueStatus(t.rent_due_day || 5, false)
+        const isOverdue = dueInfo.status === 'overdue' || t.status === 'Overdue'
+        return {
+          id: t.id,
+          name: t.name,
+          room: t.room && t.room !== 'Unassigned' ? t.room : 'Unit',
+          amount: Number(t.rent || 0),
+          status: t.status,
+          isOverdue,
+          dueLabel: isOverdue ? 'Overdue' : dueInfo.labelEn,
+        }
+      })
+      .sort((a: any, b: any) => (a.isOverdue === b.isOverdue ? 0 : a.isOverdue ? -1 : 1))
+      .slice(0, 5)
+  }, [tenants])
 
   return (
     <>
-      <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      {/* Top Greeting Area (Matches Reference Image) */}
+      <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <p className="mb-1 text-[12px] font-medium text-[#8b8fa0]">{today}</p>
-          <h2 className="text-[26px] font-bold tracking-[-0.04em]">
-            {property.name ? property.name : 'Welcome to StayBook'}
+          <h2 className="text-2xl sm:text-[28px] font-bold tracking-tight text-[#2c221e]">
+            {greeting}, {ownerFirstName}
           </h2>
-          <p className="mt-1 text-sm text-[#85899a]">
-            {property.name
-              ? `${property.address ? `${property.address}, ` : ''}${property.city || ''}`
-              : 'Complete your property setup to manage rooms, units, and residents.'}
+          <p className="mt-1 text-xs sm:text-sm text-[#7d756d]">
+            Here&apos;s what&apos;s happening with your properties today.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2.5">
           {!property.name ? (
             <button
               onClick={onAddProperty}
-              className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+              className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
             >
               <Plus className="size-4" /> Set Up Property
             </button>
           ) : (
             <button
               onClick={onRecordPayment}
-              className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+              className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
             >
               <Plus className="size-4" /> Record Payment
             </button>
@@ -3585,24 +3760,155 @@ function OverviewTab({
         </div>
       </div>
 
-      {/* 3-Step Guided Setup Checklist for Property Owners */}
+      {/* 4 Dashboard Stat Cards: Properties, Rooms/Units, Residents, Occupancy (Matches Reference Image) */}
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard
+          label="Properties"
+          value={propertiesCount}
+          note={propertiesCount > 1 ? `${propertiesCount} active locations` : '1 active location'}
+          Icon={Home}
+          i={0}
+        />
+        <MetricCard
+          label={getPropertyType(property) === 'pg_hostel' ? 'Rooms & Beds' : 'Rooms / Units'}
+          value={roomsCount}
+          note={`${availableBedsCount} available · ${occupiedBedsCount} occupied`}
+          Icon={DoorOpen}
+          i={1}
+        />
+        <MetricCard
+          label="Residents"
+          value={residentsCount}
+          note={`${tenants.length} total registered`}
+          Icon={Users}
+          i={2}
+        />
+        <MetricCard
+          label="Occupancy"
+          value={`${occupancyPercent}%`}
+          note={`${occupiedBedsCount || residentsCount} of ${totalCapacity || '0'} slots occupied`}
+          Icon={PieChart}
+          i={3}
+        />
+      </div>
+
+      {/* Main 2-Column Section: Recent Activity & Upcoming Dues (Matches Reference Image) */}
+      <div className="mb-8 grid gap-6 lg:grid-cols-12 items-start">
+        {/* Left Column: Recent Activity */}
+        <section className="lg:col-span-7 rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)]">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h3 className="text-base font-bold text-[#2c221e]">Recent Activity</h3>
+              <p className="mt-0.5 text-xs text-[#7d756d]">Live payments, resident onboardings, and utility updates</p>
+            </div>
+          </div>
+
+          {recentActivities.length > 0 ? (
+            <div className="divide-y divide-[#f5efe8]">
+              {recentActivities.map((act: any) => (
+                <div key={act.id} className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0 gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`grid size-9 place-items-center rounded-full shrink-0 ${act.iconBg} ${act.iconColor}`}>
+                      {act.type === 'payment' && <Receipt className="size-4" />}
+                      {act.type === 'tenant' && <Users className="size-4" />}
+                      {act.type === 'electricity' && <Zap className="size-4" />}
+                      {act.type === 'expense' && <Wallet className="size-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-semibold text-[#2c221e] truncate">{act.title}</p>
+                      <p className="text-[11px] text-[#7d756d] truncate">{act.subtitle}</p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-medium text-[#a09488] shrink-0">
+                    {act.time}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="grid size-12 place-items-center rounded-full bg-[#faf3ea] text-[#8b5a2b] mb-3">
+                <Clock className="size-5" />
+              </div>
+              <p className="text-sm font-semibold text-[#2c221e]">No recent activity recorded yet</p>
+              <p className="mt-1 text-xs text-[#8c7e72] max-w-xs">
+                When you record rent payments, onboard residents, or update utilities, they will appear here in real time.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {/* Right Column: Upcoming Dues */}
+        <section className="lg:col-span-5 rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)]">
+          <div className="mb-5 flex items-center justify-between">
+            <h3 className="text-base font-bold text-[#2c221e]">Upcoming Dues</h3>
+            <button
+              onClick={() => onNavigate && onNavigate('Rent & Payments')}
+              className="text-xs font-semibold text-[#8b5a2b] hover:text-[#784b20] flex items-center gap-1 transition-colors"
+            >
+              View all →
+            </button>
+          </div>
+
+          {upcomingDues.length > 0 ? (
+            <div className="divide-y divide-[#f5efe8]">
+              {upcomingDues.map((item: any) => (
+                <div key={item.id} className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0 gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="grid size-9 place-items-center rounded-full bg-[#faf3ea] text-[#8b5a2b] font-bold text-xs shrink-0 ring-1 ring-[#ede3d7]">
+                      {item.name ? item.name.charAt(0).toUpperCase() : 'R'}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-semibold text-[#2c221e] truncate">{item.name}</p>
+                      <p className="text-[11px] text-[#7d756d] truncate">
+                        Room {item.room} • ₹{item.amount.toLocaleString('en-IN')}
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
+                      item.isOverdue
+                        ? 'border-[#f6d8d2] bg-[#fdf2f0] text-[#b84e34]'
+                        : 'border-[#efe5d9] bg-[#fbf5ee] text-[#8b5a2b]'
+                    }`}
+                  >
+                    {item.dueLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="grid size-12 place-items-center rounded-full bg-[#edf7f1] text-[#2f7e53] mb-3">
+                <CheckCircle2 className="size-5" />
+              </div>
+              <p className="text-sm font-semibold text-[#2c221e]">All rent dues are cleared! 🎉</p>
+              <p className="mt-1 text-xs text-[#8c7e72] max-w-xs">
+                No pending or overdue payments recorded for your active residents.
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* 3-Step Guided Setup Checklist for Property Owners (When new/unconfigured) */}
       {(!property.name || rooms.length === 0 || tenants.length === 0) && (
-        <div className="mb-8 rounded-2xl border border-[#e8dfd4] bg-white p-5 shadow-xs">
+        <div className="mb-8 rounded-2xl border border-[#ebe4da] bg-white p-5 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[#eee6dc] pb-3 mb-4">
             <div>
-              <h3 className="text-sm font-bold text-[#3d3934]">Setup & Onboarding Checklist</h3>
-              <p className="text-xs text-[#85899a]">Complete these 3 simple steps to get your rental property operational.</p>
+              <h3 className="text-sm font-bold text-[#2c221e]">Setup & Onboarding Checklist</h3>
+              <p className="text-xs text-[#7d756d]">Complete these simple steps to get your rental property operational.</p>
             </div>
-            <span className="self-start sm:self-auto rounded-full bg-[#faf7f2] px-3 py-1 text-xs font-semibold text-[#866342] border border-[#e8dfd4]">
+            <span className="self-start sm:self-auto rounded-full bg-[#faf7f2] px-3 py-1 text-xs font-semibold text-[#8b5a2b] border border-[#ebe4da]">
               {(!property.name ? 0 : rooms.length === 0 ? 1 : tenants.length === 0 ? 2 : 3)} / 3 Completed
             </span>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
             {/* Step 1: Property */}
-            <div className={`rounded-xl border p-3.5 transition-colors ${property.name ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#e8dfd4] bg-[#faf7f2]'}`}>
+            <div className={`rounded-xl border p-3.5 transition-colors ${property.name ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#ebe4da] bg-[#faf7f2]'}`}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#74798a]">Step 1</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#7d756d]">Step 1</span>
                 {property.name ? (
                   <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
                     <CheckCircle2 className="size-3.5" /> Done
@@ -3611,14 +3917,14 @@ function OverviewTab({
                   <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
                 )}
               </div>
-              <p className="text-xs font-bold text-[#3d3934]">Property Profile</p>
-              <p className="mt-0.5 text-[11px] text-[#74798a] truncate">
+              <p className="text-xs font-bold text-[#2c221e]">Property Profile</p>
+              <p className="mt-0.5 text-[11px] text-[#7d756d] truncate">
                 {property.name ? property.name : 'Create your property profile'}
               </p>
               {!property.name ? (
                 <button
                   onClick={onAddProperty}
-                  className="mt-3 w-full rounded-lg bg-[#9a7651] py-1.5 text-xs font-semibold text-white hover:bg-[#866342]"
+                  className="mt-3 w-full rounded-lg bg-[#8b5a2b] py-1.5 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
                 >
                   Set Up Property
                 </button>
@@ -3633,9 +3939,9 @@ function OverviewTab({
             </div>
 
             {/* Step 2: Rooms & Units */}
-            <div className={`rounded-xl border p-3.5 transition-colors ${rooms.length > 0 ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#e8dfd4] bg-[#faf7f2]'}`}>
+            <div className={`rounded-xl border p-3.5 transition-colors ${rooms.length > 0 ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#ebe4da] bg-[#faf7f2]'}`}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#74798a]">Step 2</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#7d756d]">Step 2</span>
                 {rooms.length > 0 ? (
                   <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
                     <CheckCircle2 className="size-3.5" /> Done ({rooms.length})
@@ -3644,22 +3950,22 @@ function OverviewTab({
                   <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
                 )}
               </div>
-              <p className="text-xs font-bold text-[#3d3934]">Rooms & Units</p>
-              <p className="mt-0.5 text-[11px] text-[#74798a]">
+              <p className="text-xs font-bold text-[#2c221e]">Rooms & Units</p>
+              <p className="mt-0.5 text-[11px] text-[#7d756d]">
                 {rooms.length > 0 ? `${rooms.length} configured` : 'Add your first room or unit'}
               </p>
               <button
                 onClick={onAddRoom}
-                className={`mt-3 w-full rounded-lg py-1.5 text-xs font-semibold ${rooms.length > 0 ? 'border border-[#cce9db] bg-white text-[#328d68] hover:bg-[#f4faf7]' : 'bg-[#9a7651] text-white hover:bg-[#866342]'}`}
+                className={`mt-3 w-full rounded-lg py-1.5 text-xs font-semibold ${rooms.length > 0 ? 'border border-[#cce9db] bg-white text-[#328d68] hover:bg-[#f4faf7]' : 'bg-[#8b5a2b] text-white hover:bg-[#784b20] transition-colors'}`}
               >
                 {rooms.length > 0 ? '+ Add More Units' : '+ Add First Unit'}
               </button>
             </div>
 
             {/* Step 3: Residents */}
-            <div className={`rounded-xl border p-3.5 transition-colors ${tenants.length > 0 ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#e8dfd4] bg-[#faf7f2]'}`}>
+            <div className={`rounded-xl border p-3.5 transition-colors ${tenants.length > 0 ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#ebe4da] bg-[#faf7f2]'}`}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#74798a]">Step 3</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#7d756d]">Step 3</span>
                 {tenants.length > 0 ? (
                   <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
                     <CheckCircle2 className="size-3.5" /> Done ({tenants.length})
@@ -3668,13 +3974,13 @@ function OverviewTab({
                   <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
                 )}
               </div>
-              <p className="text-xs font-bold text-[#3d3934]">Residents / Tenants</p>
-              <p className="mt-0.5 text-[11px] text-[#74798a]">
+              <p className="text-xs font-bold text-[#2c221e]">Residents / Tenants</p>
+              <p className="mt-0.5 text-[11px] text-[#7d756d]">
                 {tenants.length > 0 ? `${tenants.length} onboarded` : 'Onboard your first resident'}
               </p>
               <button
                 onClick={onAddTenant}
-                className={`mt-3 w-full rounded-lg py-1.5 text-xs font-semibold ${tenants.length > 0 ? 'border border-[#cce9db] bg-white text-[#328d68] hover:bg-[#f4faf7]' : 'bg-[#9a7651] text-white hover:bg-[#866342]'}`}
+                className={`mt-3 w-full rounded-lg py-1.5 text-xs font-semibold ${tenants.length > 0 ? 'border border-[#cce9db] bg-white text-[#328d68] hover:bg-[#f4faf7]' : 'bg-[#8b5a2b] text-white hover:bg-[#784b20] transition-colors'}`}
               >
                 {tenants.length > 0 ? '+ Onboard More' : '+ Onboard Resident'}
               </button>
@@ -3683,78 +3989,46 @@ function OverviewTab({
         </div>
       )}
 
-      {/* Real-Time Metrics Row */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label={getPropertyType(property) === 'pg_hostel' ? "Rooms & Beds" : "Rooms & Units"}
-          value={`${rooms.length} ${getPropertyType(property) === 'pg_hostel' ? 'Rooms' : 'Units'}`}
-          note={getPropertyType(property) === 'pg_hostel' ? `${availableBedsCount} available · ${occupiedBedsCount} occupied` : `${rooms.length} configured · ${activeTenantsCount} occupied`}
-          Icon={DoorOpen}
-          i={0}
-        />
-        <MetricCard
-          label="Active Residents"
-          value={activeTenantsCount}
-          note={`${tenants.length} total registered`}
-          Icon={Users}
-          i={1}
-        />
-        <MetricCard
-          label="Rent Collected (Month)"
-          value={currency(collectedMonth)}
-          note={`Pending: ${currency(rentPending)}`}
-          Icon={Wallet}
-          i={2}
-        />
-        <MetricCard
-          label="Operating Expenses"
-          value={currency(expensesMonth)}
-          note={`Utilities: ${currency(electricityPending)}`}
-          Icon={Receipt}
-          i={3}
-        />
-      </div>
-
-      {/* Overview Body */}
+      {/* Financial Collection Ledger & Quick Operations */}
       <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">
-        <section className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
+        <section className="rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)]">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold">Rent Collection Ledger</h3>
-              <p className="mt-1 text-xs text-[#999daa]">Active month collection progress</p>
+              <h3 className="text-sm font-semibold text-[#2c221e]">Rent Collection Ledger</h3>
+              <p className="mt-1 text-xs text-[#7d756d]">Active month collection progress</p>
             </div>
             <button
               onClick={onRecordPayment}
-              className="rounded-lg border border-[#e8dfd4] px-3 py-1.5 text-xs font-medium text-[#676b7d] hover:bg-[#fbf8f3]"
+              className="rounded-xl border border-[#ebe4da] px-3.5 py-1.5 text-xs font-medium text-[#6a635b] hover:bg-[#faf7f2] transition-colors"
             >
               Record Payment
             </button>
           </div>
 
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6 rounded-xl bg-[#faf7f2] p-5">
-            <div className="grid size-20 shrink-0 place-items-center rounded-full border-[7px] border-[#e8e8ff] border-t-[#9a7651] text-lg font-bold">
-              {activeTenantsCount
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6 rounded-2xl bg-[#fbf8f4] p-5 border border-[#eee4da]">
+            <div className="grid size-20 shrink-0 place-items-center rounded-full border-[7px] border-[#ede3d7] border-t-[#8b5a2b] text-lg font-bold text-[#2c221e]">
+              {residentsCount
                 ? Math.round(
-                    (tenants.filter((t: Tenant) => t.status === 'Paid').length / activeTenantsCount) * 100
+                    (tenants.filter((t: Tenant) => t.status === 'Paid').length / residentsCount) * 100
                   )
                 : 0}
               %
             </div>
             <div>
-              <p className="text-sm font-semibold">
-                {tenants.filter((t: Tenant) => t.status === 'Paid').length} of {activeTenantsCount} active residents settled
+              <p className="text-sm font-semibold text-[#2c221e]">
+                {tenants.filter((t: Tenant) => t.status === 'Paid').length} of {residentsCount} active residents settled
               </p>
-              <p className="mt-1 text-xs leading-5 text-[#85899a]">
+              <p className="mt-1 text-xs leading-5 text-[#7d756d]">
                 Pending Collection: <strong className="text-[#b95c3c]">{currency(rentPending)}</strong>
               </p>
             </div>
           </div>
         </section>
 
-        <section className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
+        <section className="rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)]">
           <div className="mb-5">
-            <h3 className="text-sm font-semibold">Quick Operations</h3>
-            <p className="mt-1 text-xs text-[#999daa]">Direct management shortcuts</p>
+            <h3 className="text-sm font-semibold text-[#2c221e]">Quick Operations</h3>
+            <p className="mt-1 text-xs text-[#7d756d]">Direct management shortcuts</p>
           </div>
           <div className="grid gap-2.5">
             {[
@@ -3766,13 +4040,13 @@ function OverviewTab({
               <button
                 key={label}
                 onClick={action}
-                className="flex items-center gap-3 rounded-xl border border-[#eee6dc] px-3.5 py-3 text-left text-xs font-medium text-[#555a6c] transition-colors hover:bg-[#fbf8f3]"
+                className="flex items-center gap-3 rounded-xl border border-[#ebe4da] px-3.5 py-3 text-left text-xs font-medium text-[#5c544c] transition-colors hover:bg-[#faf7f2]"
               >
-                <span className="grid size-8 place-items-center rounded-lg bg-[#f4ede3] text-[#9a7651]">
+                <span className="grid size-8 place-items-center rounded-lg bg-[#faf3ea] text-[#8b5a2b]">
                   <Icon className="size-4" />
                 </span>
                 {label}
-                <span className="ml-auto text-[#b3b6c0]">→</span>
+                <span className="ml-auto text-[#a09488]">→</span>
               </button>
             ))}
           </div>
@@ -5077,15 +5351,15 @@ function SettingsTab({
 
 function MetricCard({ label, value, note, Icon, i }: any) {
   return (
-    <div className="rounded-2xl border border-[#e9ebf0] bg-white p-5 shadow-xs transition-shadow hover:shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <span className="text-xs font-medium text-[#8b8fa0]">{label}</span>
-        <div className="grid size-9 place-items-center rounded-xl bg-[#faf7f2] text-[#9a7651]">
+    <div className="rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)] hover:border-[#d9cbbe] transition-all">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-[#7d756d]">{label}</span>
+        <div className="grid size-9 place-items-center rounded-full bg-[#faf3ea] text-[#8b5a2b]">
           <Icon className="size-4" />
         </div>
       </div>
-      <p className="text-2xl font-bold tracking-tight text-[#2c2926]">{value}</p>
-      <p className="mt-1 text-[11px] font-medium text-[#9a7651]">{note}</p>
+      <p className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2c221e] mt-3">{value}</p>
+      {note && <p className="mt-1 text-[11px] font-medium text-[#8b5a2b] truncate">{note}</p>}
     </div>
   )
 }
