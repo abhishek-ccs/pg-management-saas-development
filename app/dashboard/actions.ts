@@ -162,6 +162,11 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
       }
     }
 
+    // Calculate initial status based on due day vs current day
+    const safeDueDay = Math.min(Math.max(Number(input.dueDay || 5), 1), 31)
+    const currentDate = new Date().getDate()
+    const initialStatus = currentDate > safeDueDay ? 'Overdue' : 'Pending'
+
     // 5. Construct guaranteed baseline payload
     const tenantPayload: Record<string, any> = {
       owner_id: user.id,
@@ -173,14 +178,15 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
       monthly_rent: rent,
       security_deposit: deposit,
       joining_date: joiningDate,
-      status: 'Pending',
+      rent_due_day: safeDueDay,
+      status: initialStatus,
     }
 
     // Attempt insert with guaranteed columns
     const { data: newTenant, error: insertError } = await supabase
       .from('tenants')
       .insert(tenantPayload)
-      .select('id, full_name, phone, monthly_rent, security_deposit, joining_date, status, room_id, bed_id, property_id')
+      .select('id, full_name, phone, monthly_rent, security_deposit, joining_date, status, room_id, bed_id, property_id, rent_due_day')
       .single()
 
     if (insertError) {
@@ -219,6 +225,7 @@ export async function updateTenantAction(
     rent: number
     deposit: number
     joiningDate: string
+    dueDay?: number
     status: string
   }
 ): Promise<TenantActionResult> {
@@ -312,7 +319,9 @@ export async function updateTenantAction(
       }
     }
 
-    const updatePayload = {
+    const safeDueDay = input.dueDay !== undefined ? Math.min(Math.max(Number(input.dueDay), 1), 31) : undefined
+
+    const updatePayload: Record<string, any> = {
       full_name: input.name.trim(),
       phone: input.phone.trim(),
       room_id: targetRoomId,
@@ -324,12 +333,16 @@ export async function updateTenantAction(
       updated_at: new Date().toISOString(),
     }
 
+    if (safeDueDay !== undefined) {
+      updatePayload.rent_due_day = safeDueDay
+    }
+
     const { data: updatedTenant, error: updateError } = await supabase
       .from('tenants')
       .update(updatePayload)
       .eq('id', tenantId)
       .eq('owner_id', user.id)
-      .select('id, full_name, phone, monthly_rent, security_deposit, joining_date, status, room_id, bed_id')
+      .select('id, full_name, phone, monthly_rent, security_deposit, joining_date, status, room_id, bed_id, property_id, rent_due_day')
       .single()
 
     if (updateError) {

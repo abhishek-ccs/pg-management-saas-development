@@ -17,7 +17,6 @@ import {
 } from './actions'
 import { isValidPhone } from '@/lib/validation'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
-import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
 import { useI18n } from '@/lib/i18n'
 import {
   PRICING_CONFIG,
@@ -483,8 +482,8 @@ export default function DashboardPage() {
           supabase.from('properties').select('id,name,address,contact_number,city,rules').eq('owner_id', user.id).order('created_at', { ascending: true }),
           supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
           supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
-          supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id').eq('owner_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
+          supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+          supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,deleted_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
           supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
           supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id').eq('owner_id', user.id).order('reading_date', { ascending: false }),
           supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
@@ -538,30 +537,80 @@ export default function DashboardPage() {
         const roomMap = new Map(roomList.map((r) => [r.id, r.room_number]))
         const bedMap = new Map(bedList.map((b) => [b.id, b.bed_number]))
 
-        // Tenants (Separate active from soft-deleted)
-        const allTenants: Tenant[] = (tenantRes.data || []).map((t: any) => ({
-          id: t.id,
-          name: t.full_name,
-          phone: t.phone || '',
-          room_id: t.room_id,
-          bed_id: t.bed_id,
-          bed_number: t.bed_id ? bedMap.get(t.bed_id) || '' : '',
-          room: t.room_id ? roomMap.get(t.room_id) || 'Unassigned' : 'Unassigned',
-          rent: Number(t.monthly_rent || 0),
-          deposit: Number(t.security_deposit || 0),
-          joiningDate: t.joining_date,
-          rent_due_day: Number(t.rent_due_day || 5),
-          deleted_at: t.deleted_at || null,
-          status: t.status || 'Pending',
-        }))
+        // Process payments first to identify current-month rent payers
+        const currentMonth = new Date().getMonth()
+        const currentYear = new Date().getFullYear()
+        const currentDate = new Date().getDate()
+        const currentMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
+
+        const rawPayments = paymentRes.data || []
+        const rentPaidTenantIds = new Set<string>()
+        for (const p of rawPayments) {
+          if (!p.tenant_id || p.deleted_at) continue
+          if (!p.payment_type || p.payment_type === 'rent') {
+            const pDate = new Date(p.paid_at)
+            const isSameMonth = pDate.getMonth() === currentMonth && pDate.getFullYear() === currentYear
+            const isCoveredMonth = p.month_covered && p.month_covered.includes(currentMonthStr)
+            const daysSincePayment = (Date.now() - pDate.getTime()) / (1000 * 60 * 60 * 24)
+            if (isSameMonth || isCoveredMonth || (daysSincePayment >= 0 && daysSincePayment <= 28)) {
+              rentPaidTenantIds.add(p.tenant_id)
+            }
+          }
+        }
+
+        const staleStatusUpdates: { id: string; status: 'Paid' | 'Pending' | 'Overdue' }[] = []
+
+        // Tenants (Synchronize live rent status against actual payment records and due dates)
+        const allTenants: Tenant[] = (tenantRes.data || []).map((t: any) => {
+          const dueDay = Math.min(Math.max(Number(t.rent_due_day) || 5, 1), 31)
+          const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+          const effectiveDueDay = Math.min(dueDay, daysInMonth)
+
+          let accurateStatus: 'Paid' | 'Pending' | 'Overdue' | 'Vacated' = t.status || 'Pending'
+
+          if (t.status === 'Vacated') {
+            accurateStatus = 'Vacated'
+          } else if (rentPaidTenantIds.has(t.id)) {
+            accurateStatus = 'Paid'
+          } else {
+            // Not paid in current billing cycle: check real due day
+            if (currentDate > effectiveDueDay) {
+              accurateStatus = 'Overdue'
+            } else {
+              accurateStatus = 'Pending'
+            }
+          }
+
+          if (t.status !== accurateStatus && !t.deleted_at) {
+            staleStatusUpdates.push({ id: t.id, status: accurateStatus as any })
+          }
+
+          return {
+            id: t.id,
+            property_id: t.property_id,
+            name: t.full_name,
+            phone: t.phone || '',
+            room_id: t.room_id,
+            bed_id: t.bed_id,
+            bed_number: t.bed_id ? bedMap.get(t.bed_id) || '' : '',
+            room: t.room_id ? roomMap.get(t.room_id) || 'Unassigned' : 'Unassigned',
+            rent: Number(t.monthly_rent || 0),
+            deposit: Number(t.security_deposit || 0),
+            joiningDate: t.joining_date,
+            rent_due_day: dueDay,
+            deleted_at: t.deleted_at || null,
+            status: accurateStatus,
+          }
+        })
         setTenants(allTenants.filter((t) => !t.deleted_at))
         setDeletedTenants(allTenants.filter((t) => !!t.deleted_at))
 
-        // Payments (Separate active from soft-deleted)
+        // Populate Payments with accurate tenant names and rooms
         const tenantNameMap = new Map(allTenants.map((t) => [t.id, t.name]))
         const tenantRoomMap = new Map(allTenants.map((t) => [t.id, t.room]))
-        const allPayments: PaymentRecord[] = (paymentRes.data || []).map((p: any) => ({
+        const allPayments: PaymentRecord[] = rawPayments.map((p: any) => ({
           id: p.id,
+          property_id: p.property_id,
           tenant_id: p.tenant_id,
           tenant_name: tenantNameMap.get(p.tenant_id) || 'Unknown Resident',
           room_number: tenantRoomMap.get(p.tenant_id) || 'N/A',
@@ -575,6 +624,15 @@ export default function DashboardPage() {
         }))
         setPayments(allPayments.filter((p) => !p.deleted_at))
         setDeletedPayments(allPayments.filter((p) => !!p.deleted_at))
+
+        // Background synchronization to keep database status in sync with calculated due dates
+        if (staleStatusUpdates.length > 0) {
+          Promise.all(
+            staleStatusUpdates.map((item) =>
+              supabase.from('tenants').update({ status: item.status, updated_at: new Date().toISOString() }).eq('id', item.id)
+            )
+          ).catch(() => {})
+        }
 
         // Expenses, Electricity, Complaints
         setExpenses((expenseRes.data || []).map((e: any) => ({ ...e, amount: Number(e.amount) })))
@@ -1254,6 +1312,9 @@ export default function DashboardPage() {
           return
         }
 
+        const today = new Date().getDate()
+        const initialStatus = today > dueDay ? 'Overdue' : 'Pending'
+
         // Direct client fallback using guaranteed columns
         const { data: newTenant, error } = await supabase
           .from('tenants')
@@ -1267,9 +1328,10 @@ export default function DashboardPage() {
             monthly_rent: rent,
             security_deposit: deposit,
             joining_date: joiningDate,
-            status: 'Pending',
+            rent_due_day: dueDay,
+            status: initialStatus,
           })
-          .select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id')
+          .select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id,rent_due_day')
           .single()
 
         if (error) {
@@ -1292,6 +1354,7 @@ export default function DashboardPage() {
 
       const roomName = rooms.find((r) => r.id === createdTenant.room_id)?.room_number || 'Unassigned'
       const bedName = beds.find((b) => b.id === createdTenant.bed_id)?.bed_number || ''
+      const tenantStatus = createdTenant.status || (new Date().getDate() > dueDay ? 'Overdue' : 'Pending')
 
       setTenants((prev) => [
         {
@@ -1306,8 +1369,8 @@ export default function DashboardPage() {
           rent: Number(createdTenant.monthly_rent),
           deposit: Number(createdTenant.security_deposit || 0),
           joiningDate: createdTenant.joining_date,
-          rent_due_day: dueDay,
-          status: 'Pending',
+          rent_due_day: Number(createdTenant.rent_due_day || dueDay),
+          status: tenantStatus,
         },
         ...prev,
       ])
@@ -1400,6 +1463,7 @@ export default function DashboardPage() {
         rent,
         deposit,
         joiningDate,
+        dueDay,
         status,
       })
 
@@ -1420,6 +1484,7 @@ export default function DashboardPage() {
             monthly_rent: rent,
             security_deposit: deposit,
             joining_date: joiningDate,
+            rent_due_day: dueDay,
             status,
             updated_at: new Date().toISOString(),
           })
@@ -1633,6 +1698,20 @@ export default function DashboardPage() {
               notes: p.notes,
             }))
           )
+
+          // If a restored payment covers rent, mark the tenant Paid
+          const restoredPayment = refreshedPay.find((p: any) => p.id === record.target_id)
+          if (restoredPayment?.tenant_id) {
+            await supabase
+              .from('tenants')
+              .update({ status: 'Paid', updated_at: new Date().toISOString() })
+              .eq('id', restoredPayment.tenant_id)
+              .eq('owner_id', userId)
+
+            setTenants((prev) =>
+              prev.map((t) => (t.id === restoredPayment.tenant_id ? { ...t, status: 'Paid' } : t))
+            )
+          }
         }
       }
     } catch {
@@ -1837,6 +1916,32 @@ export default function DashboardPage() {
         }
 
         setPayments((prev) => prev.filter((p) => p.id !== paymentId))
+
+        // Check if tenant has any other active payments for the current cycle
+        if (target.tenant_id) {
+          const remainingPayments = payments.filter(
+            (p) => p.tenant_id === target.tenant_id && p.id !== paymentId && !p.deleted_at && (!p.payment_type || p.payment_type === 'rent')
+          )
+          if (remainingPayments.length === 0) {
+            const tenantObj = tenants.find((t) => t.id === target.tenant_id)
+            if (tenantObj && tenantObj.status !== 'Vacated') {
+              const dueDay = Math.min(Math.max(Number(tenantObj.rent_due_day) || 5, 1), 31)
+              const today = new Date().getDate()
+              const newStatus: Tenant['status'] = today > dueDay ? 'Overdue' : 'Pending'
+
+              await supabase
+                .from('tenants')
+                .update({ status: newStatus, updated_at: new Date().toISOString() })
+                .eq('id', target.tenant_id)
+                .eq('owner_id', userId)
+
+              setTenants((prev) =>
+                prev.map((t) => (t.id === target.tenant_id ? { ...t, status: newStatus } : t))
+              )
+            }
+          }
+        }
+
         flash('Payment moved to Deleted Records.')
         void loadTrashRecords()
       },
@@ -1863,6 +1968,20 @@ export default function DashboardPage() {
     const restored = { ...target, deleted_at: null }
     setDeletedPayments((prev) => prev.filter((p) => p.id !== paymentId))
     setPayments((prev) => [restored, ...prev])
+
+    // Update tenant to Paid
+    if (target.tenant_id && (!target.payment_type || target.payment_type === 'rent')) {
+      await supabase
+        .from('tenants')
+        .update({ status: 'Paid', updated_at: new Date().toISOString() })
+        .eq('id', target.tenant_id)
+        .eq('owner_id', userId)
+
+      setTenants((prev) =>
+        prev.map((t) => (t.id === target.tenant_id ? { ...t, status: 'Paid' } : t))
+      )
+    }
+
     flash(`Payment of ${currency(target.amount)} restored successfully.`)
   }
 
@@ -2369,9 +2488,6 @@ export default function DashboardPage() {
                 <span>Staff Admin</span>
               </a>
             )}
-
-            {/* Bilingual Language Switcher */}
-            <LocaleSwitcher />
 
             {/* Dynamic Multi-Module Search Input */}
             <div className="relative flex items-center gap-2 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a] focus-within:border-[#8b5a2b] transition-colors">

@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { StayBookLogo } from '@/components/ui/StayBookLogo'
-import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { useI18n } from '@/lib/i18n'
 
@@ -108,18 +107,6 @@ export function PublicFooter() {
                 >
                   {SUPPORT_EMAIL}
                 </a>
-              </li>
-              <li className="pt-2">
-                <LocaleSwitcher />
-              </li>
-              <li className="border-t border-[#403a34] pt-2">
-                <Link
-                  href="/admin/login"
-                  className="flex items-center gap-1.5 text-[11px] text-[#8b8277] transition-colors hover:text-[#f8f0e5]"
-                >
-                  <span className="size-1.5 rounded-full bg-[#8b8277]" />
-                  {locale === 'hi' ? 'स्टाफ लॉगिन' : 'Staff Login'}
-                </Link>
               </li>
             </ul>
           </div>

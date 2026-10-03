@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { StayBookLogo } from '@/components/ui/StayBookLogo'
-import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
 import { createClient } from '@/lib/supabase/client'
 import { useI18n } from '@/lib/i18n'
 
@@ -66,7 +65,6 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
         </nav>
 
         <div className="flex items-center gap-3">
-          <LocaleSwitcher />
           {hasSession ? (
             <Link
               href="/dashboard"

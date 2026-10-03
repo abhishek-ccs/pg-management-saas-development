@@ -43,8 +43,13 @@ export async function updateSession(request: NextRequest) {
     return redirectWithCookies(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url))
   }
 
-  if (!user && pathname.startsWith('/admin') && !pathname.startsWith('/admin/login')) {
-    return redirectWithCookies(new URL(`/admin/login?next=${encodeURIComponent(pathname)}`, request.url))
+  if (!user && pathname.startsWith('/admin')) {
+    return redirectWithCookies(new URL(`/console?next=${encodeURIComponent(pathname)}`, request.url))
+  }
+
+  // Redirect legacy /admin/login to discreet /console
+  if (pathname === '/admin/login') {
+    return redirectWithCookies(new URL('/console', request.url))
   }
 
   // 2. Authenticated guards & Role-Based Access Control
@@ -66,35 +71,24 @@ export async function updateSession(request: NextRequest) {
       }
     }
 
-    // Admin routes protection: Only super_admin accounts can access /admin and subroutes
-    if (pathname.startsWith('/admin') && !pathname.startsWith('/admin/login')) {
+    // Super Admin routes protection: Only verified super_admin accounts can access /admin, /console, and subroutes
+    if (pathname.startsWith('/admin') || pathname === '/console') {
       const { data: profile } = await supabase
         .from('profiles')
         .select('role,status')
         .eq('id', user.id)
         .maybeSingle()
 
+      // Customer/owner accounts attempting to access admin/console are immediately DENIED
       if (profile?.role !== 'super_admin' || profile?.status !== 'active') {
-        return redirectWithCookies(new URL('/dashboard', request.url))
+        return redirectWithCookies(new URL('/dashboard?error=unauthorized', request.url))
       }
-    }
 
-    // Admin login page: If already logged in as super_admin, go directly to /admin
-    // CRITICAL REDIRECT LOOP GUARD: Do not redirect if URL has query parameters indicating
-    // error, logout, unauthorized state, or explicit intent to switch users.
-    if (pathname === '/admin/login') {
-      const hasErrorParam = request.nextUrl.searchParams.has('error')
-      const hasLogoutParam = request.nextUrl.searchParams.has('logout')
-      const hasSwitchParam = request.nextUrl.searchParams.has('switch')
-
-      if (!hasErrorParam && !hasLogoutParam && !hasSwitchParam) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('role,status')
-          .eq('id', user.id)
-          .maybeSingle()
-
-        if (profile?.role === 'super_admin' && profile?.status === 'active') {
+      // If active super_admin visits /console without explicit logout/error param, forward directly to /admin
+      if (pathname === '/console') {
+        const hasLogoutParam = request.nextUrl.searchParams.has('logout')
+        const hasErrorParam = request.nextUrl.searchParams.has('error')
+        if (!hasLogoutParam && !hasErrorParam) {
           return redirectWithCookies(new URL('/admin', request.url))
         }
       }

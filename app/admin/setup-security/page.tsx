@@ -192,7 +192,7 @@ export default function AdminSetupSecurityPage() {
         )}
 
         <div className="mt-6 text-center text-xs text-[#a09a93]">
-          <Link href="/admin/login" className="hover:text-white hover:underline">
+          <Link href="/console?switch=true" className="hover:text-white hover:underline">
             Cancel & Sign In as Different User
           </Link>
         </div>

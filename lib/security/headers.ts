@@ -46,6 +46,7 @@ export function applySecurityHeaders(response: NextResponse, pathname: string = 
   // 7. Prevent search engine indexing of private authenticated and auth areas
   if (
     pathname.startsWith('/admin') ||
+    pathname.startsWith('/console') ||
     pathname.startsWith('/dashboard') ||
     pathname.startsWith('/api') ||
     pathname.startsWith('/login') ||
@@ -53,6 +54,17 @@ export function applySecurityHeaders(response: NextResponse, pathname: string = 
     pathname.startsWith('/auth')
   ) {
     response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+  }
+
+  // 8. Prevent caching of authenticated admin and dashboard views so back/refresh cannot reopen post-logout
+  if (
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/console') ||
+    pathname.startsWith('/dashboard')
+  ) {
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0')
+    response.headers.set('Pragma', 'no-cache')
+    response.headers.set('Expires', '0')
   }
 
   return response
