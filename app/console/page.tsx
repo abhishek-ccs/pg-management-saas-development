@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Eye, EyeOff, Loader2, ShieldCheck, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
-export default function SuperAdminConsolePage() {
+function SuperAdminConsoleContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -190,5 +190,21 @@ export default function SuperAdminConsolePage() {
         </div>
       </div>
     </main>
+  )
+}
+
+export default function SuperAdminConsolePage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-screen place-items-center bg-[#36302a] px-5 py-10">
+          <div className="w-full max-w-md rounded-3xl border border-[#6b5847] bg-[#4a4138] p-7 text-[#f8f0e5] shadow-2xl flex items-center justify-center min-h-[400px]">
+            <Loader2 className="size-6 animate-spin text-[#c39d72]" />
+          </div>
+        </main>
+      }
+    >
+      <SuperAdminConsoleContent />
+    </Suspense>
   )
 }
