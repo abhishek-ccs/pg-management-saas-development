@@ -614,7 +614,11 @@ export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashA
       const reversedNote = `[REVERSED on ${new Date().toISOString()}] ${payment.notes || ''}`.trim()
       await supabase
         .from('payments')
-        .update({ notes: reversedNote })
+        .update({
+          notes: reversedNote,
+          deleted_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', entityId)
         .eq('owner_id', user.id)
     }
@@ -831,7 +835,11 @@ export async function restoreTrashRecordAction(trashId: string): Promise<TrashAc
       const cleanNotes = (snapshot.notes || '').replace(/\[REVERSED[^\]]*\]/g, '').trim()
       await supabase
         .from('payments')
-        .update({ notes: cleanNotes })
+        .update({
+          notes: cleanNotes,
+          deleted_at: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', snapshot.id)
         .eq('owner_id', user.id)
     }

@@ -391,6 +391,7 @@ export default function DashboardPage() {
     roomId: '',
     roomNumber: '',
   })
+  const [editingBed, setEditingBed] = useState<Bed | null>(null)
 
   const [showTenantModal, setShowTenantModal] = useState(false)
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null)
@@ -416,7 +417,9 @@ export default function DashboardPage() {
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [showElectricityModal, setShowElectricityModal] = useState(false)
+  const [editingElectricity, setEditingElectricity] = useState<ElectricityRecord | null>(null)
   const [showComplaintModal, setShowComplaintModal] = useState(false)
+  const [editingComplaint, setEditingComplaint] = useState<Complaint | null>(null)
   const [showPricingModal, setShowPricingModal] = useState(false)
   const [showLogoutModal, setShowLogoutModal] = useState(false)
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(null)
@@ -1173,6 +1176,56 @@ export default function DashboardPage() {
     }
   }
 
+  // Update / Edit Bed Details
+  async function handleUpdateBed(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (isSavingBed) return
+    if (!userId || !editingBed) return
+
+    const fd = new FormData(e.currentTarget)
+    const bedNumber = String(fd.get('bed_number')).trim()
+    const rate = Number(fd.get('monthly_rate') || 0)
+    const status = String(fd.get('status') || editingBed.status)
+
+    if (!bedNumber) {
+      flash('Bed number is required.')
+      return
+    }
+
+    setIsSavingBed(true)
+    try {
+      const { error } = await supabase
+        .from('beds')
+        .update({
+          bed_number: bedNumber,
+          monthly_rate: rate,
+          status: status as any,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingBed.id)
+        .eq('owner_id', userId)
+
+      if (error) {
+        flash('Could not update bed. Bed number might already exist.')
+        return
+      }
+
+      setBeds((prev) =>
+        prev.map((b) =>
+          b.id === editingBed.id
+            ? { ...b, bed_number: bedNumber, monthly_rate: rate, status: status as any }
+            : b
+        )
+      )
+      setEditingBed(null)
+      flash(`Bed ${bedNumber} updated.`)
+    } catch {
+      flash('An error occurred while updating the bed.')
+    } finally {
+      setIsSavingBed(false)
+    }
+  }
+
   // Toggle Bed Status
   async function handleToggleBedStatus(bedId: string, currentStatus: string) {
     if (!userId) return
@@ -1454,6 +1507,30 @@ export default function DashboardPage() {
       const finalRoomId = roomId && roomId !== 'unassigned' ? roomId : null
       const finalBedId = bedId && bedId !== 'unassigned' ? bedId : null
 
+      // Automatically recalculate status based on current payments and due date if not explicitly vacated
+      const currentMonth = new Date().getMonth()
+      const currentYear = new Date().getFullYear()
+      const currentMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
+      const hasActivePayment = payments.some((p) => {
+        if (p.tenant_id !== editingTenant.id || p.deleted_at) return false
+        if (p.payment_type && p.payment_type !== 'rent') return false
+        const pDate = new Date(p.paid_at)
+        const isSameMonth = pDate.getMonth() === currentMonth && pDate.getFullYear() === currentYear
+        const isCoveredMonth = p.month_covered && p.month_covered.includes(currentMonthStr)
+        const daysSincePayment = (Date.now() - pDate.getTime()) / (1000 * 60 * 60 * 24)
+        return isSameMonth || isCoveredMonth || (daysSincePayment >= 0 && daysSincePayment <= 28)
+      })
+
+      let finalStatus: Tenant['status'] = status
+      if (status !== 'Vacated') {
+        if (hasActivePayment) {
+          finalStatus = 'Paid'
+        } else if (status === editingTenant.status) {
+          const today = new Date().getDate()
+          finalStatus = today > dueDay ? 'Overdue' : 'Pending'
+        }
+      }
+
       // Server action execution with client fallback
       const updateRes = await updateTenantAction(editingTenant.id, {
         name,
@@ -1464,7 +1541,7 @@ export default function DashboardPage() {
         deposit,
         joiningDate,
         dueDay,
-        status,
+        status: finalStatus,
       })
 
       if (!updateRes.success) {
@@ -1485,7 +1562,7 @@ export default function DashboardPage() {
             security_deposit: deposit,
             joining_date: joiningDate,
             rent_due_day: dueDay,
-            status,
+            status: finalStatus,
             updated_at: new Date().toISOString(),
           })
           .eq('id', editingTenant.id)
@@ -1507,10 +1584,10 @@ export default function DashboardPage() {
         await supabase.from('beds').update({ status: 'available' }).eq('id', editingTenant.bed_id)
         setBeds((prev) => prev.map((b) => (b.id === editingTenant.bed_id ? { ...b, status: 'available' } : b)))
       }
-      if (finalBedId && status !== 'Vacated') {
+      if (finalBedId && finalStatus !== 'Vacated') {
         await supabase.from('beds').update({ status: 'occupied' }).eq('id', finalBedId)
         setBeds((prev) => prev.map((b) => (b.id === finalBedId ? { ...b, status: 'occupied' } : b)))
-      } else if (finalBedId && status === 'Vacated') {
+      } else if (finalBedId && finalStatus === 'Vacated') {
         await supabase.from('beds').update({ status: 'available' }).eq('id', finalBedId)
         setBeds((prev) => prev.map((b) => (b.id === finalBedId ? { ...b, status: 'available' } : b)))
       }
@@ -1533,7 +1610,7 @@ export default function DashboardPage() {
                 deposit,
                 joiningDate,
                 rent_due_day: dueDay,
-                status,
+                status: finalStatus,
               }
             : t
         )
@@ -2199,6 +2276,71 @@ export default function DashboardPage() {
     })
   }
 
+  // Update / Edit Electricity Reading
+  async function handleUpdateElectricity(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (isSavingElectricity) return
+    if (!userId || !editingElectricity) return
+
+    const fd = new FormData(e.currentTarget)
+    const roomId = String(fd.get('room_id'))
+    const prevReading = Number(fd.get('previous_reading') || 0)
+    const currReading = Number(fd.get('current_reading') || 0)
+    const rate = Number(fd.get('rate_per_unit') || 10)
+    const date = String(fd.get('reading_date')) || editingElectricity.reading_date
+
+    if (currReading < prevReading) {
+      flash('Current meter reading cannot be lower than the previous reading.')
+      return
+    }
+
+    setIsSavingElectricity(true)
+    try {
+      const finalRoomId = roomId && roomId !== 'general' ? roomId : null
+      const { error } = await supabase
+        .from('electricity_readings')
+        .update({
+          room_id: finalRoomId,
+          previous_reading: prevReading,
+          current_reading: currReading,
+          rate_per_unit: rate,
+          reading_date: date,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingElectricity.id)
+        .eq('owner_id', userId)
+
+      if (error) {
+        flash('Could not update meter reading.')
+        return
+      }
+
+      const roomName = rooms.find((r) => r.id === finalRoomId)?.room_number || 'General'
+
+      setElectricity((prev) =>
+        prev.map((el) =>
+          el.id === editingElectricity.id
+            ? {
+                ...el,
+                room_id: finalRoomId,
+                room: roomName,
+                previous_reading: prevReading,
+                current_reading: currReading,
+                rate_per_unit: rate,
+                reading_date: date,
+              }
+            : el
+        )
+      )
+      setEditingElectricity(null)
+      flash('Meter reading updated successfully.')
+    } catch {
+      flash('An error occurred while updating meter reading.')
+    } finally {
+      setIsSavingElectricity(false)
+    }
+  }
+
   // Add Complaint
   async function handleAddComplaint(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -2259,6 +2401,68 @@ export default function DashboardPage() {
 
     setComplaints((prev) => prev.map((c) => (c.id === id ? { ...c, status: 'Resolved' } : c)))
     flash('Complaint marked as resolved.')
+  }
+
+  // Update / Edit Complaint
+  async function handleUpdateComplaint(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (isSavingComplaint) return
+    if (!userId || !editingComplaint) return
+
+    const fd = new FormData(e.currentTarget)
+    const title = String(fd.get('title')).trim()
+    const tenantName = String(fd.get('tenant') || 'Resident').trim()
+    const priority = String(fd.get('priority') || 'Medium') as 'High' | 'Medium' | 'Low'
+    const status = String(fd.get('status') || editingComplaint.status) as 'Open' | 'In progress' | 'Resolved'
+    const desc = String(fd.get('description') || '').trim()
+
+    if (!title) {
+      flash('Complaint title is required.')
+      return
+    }
+
+    setIsSavingComplaint(true)
+    try {
+      const { error } = await supabase
+        .from('complaints')
+        .update({
+          title,
+          tenant: tenantName,
+          priority,
+          status,
+          description: desc,
+          resolved_at: status === 'Resolved' ? new Date().toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingComplaint.id)
+        .eq('owner_id', userId)
+
+      if (error) {
+        flash('Could not update complaint.')
+        return
+      }
+
+      setComplaints((prev) =>
+        prev.map((c) =>
+          c.id === editingComplaint.id
+            ? {
+                ...c,
+                title,
+                tenant: tenantName,
+                priority,
+                status,
+                description: desc,
+              }
+            : c
+        )
+      )
+      setEditingComplaint(null)
+      flash('Complaint updated successfully.')
+    } catch {
+      flash('An error occurred while updating the complaint.')
+    } finally {
+      setIsSavingComplaint(false)
+    }
   }
 
   // Delete Complaint (Moves to Deleted Records / Trash)
@@ -2648,6 +2852,7 @@ export default function DashboardPage() {
               onAddBed={(roomId: string, roomNumber: string) =>
                 setShowAddBedModal({ open: true, roomId, roomNumber })
               }
+              onEditBed={(b: Bed) => setEditingBed(b)}
               onToggleBedStatus={handleToggleBedStatus}
               onDeleteBed={handleDeleteBed}
               searchQuery={q}
@@ -2729,6 +2934,7 @@ export default function DashboardPage() {
                 }
                 setShowElectricityModal(true)
               }}
+              onEditReading={(el: ElectricityRecord) => setEditingElectricity(el)}
               onDeleteReading={handleDeleteElectricity}
               searchQuery={q}
               onClearSearch={() => setSearch('')}
@@ -2751,6 +2957,7 @@ export default function DashboardPage() {
             <ComplaintsTab
               complaints={filteredComplaints.filter((c) => !property.id || !c.property_id || c.property_id === property.id)}
               onAddComplaint={() => setShowComplaintModal(true)}
+              onEditComplaint={(c: Complaint) => setEditingComplaint(c)}
               onResolve={handleResolveComplaint}
               onDelete={handleDeleteComplaint}
               searchQuery={q}
@@ -3087,6 +3294,48 @@ export default function DashboardPage() {
             >
               {isSavingBed && <Loader2 className="size-4 animate-spin" />}
               {isSavingBed ? 'Adding Bed...' : 'Add Bed to Room'}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {/* 5b. Edit Bed Details Modal */}
+      {editingBed && (
+        <Modal title={`Edit Bed ${editingBed.bed_number}`} onClose={() => !isSavingBed && setEditingBed(null)}>
+          <form onSubmit={handleUpdateBed} className="flex flex-col gap-4">
+            <Field
+              label="Bed Label"
+              name="bed_number"
+              defaultValue={editingBed.bed_number}
+              placeholder="e.g. 101-A"
+              required
+            />
+            <Field
+              label="Monthly Rate (₹)"
+              name="monthly_rate"
+              type="number"
+              defaultValue={editingBed.monthly_rate}
+              required
+            />
+            <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+              Status
+              <select
+                name="status"
+                defaultValue={editingBed.status}
+                className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
+              >
+                <option value="available">Available</option>
+                <option value="occupied">Occupied</option>
+                <option value="maintenance">Maintenance</option>
+              </select>
+            </label>
+            <button
+              type="submit"
+              disabled={isSavingBed}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingBed && <Loader2 className="size-4 animate-spin" />}
+              {isSavingBed ? 'Updating Bed...' : 'Save Bed Details'}
             </button>
           </form>
         </Modal>
@@ -3565,6 +3814,138 @@ export default function DashboardPage() {
             >
               {isSavingComplaint && <Loader2 className="size-4 animate-spin" />}
               {isSavingComplaint ? 'Logging Ticket...' : 'Register Complaint Ticket'}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {/* 11b. Edit Electricity Reading Modal */}
+      {editingElectricity && (
+        <Modal title="Edit Meter Reading" onClose={() => !isSavingElectricity && setEditingElectricity(null)}>
+          <form onSubmit={handleUpdateElectricity} className="flex flex-col gap-4">
+            <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+              Select Meter / Room
+              <select
+                name="room_id"
+                defaultValue={editingElectricity.room_id || 'general'}
+                className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
+              >
+                <option value="general">Building General Meter</option>
+                {rooms.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    Room {r.room_number} Meter
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Previous Reading (kWh)"
+                name="previous_reading"
+                type="number"
+                defaultValue={editingElectricity.previous_reading}
+                required
+              />
+              <Field
+                label="Current Reading (kWh)"
+                name="current_reading"
+                type="number"
+                defaultValue={editingElectricity.current_reading}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Rate per Unit (₹)"
+                name="rate_per_unit"
+                type="number"
+                defaultValue={editingElectricity.rate_per_unit}
+                required
+              />
+              <Field
+                label="Reading Date"
+                name="reading_date"
+                type="date"
+                defaultValue={editingElectricity.reading_date}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSavingElectricity}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingElectricity && <Loader2 className="size-4 animate-spin" />}
+              {isSavingElectricity ? 'Updating Reading...' : 'Save Meter Reading'}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {/* 12b. Edit Complaint Modal */}
+      {editingComplaint && (
+        <Modal title="Edit Complaint / Ticket" onClose={() => !isSavingComplaint && setEditingComplaint(null)}>
+          <form onSubmit={handleUpdateComplaint} className="flex flex-col gap-4">
+            <Field label="Issue Summary" name="title" defaultValue={editingComplaint.title} required />
+            <div className="grid grid-cols-3 gap-3">
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                Reported by
+                <select
+                  name="tenant"
+                  defaultValue={editingComplaint.tenant}
+                  className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
+                >
+                  {tenants
+                    .filter((t) => t.status !== 'Vacated')
+                    .map((t) => (
+                      <option key={t.id} value={t.name}>
+                        {t.name} (Room {t.room})
+                      </option>
+                    ))}
+                  <option value="General Property">General Property</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                Priority
+                <select
+                  name="priority"
+                  defaultValue={editingComplaint.priority}
+                  className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
+                >
+                  <option value="Medium">Medium</option>
+                  <option value="High">High</option>
+                  <option value="Low">Low</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
+                Status
+                <select
+                  name="status"
+                  defaultValue={editingComplaint.status}
+                  className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
+                >
+                  <option value="Open">Open</option>
+                  <option value="In progress">In progress</option>
+                  <option value="Resolved">Resolved</option>
+                </select>
+              </label>
+            </div>
+            <Field
+              label="Details / Remarks"
+              name="description"
+              defaultValue={editingComplaint.description || ''}
+              placeholder="Additional repair technician context"
+            />
+            <button
+              type="submit"
+              disabled={isSavingComplaint}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingComplaint && <Loader2 className="size-4 animate-spin" />}
+              {isSavingComplaint ? 'Updating Ticket...' : 'Save Ticket Details'}
             </button>
           </form>
         </Modal>
@@ -4649,6 +5030,7 @@ function RoomsTab({
   onEditRoom,
   onDeleteRoom,
   onAddBed,
+  onEditBed,
   onToggleBedStatus,
   onDeleteBed,
   searchQuery,
@@ -4752,6 +5134,13 @@ function RoomsTab({
                           className="flex items-center gap-1.5 rounded-lg border border-[#e8dfd4] bg-[#faf7f2] px-2 py-1 text-[10px]"
                         >
                           <span className="font-semibold text-[#3d3934]">{bed.bed_number}</span>
+                          <button
+                            onClick={() => onEditBed?.(bed)}
+                            title="Edit bed details"
+                            className="rounded p-0.5 text-[#a0a3af] hover:text-[#8b5a2b] transition-colors"
+                          >
+                            <Pencil className="size-2.5" />
+                          </button>
                           <button
                             onClick={() => onToggleBedStatus(bed.id, bed.status)}
                             title="Click to toggle status"
@@ -5361,7 +5750,7 @@ function DeletedRecordsTab({
   )
 }
 
-function ElectricityTab({ records, rooms, onAddReading, onDeleteReading, searchQuery, onClearSearch }: any) {
+function ElectricityTab({ records, rooms, onAddReading, onEditReading, onDeleteReading, searchQuery, onClearSearch }: any) {
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -5418,6 +5807,13 @@ function ElectricityTab({ records, rooms, onAddReading, onDeleteReading, searchQ
                       <td className="px-5 py-4 font-bold text-[#44485a]">{currency(total)}</td>
                       <td className="px-5 py-4 text-[#85899a]">{new Date(el.reading_date).toLocaleDateString('en-IN')}</td>
                       <td className="px-5 py-4 text-right">
+                        <button
+                          onClick={() => onEditReading?.(el)}
+                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors mr-1"
+                          title="Edit reading"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
                         <button
                           onClick={() => onDeleteReading(el.id, el.room)}
                           className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
@@ -5519,7 +5915,7 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
   )
 }
 
-function ComplaintsTab({ complaints, onAddComplaint, onResolve, onDelete, searchQuery, onClearSearch }: any) {
+function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve, onDelete, searchQuery, onClearSearch }: any) {
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -5578,6 +5974,13 @@ function ComplaintsTab({ complaints, onAddComplaint, onResolve, onDelete, search
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onEditComplaint?.(c)}
+                  className="rounded-lg p-2 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                  title="Edit ticket"
+                >
+                  <Pencil className="size-4" />
+                </button>
                 {c.status !== 'Resolved' && (
                   <button
                     onClick={() => onResolve(c.id)}
