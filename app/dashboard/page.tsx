@@ -9,6 +9,11 @@ import {
   deleteTenantAction,
   deleteExpenseAction,
   deletePaymentAction,
+  moveToTrashAction,
+  getTrashRecordsAction,
+  restoreTrashRecordAction,
+  permanentlyDeleteTrashAction,
+  type TrashRecord,
 } from './actions'
 import { isValidPhone } from '@/lib/validation'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
@@ -61,6 +66,7 @@ import {
   Printer,
   Receipt,
   RotateCcw,
+  RotateCw,
   Search,
   Settings,
   Share2,
@@ -300,6 +306,11 @@ export default function DashboardPage() {
   const [payments, setPayments] = useState<PaymentRecord[]>([])
   const [deletedPayments, setDeletedPayments] = useState<PaymentRecord[]>([])
   const [deletedTenants, setDeletedTenants] = useState<Tenant[]>([])
+  const [trashRecords, setTrashRecords] = useState<TrashRecord[]>([])
+  const [isLoadingTrash, setIsLoadingTrash] = useState(false)
+  const [isRestoringTrashId, setIsRestoringTrashId] = useState<string | null>(null)
+  const [purgeTarget, setPurgeTarget] = useState<TrashRecord | null>(null)
+  const [isPurgingTrashId, setIsPurgingTrashId] = useState<string | null>(null)
   const [complaints, setComplaints] = useState<Complaint[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [electricity, setElectricity] = useState<ElectricityRecord[]>([])
@@ -576,6 +587,16 @@ export default function DashboardPage() {
           rate_per_unit: Number(el.rate_per_unit),
         })))
         setComplaints(complaintRes.data || [])
+
+        // Fetch real Trash / Deleted Records
+        try {
+          const trashRes = await getTrashRecordsAction()
+          if (trashRes.success && trashRes.records) {
+            setTrashRecords(trashRes.records)
+          }
+        } catch (e) {
+          console.error('Failed to load trash records:', e)
+        }
       } catch (err) {
         console.error('Failed to load dashboard records:', err)
       } finally {
@@ -588,6 +609,20 @@ export default function DashboardPage() {
       isMounted = false
     }
   }, [supabase, router])
+
+  const loadTrashRecords = async () => {
+    setIsLoadingTrash(true)
+    try {
+      const res = await getTrashRecordsAction()
+      if (res.success && res.records) {
+        setTrashRecords(res.records)
+      }
+    } catch (err) {
+      console.error('Failed to reload trash records:', err)
+    } finally {
+      setIsLoadingTrash(false)
+    }
+  }
 
   // ----------------------------------------------------------------------------
   // Calculations for Real Metrics (No Fake Data)
@@ -865,14 +900,15 @@ export default function DashboardPage() {
     if (deletePropertyInput.trim() !== 'DELETE' || !property.id || !userId) return
     setIsDeletingProperty(true)
     try {
-      const { error } = await supabase
-        .from('properties')
-        .delete()
-        .eq('id', property.id)
-        .eq('owner_id', userId)
+      const res = await moveToTrashAction({
+        entityType: 'property',
+        entityId: property.id,
+        entityName: property.name,
+        details: `${property.city || 'Property'} · ${rooms.filter((r) => r.property_id === property.id).length} rooms`,
+      })
 
-      if (error) {
-        flash(`Could not delete property: ${error.message}`)
+      if (!res.success) {
+        flash(res.error || 'Could not move property to Deleted Records.')
         return
       }
 
@@ -889,7 +925,8 @@ export default function DashboardPage() {
 
       setShowDeletePropertyModal(false)
       setDeletePropertyInput('')
-      flash(`Property "${property.name}" deleted successfully.`)
+      flash('Property moved to Deleted Records.')
+      void loadTrashRecords()
     } catch (err) {
       flash('Failed to delete property.')
     } finally {
@@ -1009,22 +1046,29 @@ export default function DashboardPage() {
 
   // Delete Room
   async function handleDeleteRoom(roomId: string, roomNumber: string) {
+    const targetRoom = rooms.find((r) => r.id === roomId)
     setConfirmDialog({
       open: true,
-      title: `Delete Room ${roomNumber}?`,
-      description: 'This will permanently remove the room, its configured beds, and unassign any residents linked to it.',
-      actionLabel: 'Delete Room',
+      title: `Move Room ${roomNumber} to Deleted Records?`,
+      description: 'The room and its associated beds will be moved to Deleted Records. You can restore them anytime from the Deleted Records tab.',
+      actionLabel: 'Move to Trash',
       isDestructive: true,
       onConfirm: async () => {
-        const { error } = await supabase.from('rooms').delete().eq('id', roomId).eq('owner_id', userId)
-        if (error) {
-          flash('Could not delete room.')
+        const res = await moveToTrashAction({
+          entityType: 'room',
+          entityId: roomId,
+          entityName: `Room ${roomNumber}`,
+          details: `${targetRoom?.room_type || 'Room'} · Floor ${targetRoom?.floor || 0}`,
+        })
+        if (!res.success) {
+          flash(res.error || 'Could not move room to Deleted Records.')
           return
         }
         setRooms((prev) => prev.filter((r) => r.id !== roomId))
         setBeds((prev) => prev.filter((b) => b.room_id !== roomId))
         setTenants((prev) => prev.map((t) => (t.room_id === roomId ? { ...t, room: 'Unassigned', room_id: null, bed_id: null, bed_number: '' } : t)))
-        flash(`Room ${roomNumber} deleted.`)
+        flash('Room moved to Deleted Records.')
+        void loadTrashRecords()
       },
     })
   }
@@ -1097,16 +1141,24 @@ export default function DashboardPage() {
 
     setConfirmDialog({
       open: true,
-      title: `Delete Bed ${bedNumber}?`,
-      description: 'Remove this bed from room inventory?',
-      actionLabel: 'Delete Bed',
+      title: `Move Bed ${bedNumber} to Deleted Records?`,
+      description: 'Move this bed to Deleted Records? You can restore it anytime.',
+      actionLabel: 'Move to Trash',
       isDestructive: true,
       onConfirm: async () => {
-        const { error } = await supabase.from('beds').delete().eq('id', bedId).eq('owner_id', userId)
-        if (!error) {
-          setBeds((prev) => prev.filter((b) => b.id !== bedId))
-          flash(`Bed ${bedNumber} deleted.`)
+        const res = await moveToTrashAction({
+          entityType: 'bed',
+          entityId: bedId,
+          entityName: `Bed ${bedNumber}`,
+          details: 'Bed Inventory Unit',
+        })
+        if (!res.success) {
+          flash(res.error || 'Could not move bed to Deleted Records.')
+          return
         }
+        setBeds((prev) => prev.filter((b) => b.id !== bedId))
+        flash('Bed moved to Deleted Records.')
+        void loadTrashRecords()
       },
     })
   }
@@ -1458,21 +1510,26 @@ export default function DashboardPage() {
     })
   }
 
-  // Delete Resident
+  // Delete Resident (Moves to Deleted Records / Trash)
   async function handleDeleteTenant(tenantId: string, tenantName: string) {
     const target = tenants.find((t) => t.id === tenantId)
     if (!target || !userId) return
 
     setConfirmDialog({
       open: true,
-      title: `Delete Resident ${tenantName}?`,
-      description: 'Are you sure you want to permanently delete this resident record? Any assigned bed will immediately be released back to available inventory.',
-      actionLabel: 'Delete Resident',
+      title: `Move Resident ${tenantName} to Deleted Records?`,
+      description: 'The resident record will be moved to Deleted Records. Any assigned bed will be released back to inventory. You can restore them anytime.',
+      actionLabel: 'Move to Trash',
       isDestructive: true,
       onConfirm: async () => {
-        const res = await deleteTenantAction(tenantId)
+        const res = await moveToTrashAction({
+          entityType: 'tenant',
+          entityId: tenantId,
+          entityName: tenantName,
+          details: `Room ${target.room || 'Unassigned'} · Rent: ₹${target.rent || 0}`,
+        })
         if (!res.success) {
-          flash(res.error || 'Could not delete resident.')
+          flash(res.error || 'Could not move resident to Deleted Records.')
           return
         }
 
@@ -1482,40 +1539,127 @@ export default function DashboardPage() {
         }
 
         setTenants((prev) => prev.filter((t) => t.id !== tenantId))
-        flash(`Resident ${tenantName} deleted successfully.`)
+        flash('Resident moved to Deleted Records.')
+        void loadTrashRecords()
       },
     })
   }
 
-  // Restore Tenant
-  async function handleRestoreTenant(tenantId: string) {
-    if (!userId) return
-    const target = deletedTenants.find((t) => t.id === tenantId)
-    if (!target) return
-
-    const { error } = await supabase
-      .from('tenants')
-      .update({ deleted_at: null, updated_at: new Date().toISOString() })
-      .eq('id', tenantId)
-      .eq('owner_id', userId)
-
-    if (error) {
-      flash(`Could not restore resident: ${error.message}`)
-      return
-    }
-
-    if (target.bed_id) {
-      const bed = beds.find((b) => b.id === target.bed_id)
-      if (bed && bed.status === 'available') {
-        await supabase.from('beds').update({ status: 'occupied' }).eq('id', target.bed_id)
-        setBeds((prev) => prev.map((b) => (b.id === target.bed_id ? { ...b, status: 'occupied' } : b)))
+  // Restore Record from Trash
+  async function handleRestoreTrashRecord(record: TrashRecord) {
+    if (isRestoringTrashId) return
+    setIsRestoringTrashId(record.id)
+    try {
+      const res = await restoreTrashRecordAction(record.id)
+      if (!res.success) {
+        flash(res.error || 'Could not restore record.')
+        return
       }
-    }
 
-    const restored = { ...target, deleted_at: null }
-    setDeletedTenants((prev) => prev.filter((t) => t.id !== tenantId))
-    setTenants((prev) => [restored, ...prev])
-    flash(`Resident ${target.name} restored successfully.`)
+      flash(res.message || 'Record restored successfully.')
+      setTrashRecords((prev) => prev.filter((r) => r.id !== record.id))
+
+      // Refresh active state depending on entity type
+      if (record.entity_type === 'tenant') {
+        const { data: refreshedTenants } = await supabase.from('tenants').select('*').eq('owner_id', userId)
+        if (refreshedTenants) {
+          const roomMap = new Map(rooms.map((r) => [r.id, r.room_number]))
+          const bedMap = new Map(beds.map((b) => [b.id, b.bed_number]))
+          setTenants(
+            refreshedTenants.map((t: any) => ({
+              id: t.id,
+              name: t.full_name,
+              phone: t.phone || '',
+              room_id: t.room_id,
+              bed_id: t.bed_id,
+              bed_number: t.bed_id ? bedMap.get(t.bed_id) || '' : '',
+              room: t.room_id ? roomMap.get(t.room_id) || 'Unassigned' : 'Unassigned',
+              rent: Number(t.monthly_rent || 0),
+              deposit: Number(t.security_deposit || 0),
+              joiningDate: t.joining_date,
+              rent_due_day: Number(t.rent_due_day || 5),
+              status: t.status || 'Pending',
+            }))
+          )
+        }
+        const { data: refreshedBeds } = await supabase.from('beds').select('*').eq('owner_id', userId)
+        if (refreshedBeds) {
+          setBeds(refreshedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate || 0) })))
+        }
+      } else if (record.entity_type === 'property') {
+        const { data: refreshedProps } = await supabase.from('properties').select('*').eq('owner_id', userId)
+        if (refreshedProps) {
+          setProperties(
+            refreshedProps.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              address: p.address || '',
+              contact: p.contact_number || '',
+              city: p.city || '',
+              rules: p.rules || null,
+            }))
+          )
+        }
+      } else if (record.entity_type === 'room') {
+        const { data: refreshedRooms } = await supabase.from('rooms').select('*').eq('owner_id', userId)
+        if (refreshedRooms) setRooms(refreshedRooms)
+        const { data: refreshedBeds } = await supabase.from('beds').select('*').eq('owner_id', userId)
+        if (refreshedBeds) setBeds(refreshedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate || 0) })))
+      } else if (record.entity_type === 'bed') {
+        const { data: refreshedBeds } = await supabase.from('beds').select('*').eq('owner_id', userId)
+        if (refreshedBeds) setBeds(refreshedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate || 0) })))
+      } else if (record.entity_type === 'expense') {
+        const { data: refreshedExp } = await supabase.from('expenses').select('*').eq('owner_id', userId)
+        if (refreshedExp) setExpenses(refreshedExp.map((e: any) => ({ ...e, amount: Number(e.amount) })))
+      } else if (record.entity_type === 'complaint') {
+        const { data: refreshedComp } = await supabase.from('complaints').select('*').eq('owner_id', userId)
+        if (refreshedComp) setComplaints(refreshedComp)
+      } else if (record.entity_type === 'payment') {
+        const { data: refreshedPay } = await supabase.from('payments').select('*').eq('owner_id', userId)
+        if (refreshedPay) {
+          const tenantNameMap = new Map(tenants.map((t) => [t.id, t.name]))
+          const tenantRoomMap = new Map(tenants.map((t) => [t.id, t.room]))
+          setPayments(
+            refreshedPay.map((p: any) => ({
+              id: p.id,
+              tenant_id: p.tenant_id,
+              tenant_name: tenantNameMap.get(p.tenant_id) || 'Unknown Resident',
+              room_number: tenantRoomMap.get(p.tenant_id) || 'N/A',
+              amount: Number(p.amount || 0),
+              payment_method: p.payment_method || 'upi',
+              payment_type: p.payment_type || 'rent',
+              paid_at: p.paid_at,
+              month_covered: p.month_covered || undefined,
+              notes: p.notes,
+            }))
+          )
+        }
+      }
+    } catch {
+      flash('Failed to restore record.')
+    } finally {
+      setIsRestoringTrashId(null)
+    }
+  }
+
+  // Permanently Delete Trash Record
+  async function handleConfirmPermanentDelete() {
+    if (!purgeTarget || isPurgingTrashId) return
+    setIsPurgingTrashId(purgeTarget.id)
+    try {
+      const res = await permanentlyDeleteTrashAction(purgeTarget.id)
+      if (!res.success) {
+        flash(res.error || 'Could not permanently delete record.')
+        return
+      }
+      flash('Record permanently deleted.')
+      setTrashRecords((prev) => prev.filter((r) => r.id !== purgeTarget.id))
+      setPurgeTarget(null)
+    } catch {
+      flash('Failed to permanently delete record.')
+    } finally {
+      setIsPurgingTrashId(null)
+    }
   }
 
   // Record Payment
@@ -1668,7 +1812,7 @@ export default function DashboardPage() {
     }
   }
 
-  // Delete Payment
+  // Delete / Reverse Payment (Financial Audit Compliance)
   async function handleDeletePayment(paymentId: string, amount: number, tenantName: string) {
     if (!userId) return
     const target = payments.find((p) => p.id === paymentId)
@@ -1676,19 +1820,25 @@ export default function DashboardPage() {
 
     setConfirmDialog({
       open: true,
-      title: `Delete Payment #${paymentId.slice(0, 8).toUpperCase()}?`,
-      description: `Remove payment of ${currency(amount)} for ${tenantName}? This action permanently removes the record from your ledger.`,
-      actionLabel: 'Delete Payment',
+      title: `Reverse Payment #${paymentId.slice(0, 8).toUpperCase()}?`,
+      description: `For accounting compliance, historical payment records are not silently deleted. This payment of ${currency(amount)} for ${tenantName} will be reversed and moved to Deleted Records.`,
+      actionLabel: 'Reverse Payment',
       isDestructive: true,
       onConfirm: async () => {
-        const res = await deletePaymentAction(paymentId)
+        const res = await moveToTrashAction({
+          entityType: 'payment',
+          entityId: paymentId,
+          entityName: `Payment Receipt REC-${paymentId.slice(0, 8).toUpperCase()}`,
+          details: `₹${amount} for ${tenantName} (Reversed)`,
+        })
         if (!res.success) {
-          flash(res.error || 'Could not delete payment.')
+          flash(res.error || 'Could not reverse payment.')
           return
         }
 
         setPayments((prev) => prev.filter((p) => p.id !== paymentId))
-        flash(`Payment of ${currency(amount)} deleted successfully.`)
+        flash('Payment moved to Deleted Records.')
+        void loadTrashRecords()
       },
     })
   }
@@ -1720,10 +1870,11 @@ export default function DashboardPage() {
   function handleExecuteUndo() {
     if (!undoItem) return
     if (undoItem.intervalId) clearInterval(undoItem.intervalId)
-    if (undoItem.type === 'payment') {
+    const rec = trashRecords.find((r) => r.target_id === undoItem.id)
+    if (rec) {
+      void handleRestoreTrashRecord(rec)
+    } else if (undoItem.type === 'payment') {
       void handleRestorePayment(undoItem.id)
-    } else if (undoItem.type === 'tenant') {
-      void handleRestoreTenant(undoItem.id)
     }
     setUndoItem(null)
   }
@@ -1823,22 +1974,29 @@ export default function DashboardPage() {
     }
   }
 
-  // Delete Expense
+  // Delete Expense (Moves to Deleted Records / Trash)
   async function handleDeleteExpense(id: string, title: string) {
+    const target = expenses.find((e) => e.id === id)
     setConfirmDialog({
       open: true,
-      title: `Delete Expense "${title}"?`,
-      description: 'Remove this expense entry from your accounting ledger? This action cannot be undone.',
-      actionLabel: 'Delete Entry',
+      title: `Move Expense "${title}" to Deleted Records?`,
+      description: 'Move this expense entry to Deleted Records? It will be excluded from monthly totals and can be restored anytime.',
+      actionLabel: 'Move to Trash',
       isDestructive: true,
       onConfirm: async () => {
-        const res = await deleteExpenseAction(id)
+        const res = await moveToTrashAction({
+          entityType: 'expense',
+          entityId: id,
+          entityName: title,
+          details: `${target?.category || 'Expense'} · ₹${target?.amount || 0}`,
+        })
         if (!res.success) {
-          flash(res.error || 'Could not delete expense.')
+          flash(res.error || 'Could not move expense to Deleted Records.')
           return
         }
         setExpenses((prev) => prev.filter((e) => e.id !== id))
-        flash('Expense entry deleted successfully.')
+        flash('Expense moved to Deleted Records.')
+        void loadTrashRecords()
       },
     })
   }
@@ -1984,18 +2142,29 @@ export default function DashboardPage() {
     flash('Complaint marked as resolved.')
   }
 
-  // Delete Complaint
+  // Delete Complaint (Moves to Deleted Records / Trash)
   async function handleDeleteComplaint(id: string, title: string) {
+    const target = complaints.find((c) => c.id === id)
     setConfirmDialog({
       open: true,
-      title: `Delete Ticket "${title}"?`,
-      description: 'Remove this complaint record from your ticket log?',
-      actionLabel: 'Delete Ticket',
+      title: `Move Ticket "${title}" to Deleted Records?`,
+      description: 'Move this complaint ticket to Deleted Records? You can restore it anytime.',
+      actionLabel: 'Move to Trash',
       isDestructive: true,
       onConfirm: async () => {
-        await supabase.from('complaints').delete().eq('id', id).eq('owner_id', userId)
+        const res = await moveToTrashAction({
+          entityType: 'complaint',
+          entityId: id,
+          entityName: title,
+          details: `Resident: ${target?.tenant || 'General'} · Priority: ${target?.priority || 'Medium'}`,
+        })
+        if (!res.success) {
+          flash(res.error || 'Could not move ticket to Deleted Records.')
+          return
+        }
         setComplaints((prev) => prev.filter((c) => c.id !== id))
-        flash('Complaint ticket removed.')
+        flash('Ticket moved to Deleted Records.')
+        void loadTrashRecords()
       },
     })
   }
@@ -2488,11 +2657,13 @@ export default function DashboardPage() {
 
           {active === 'Deleted Records' && (
             <DeletedRecordsTab
-              deletedPayments={deletedPayments}
-              deletedTenants={deletedTenants}
+              trashRecords={trashRecords}
+              isLoading={isLoadingTrash}
+              isRestoringId={isRestoringTrashId}
               locale={locale}
-              onRestorePayment={handleRestorePayment}
-              onRestoreTenant={handleRestoreTenant}
+              onRestore={handleRestoreTrashRecord}
+              onPermanentDelete={(record: TrashRecord) => setPurgeTarget(record)}
+              onRefresh={loadTrashRecords}
             />
           )}
 
@@ -3631,6 +3802,43 @@ export default function DashboardPage() {
               >
                 {isConfirming && <Loader2 className="size-3.5 animate-spin" />}
                 {isConfirming ? 'Processing...' : confirmDialog.actionLabel}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Permanent Deletion Confirmation Modal */}
+      {purgeTarget && (
+        <Modal
+          title="Delete Permanently?"
+          onClose={() => !isPurgingTrashId && setPurgeTarget(null)}
+        >
+          <div className="space-y-4">
+            <div className="rounded-xl border border-[#ffe0e0] bg-[#fff5f5] p-3 text-xs text-[#b95c3c]">
+              <div className="flex items-center gap-2 font-bold mb-1">
+                <AlertTriangle className="size-4 text-[#b95c3c]" />
+                Irreversible Permanent Action
+              </div>
+              Are you sure you want to permanently delete <strong className="text-[#991b1b]">{purgeTarget.entity_name}</strong>? This record will be permanently purged from your account and cannot be restored.
+            </div>
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={!!isPurgingTrashId}
+                onClick={() => setPurgeTarget(null)}
+                className="rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!!isPurgingTrashId}
+                onClick={handleConfirmPermanentDelete}
+                className="flex items-center gap-1.5 rounded-xl bg-[#dc2626] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#b91c1c] disabled:opacity-50 transition-colors"
+              >
+                {isPurgingTrashId && <Loader2 className="size-3.5 animate-spin" />}
+                {isPurgingTrashId ? 'Deleting...' : 'Delete Permanently'}
               </button>
             </div>
           </div>
@@ -4795,135 +5003,243 @@ function PaymentsTab({
 }
 
 function DeletedRecordsTab({
-  deletedPayments,
-  deletedTenants,
+  trashRecords,
+  isLoading = false,
+  isRestoringId = null,
   locale = 'en',
-  onRestorePayment,
-  onRestoreTenant,
+  onRestore,
+  onPermanentDelete,
+  onRefresh,
 }: {
-  deletedPayments: PaymentRecord[]
-  deletedTenants: Tenant[]
+  trashRecords: TrashRecord[]
+  isLoading?: boolean
+  isRestoringId?: string | null
   locale?: string
-  onRestorePayment: (id: string) => Promise<void>
-  onRestoreTenant: (id: string) => Promise<void>
+  onRestore: (record: TrashRecord) => Promise<void>
+  onPermanentDelete: (record: TrashRecord) => void
+  onRefresh: () => Promise<void>
 }) {
-  const totalDeleted = deletedPayments.length + deletedTenants.length
+  const [filterType, setFilterType] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredRecords = useMemo(() => {
+    return trashRecords.filter((rec) => {
+      const matchesType =
+        filterType === 'all'
+          ? true
+          : filterType === 'rooms_beds'
+          ? rec.entity_type === 'room' || rec.entity_type === 'bed'
+          : rec.entity_type === filterType
+
+      const matchesSearch =
+        !searchQuery ||
+        rec.entity_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        rec.details?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        rec.deleted_by?.toLowerCase().includes(searchQuery.toLowerCase())
+
+      return matchesType && matchesSearch
+    })
+  }, [trashRecords, filterType, searchQuery])
+
+  const counts = useMemo(() => {
+    return {
+      all: trashRecords.length,
+      tenant: trashRecords.filter((r) => r.entity_type === 'tenant').length,
+      property: trashRecords.filter((r) => r.entity_type === 'property').length,
+      rooms_beds: trashRecords.filter((r) => r.entity_type === 'room' || r.entity_type === 'bed').length,
+      expense: trashRecords.filter((r) => r.entity_type === 'expense').length,
+      complaint: trashRecords.filter((r) => r.entity_type === 'complaint').length,
+      payment: trashRecords.filter((r) => r.entity_type === 'payment').length,
+    }
+  }, [trashRecords])
+
+  const getBadgeStyle = (type: string) => {
+    switch (type) {
+      case 'property':
+        return 'border-[#e0ceb9] bg-[#fbf5ee] text-[#8b5a2b]'
+      case 'room':
+        return 'border-[#e0ceb9] bg-[#f7f0e6] text-[#784b20]'
+      case 'bed':
+        return 'border-[#ebd5be] bg-[#faf3ea] text-[#b46b1a]'
+      case 'tenant':
+        return 'border-[#c5e6c7] bg-[#eaf5ea] text-[#2e7d32]'
+      case 'expense':
+        return 'border-[#edd7cf] bg-[#fff5f2] text-[#9a7651]'
+      case 'complaint':
+        return 'border-[#fed7d7] bg-[#fff5f5] text-[#b95c3c]'
+      case 'payment':
+        return 'border-[#ccebe1] bg-[#e7f7f0] text-[#328d68]'
+      default:
+        return 'border-[#e8dfd4] bg-[#faf7f2] text-[#676b7d]'
+    }
+  }
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'property':
+        return 'Property'
+      case 'room':
+        return 'Room'
+      case 'bed':
+        return 'Bed'
+      case 'tenant':
+        return 'Resident'
+      case 'expense':
+        return 'Expense'
+      case 'complaint':
+        return 'Complaint'
+      case 'payment':
+        return 'Payment (Reversed)'
+      default:
+        return type.toUpperCase()
+    }
+  }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-xl font-bold tracking-tight">Deleted Records & Audit Recovery</h2>
-        <p className="text-xs text-[#85899a]">
-          Records are soft-deleted for financial compliance and accounting integrity. You can restore any accidentally deleted item here anytime.
-        </p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Deleted Records & Trash</h2>
+          <p className="text-xs text-[#85899a]">
+            Safely review soft-deleted records. Restored items return immediately to your active data.
+          </p>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="inline-flex items-center gap-2 rounded-xl border border-[#e8dfd4] bg-white px-3.5 py-2 text-xs font-semibold text-[#676b7d] shadow-2xs hover:bg-[#faf7f2] disabled:opacity-50 transition-colors self-start sm:self-auto"
+        >
+          <RotateCw className={`size-3.5 text-[#8b5a2b] ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh Trash
+        </button>
       </div>
 
-      {totalDeleted === 0 ? (
-        <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-8 text-center">
-          <ShieldCheck className="mx-auto size-8 text-[#2e7d32]" />
-          <h4 className="mt-2 text-sm font-bold text-[#3d3934]">No Deleted Records</h4>
-          <p className="mt-1 text-xs text-[#74798a]">Your ledger is clean. Any payments or residents deleted in the future can be restored here.</p>
+      {/* Filter and Search Bar */}
+      <div className="flex flex-col gap-3 rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-3.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {[
+            { id: 'all', label: `All (${counts.all})` },
+            { id: 'tenant', label: `Residents (${counts.tenant})` },
+            { id: 'property', label: `Properties (${counts.property})` },
+            { id: 'rooms_beds', label: `Rooms & Beds (${counts.rooms_beds})` },
+            { id: 'expense', label: `Expenses (${counts.expense})` },
+            { id: 'complaint', label: `Complaints (${counts.complaint})` },
+            { id: 'payment', label: `Payments (${counts.payment})` },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setFilterType(tab.id)}
+              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
+                filterType === tab.id
+                  ? 'bg-[#8b5a2b] text-white shadow-xs'
+                  : 'bg-white text-[#676b7d] border border-[#e8dfd4] hover:bg-[#f5ede4]'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 rounded-xl border border-[#e8dfd4] bg-white px-3 py-2 text-xs">
+          <Search className="size-3.5 text-[#8b5a2b]" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search deleted records by name, details, or user..."
+            className="w-full bg-transparent outline-none placeholder:text-[#a0a3b0]"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-[#a0a3b0] hover:text-[#2c221e]">
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Trash Records List / Table */}
+      {trashRecords.length === 0 ? (
+        <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-10 text-center">
+          <ShieldCheck className="mx-auto size-9 text-[#2e7d32]" />
+          <h4 className="mt-2.5 text-base font-bold text-[#3d3934]">Trash is Empty</h4>
+          <p className="mt-1 text-xs text-[#74798a] max-w-md mx-auto">
+            Your workspace is completely up to date. Any properties, rooms, beds, residents, expenses, or complaints deleted in the future can be safely restored here.
+          </p>
+        </div>
+      ) : filteredRecords.length === 0 ? (
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white p-8 text-center text-xs text-[#85899a]">
+          No deleted records match your active filter or search query.
         </div>
       ) : (
-        <>
-          {/* Deleted Payments Section */}
-          <section className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-[#3d3934]">Deleted Payment Entries ({deletedPayments.length})</h3>
-                <p className="text-xs text-[#85899a]">Soft-deleted payments excluded from monthly totals</p>
-              </div>
-            </div>
+        <div className="overflow-x-auto rounded-2xl border border-[#e8dfd4] bg-white shadow-xs">
+          <table className="w-full min-w-[760px] text-left text-xs">
+            <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+              <tr>
+                <th className="px-5 py-3.5">Record Type</th>
+                <th className="px-5 py-3.5">Name / Description</th>
+                <th className="px-5 py-3.5">Deleted At</th>
+                <th className="px-5 py-3.5">Deleted By</th>
+                <th className="px-5 py-3.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#eee6dc]">
+              {filteredRecords.map((record) => {
+                const isRestoring = isRestoringId === record.id
+                return (
+                  <tr key={record.id} className="hover:bg-[#fbf8f3] transition-colors">
+                    <td className="px-5 py-4">
+                      <span className={`inline-block rounded-lg border px-2.5 py-1 text-[11px] font-bold ${getBadgeStyle(record.entity_type)}`}>
+                        {getTypeLabel(record.entity_type)}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="font-bold text-[#2c221e]">{record.entity_name}</p>
+                      {record.details && (
+                        <p className="mt-0.5 text-[11px] text-[#74798a]">{record.details}</p>
+                      )}
+                    </td>
+                    <td className="px-5 py-4 text-[#74798a]">
+                      {formatPaymentTimestamp(record.deleted_at, 'Asia/Kolkata', locale)}
+                    </td>
+                    <td className="px-5 py-4 text-[#74798a] font-mono text-[11px]">
+                      {record.deleted_by || 'PG Owner'}
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Restore Action Button */}
+                        <button
+                          onClick={() => onRestore(record)}
+                          disabled={!!isRestoringId}
+                          title="Restore record to active data"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#c5e6c7] bg-[#eaf5ea] px-3.5 py-1.5 text-xs font-semibold text-[#2e7d32] hover:bg-[#d5edd7] disabled:opacity-50 transition-colors"
+                        >
+                          {isRestoring ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="size-3.5" />
+                          )}
+                          {isRestoring ? 'Restoring...' : 'Restore'}
+                        </button>
 
-            {deletedPayments.length === 0 ? (
-              <p className="text-xs text-[#999daa] italic">No deleted payment entries.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[700px] text-left text-xs">
-                  <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
-                    <tr>
-                      <th className="px-4 py-3">Receipt</th>
-                      <th className="px-4 py-3">Resident</th>
-                      <th className="px-4 py-3">Amount</th>
-                      <th className="px-4 py-3">Original Payment Date</th>
-                      <th className="px-4 py-3">Deleted At</th>
-                      <th className="px-4 py-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#eee6dc]">
-                    {deletedPayments.map((p) => (
-                      <tr key={p.id} className="hover:bg-[#fbf8f3]">
-                        <td className="px-4 py-3 font-mono font-bold text-[#676b7d]">REC-{p.id.slice(0, 8).toUpperCase()}</td>
-                        <td className="px-4 py-3 font-semibold text-[#3d3934]">{p.tenant_name}</td>
-                        <td className="px-4 py-3 font-bold text-[#784b20]">{currency(p.amount)}</td>
-                        <td className="px-4 py-3 text-[#74798a]">{formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}</td>
-                        <td className="px-4 py-3 text-[#b95c3c]">{formatPaymentTimestamp(p.deleted_at, 'Asia/Kolkata', locale)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => onRestorePayment(p.id)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#c5e6c7] bg-[#eaf5ea] px-3 py-1 text-xs font-semibold text-[#2e7d32] hover:bg-[#d5edd7]"
-                          >
-                            <RotateCcw className="size-3" />
-                            Restore Payment
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          {/* Deleted Tenants Section */}
-          <section className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-[#3d3934]">Deleted Resident Profiles ({deletedTenants.length})</h3>
-                <p className="text-xs text-[#85899a]">Soft-deleted residents and occupancy terms</p>
-              </div>
-            </div>
-
-            {deletedTenants.length === 0 ? (
-              <p className="text-xs text-[#999daa] italic">No deleted resident profiles.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[700px] text-left text-xs">
-                  <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
-                    <tr>
-                      <th className="px-4 py-3">Resident</th>
-                      <th className="px-4 py-3">Contact</th>
-                      <th className="px-4 py-3">Room</th>
-                      <th className="px-4 py-3">Monthly Rent</th>
-                      <th className="px-4 py-3">Deleted At</th>
-                      <th className="px-4 py-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#eee6dc]">
-                    {deletedTenants.map((t) => (
-                      <tr key={t.id} className="hover:bg-[#fbf8f3]">
-                        <td className="px-4 py-3 font-bold text-[#3d3934]">{t.name}</td>
-                        <td className="px-4 py-3 text-[#676b7d]">{t.phone || '—'}</td>
-                        <td className="px-4 py-3 text-[#676b7d]">Room {t.room}</td>
-                        <td className="px-4 py-3 font-semibold text-[#784b20]">{currency(t.rent)}</td>
-                        <td className="px-4 py-3 text-[#b95c3c]">{formatPaymentTimestamp(t.deleted_at, 'Asia/Kolkata', locale)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => onRestoreTenant(t.id)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#c5e6c7] bg-[#eaf5ea] px-3 py-1 text-xs font-semibold text-[#2e7d32] hover:bg-[#d5edd7]"
-                          >
-                            <RotateCcw className="size-3" />
-                            Restore Resident
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </>
+                        {/* Permanent Delete Button */}
+                        <button
+                          onClick={() => onPermanentDelete(record)}
+                          disabled={!!isRestoringId}
+                          title="Permanently purge this record"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#f5c6cb] bg-[#fff5f5] px-3 py-1.5 text-xs font-semibold text-[#b95c3c] hover:bg-[#ffe8e8] disabled:opacity-50 transition-colors"
+                        >
+                          <Trash2 className="size-3.5" />
+                          Purge
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

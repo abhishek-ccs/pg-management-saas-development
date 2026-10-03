@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isValidPhone } from '@/lib/validation'
 
 export interface CreateTenantInput {
@@ -366,131 +366,563 @@ export async function updateTenantAction(
   }
 }
 
+export type TrashEntityType = 'property' | 'room' | 'bed' | 'tenant' | 'expense' | 'complaint' | 'payment'
+
+export interface TrashRecord {
+  id: string
+  target_id: string
+  entity_type: TrashEntityType
+  entity_name: string
+  details: string
+  deleted_at: string
+  deleted_by: string
+  snapshot: any
+}
+
+export interface MoveToTrashInput {
+  entityType: TrashEntityType
+  entityId: string
+  entityName?: string
+  details?: string
+}
+
+export interface TrashActionResult {
+  success: boolean
+  error?: string
+  message?: string
+}
+
 /**
- * Server Action: Delete Resident (Tenant)
- * Performs strict owner-isolated hard delete.
- * Automatically releases assigned bed to 'available'.
- * Payment records are preserved by database ON DELETE SET NULL on payments.tenant_id.
+ * Server Action: Move Record to Trash (Soft Delete)
+ * Snapshots the record, stores it in platform_audit_logs with status 'in_trash',
+ * releases bed occupancy if tenant, removes from active table, and strictly enforces owner isolation.
  */
-export async function deleteTenantAction(tenantId: string): Promise<{ success: boolean; error?: string }> {
+export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashActionResult> {
   try {
     const supabase = await createClient()
     const { data: { user }, error: authErr } = await supabase.auth.getUser()
-
     if (authErr || !user) {
       return { success: false, error: 'Your session has expired. Please sign in again.' }
     }
 
-    if (!tenantId) {
-      return { success: false, error: 'Resident ID is required.' }
+    const { entityType, entityId } = input
+    if (!entityType || !entityId) {
+      return { success: false, error: 'Missing entity type or ID.' }
     }
 
-    // 1. Fetch tenant to verify ownership and get assigned bed_id
-    const { data: tenant, error: fetchErr } = await supabase
-      .from('tenants')
-      .select('id, bed_id, owner_id')
-      .eq('id', tenantId)
-      .eq('owner_id', user.id)
-      .maybeSingle()
+    const admin = await createAdminClient()
+    let snapshot: any = null
+    let entityName = input.entityName || ''
+    let details = input.details || ''
 
-    if (fetchErr || !tenant) {
-      return { success: false, error: 'Resident record not found or unauthorized.' }
-    }
+    if (entityType === 'tenant') {
+      const { data: tenant, error: fetchErr } = await supabase
+        .from('tenants')
+        .select('*')
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
 
-    // 2. Perform hard delete with owner isolation
-    const { error: deleteErr } = await supabase
-      .from('tenants')
-      .delete()
-      .eq('id', tenantId)
-      .eq('owner_id', user.id)
+      if (fetchErr || !tenant) {
+        return { success: false, error: 'Resident record not found or unauthorized.' }
+      }
+      snapshot = tenant
+      entityName = entityName || tenant.full_name
+      details = details || `Room ${tenant.room_id ? 'Assigned' : 'Unassigned'} · Rent: ₹${tenant.monthly_rent}`
 
-    if (deleteErr) {
-      console.error('deleteTenantAction DB Error:', deleteErr)
-      return { success: false, error: deleteErr.message || 'Could not delete resident record.' }
-    }
+      // Release bed to available if assigned
+      if (tenant.bed_id) {
+        await supabase
+          .from('beds')
+          .update({ status: 'available' })
+          .eq('id', tenant.bed_id)
+          .eq('owner_id', user.id)
+      }
 
-    // 3. Free bed if tenant was assigned
-    if (tenant.bed_id) {
-      await supabase
+      const { error: delErr } = await supabase
+        .from('tenants')
+        .delete()
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+
+      if (delErr) {
+        return { success: false, error: delErr.message || 'Could not move resident to trash.' }
+      }
+    } else if (entityType === 'property') {
+      const { data: property, error: fetchErr } = await supabase
+        .from('properties')
+        .select('*')
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+
+      if (fetchErr || !property) {
+        return { success: false, error: 'Property record not found or unauthorized.' }
+      }
+
+      const { data: propRooms } = await supabase.from('rooms').select('*').eq('property_id', entityId).eq('owner_id', user.id)
+      const { data: propBeds } = await supabase.from('beds').select('*').eq('property_id', entityId).eq('owner_id', user.id)
+
+      snapshot = {
+        property,
+        rooms: propRooms || [],
+        beds: propBeds || []
+      }
+      entityName = entityName || property.name
+      details = details || `${property.city || 'Property'} · ${(propRooms || []).length} room(s)`
+
+      const { error: delErr } = await supabase
+        .from('properties')
+        .delete()
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+
+      if (delErr) {
+        return { success: false, error: delErr.message || 'Could not move property to trash.' }
+      }
+    } else if (entityType === 'room') {
+      const { data: room, error: fetchErr } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+
+      if (fetchErr || !room) {
+        return { success: false, error: 'Room not found or unauthorized.' }
+      }
+
+      const { data: roomBeds } = await supabase.from('beds').select('*').eq('room_id', entityId).eq('owner_id', user.id)
+      snapshot = { room, beds: roomBeds || [] }
+      entityName = entityName || `Room ${room.room_number}`
+      details = details || `${room.room_type} · Floor ${room.floor}`
+
+      const { error: delErr } = await supabase
+        .from('rooms')
+        .delete()
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+
+      if (delErr) {
+        return { success: false, error: delErr.message || 'Could not move room to trash.' }
+      }
+    } else if (entityType === 'bed') {
+      const { data: bed, error: fetchErr } = await supabase
         .from('beds')
-        .update({ status: 'available' })
-        .eq('id', tenant.bed_id)
+        .select('*')
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+
+      if (fetchErr || !bed) {
+        return { success: false, error: 'Bed not found or unauthorized.' }
+      }
+
+      snapshot = bed
+      entityName = entityName || `Bed ${bed.bed_number}`
+      details = details || `Status: ${bed.status} · ₹${bed.monthly_rate}/mo`
+
+      const { error: delErr } = await supabase
+        .from('beds')
+        .delete()
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+
+      if (delErr) {
+        return { success: false, error: delErr.message || 'Could not move bed to trash.' }
+      }
+    } else if (entityType === 'expense') {
+      const { data: expense, error: fetchErr } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+
+      if (fetchErr || !expense) {
+        return { success: false, error: 'Expense not found or unauthorized.' }
+      }
+
+      snapshot = expense
+      entityName = entityName || expense.title
+      details = details || `${expense.category} · ₹${expense.amount}`
+
+      const { error: delErr } = await supabase
+        .from('expenses')
+        .delete()
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+
+      if (delErr) {
+        return { success: false, error: delErr.message || 'Could not move expense to trash.' }
+      }
+    } else if (entityType === 'complaint') {
+      const { data: complaint, error: fetchErr } = await supabase
+        .from('complaints')
+        .select('*')
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+
+      if (fetchErr || !complaint) {
+        return { success: false, error: 'Complaint not found or unauthorized.' }
+      }
+
+      snapshot = complaint
+      entityName = entityName || complaint.title
+      details = details || `${complaint.category || 'Maintenance'} · ${complaint.priority || 'Medium'} priority`
+
+      const { error: delErr } = await supabase
+        .from('complaints')
+        .delete()
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+
+      if (delErr) {
+        return { success: false, error: delErr.message || 'Could not move complaint to trash.' }
+      }
+    } else if (entityType === 'payment') {
+      // Reversal approach for financial compliance: do not silently delete accounting history
+      const { data: payment, error: fetchErr } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+
+      if (fetchErr || !payment) {
+        return { success: false, error: 'Payment not found or unauthorized.' }
+      }
+
+      snapshot = payment
+      entityName = entityName || `Payment REC-${payment.id.slice(0, 8).toUpperCase()}`
+      details = details || `₹${payment.amount} via ${payment.payment_method || 'UPI'} (Reversed)`
+
+      const reversedNote = `[REVERSED on ${new Date().toISOString()}] ${payment.notes || ''}`.trim()
+      await supabase
+        .from('payments')
+        .update({ notes: reversedNote })
+        .eq('id', entityId)
         .eq('owner_id', user.id)
     }
 
-    return { success: true }
+    // Save snapshot into platform_audit_logs with status: 'in_trash'
+    const { error: auditErr } = await admin.from('platform_audit_logs').insert({
+      actor_id: user.id,
+      action: `soft_delete_${entityType}`,
+      target_type: entityType,
+      target_id: String(entityId),
+      metadata: {
+        status: 'in_trash',
+        entity_type: entityType,
+        entity_name: entityName,
+        details,
+        deleted_at: new Date().toISOString(),
+        deleted_by: user.email || 'PG Owner',
+        snapshot,
+      },
+    })
+
+    if (auditErr) {
+      console.error('moveToTrashAction audit error:', auditErr)
+    }
+
+    const typeLabels: Record<string, string> = {
+      property: 'Property',
+      room: 'Room',
+      bed: 'Bed',
+      tenant: 'Resident',
+      expense: 'Expense',
+      complaint: 'Complaint',
+      payment: 'Payment record',
+    }
+
+    return {
+      success: true,
+      message: `${typeLabels[entityType] || 'Record'} moved to Deleted Records.`,
+    }
   } catch (err: any) {
-    console.error('deleteTenantAction exception:', err)
-    return { success: false, error: err?.message || 'Unexpected server error while deleting resident.' }
+    console.error('moveToTrashAction exception:', err)
+    return { success: false, error: err?.message || 'Failed to move record to trash.' }
   }
 }
 
 /**
- * Server Action: Delete Expense
- * Strictly owner-isolated hard delete.
+ * Server Action: Fetch Owner Trash Records
+ * Strict owner isolation: only returns records where actor_id === user.id.
  */
+export async function getTrashRecordsAction(): Promise<{ success: boolean; records: TrashRecord[]; error?: string }> {
+  try {
+    const supabase = await createClient()
+    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    if (authErr || !user) {
+      return { success: false, records: [], error: 'Your session has expired. Please sign in again.' }
+    }
+
+    const admin = await createAdminClient()
+    const { data: logs, error } = await admin
+      .from('platform_audit_logs')
+      .select('id, actor_id, action, target_type, target_id, metadata, created_at')
+      .eq('actor_id', user.id)
+      .like('action', 'soft_delete_%')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      return { success: false, records: [], error: error.message }
+    }
+
+    const records: TrashRecord[] = (logs || [])
+      .filter((log: any) => log.metadata?.status === 'in_trash')
+      .map((log: any) => ({
+        id: log.id,
+        target_id: log.target_id,
+        entity_type: log.metadata?.entity_type || log.target_type,
+        entity_name: log.metadata?.entity_name || `${log.target_type} #${log.target_id?.slice(0, 8) || ''}`,
+        details: log.metadata?.details || '',
+        deleted_at: log.metadata?.deleted_at || log.created_at,
+        deleted_by: log.metadata?.deleted_by || user.email || 'PG Owner',
+        snapshot: log.metadata?.snapshot || {},
+      }))
+
+    return { success: true, records }
+  } catch (err: any) {
+    return { success: false, records: [], error: err?.message || 'Failed to fetch trash records.' }
+  }
+}
+
+/**
+ * Server Action: Restore Record from Trash
+ * Validates ownership, re-inserts row into active table, updates status in audit log.
+ */
+export async function restoreTrashRecordAction(trashId: string): Promise<TrashActionResult> {
+  try {
+    const supabase = await createClient()
+    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    if (authErr || !user) {
+      return { success: false, error: 'Your session has expired. Please sign in again.' }
+    }
+
+    const admin = await createAdminClient()
+    const { data: logEntry, error: fetchErr } = await admin
+      .from('platform_audit_logs')
+      .select('*')
+      .eq('id', trashId)
+      .eq('actor_id', user.id)
+      .maybeSingle()
+
+    if (fetchErr || !logEntry) {
+      return { success: false, error: 'Deleted record not found in Trash or unauthorized.' }
+    }
+
+    const meta = logEntry.metadata || {}
+    if (meta.status !== 'in_trash') {
+      return { success: false, error: 'This record has already been restored or permanently deleted.' }
+    }
+
+    const entityType = meta.entity_type || logEntry.target_type
+    const snapshot = meta.snapshot
+    if (!snapshot) {
+      return { success: false, error: 'Snapshot data missing for this record.' }
+    }
+
+    if (entityType === 'tenant') {
+      let targetBedId = snapshot.bed_id || null
+      if (targetBedId) {
+        const { data: bed } = await supabase
+          .from('beds')
+          .select('id, status')
+          .eq('id', targetBedId)
+          .eq('owner_id', user.id)
+          .maybeSingle()
+
+        if (bed && bed.status === 'available') {
+          await supabase.from('beds').update({ status: 'occupied' }).eq('id', targetBedId).eq('owner_id', user.id)
+        } else {
+          targetBedId = null
+        }
+      }
+
+      const tenantPayload = {
+        ...snapshot,
+        owner_id: user.id,
+        bed_id: targetBedId,
+        updated_at: new Date().toISOString(),
+      }
+
+      const { error: insertErr } = await supabase.from('tenants').upsert(tenantPayload, { onConflict: 'id' })
+      if (insertErr) {
+        return { success: false, error: `Could not restore resident: ${insertErr.message}` }
+      }
+    } else if (entityType === 'property') {
+      const propData = snapshot.property || snapshot
+      const { error: insertErr } = await supabase.from('properties').upsert({
+        ...propData,
+        owner_id: user.id,
+      }, { onConflict: 'id' })
+
+      if (insertErr) {
+        return { success: false, error: `Could not restore property: ${insertErr.message}` }
+      }
+
+      if (Array.isArray(snapshot.rooms) && snapshot.rooms.length > 0) {
+        const roomsPayload = snapshot.rooms.map((r: any) => ({ ...r, owner_id: user.id }))
+        await supabase.from('rooms').upsert(roomsPayload, { onConflict: 'id' })
+      }
+      if (Array.isArray(snapshot.beds) && snapshot.beds.length > 0) {
+        const bedsPayload = snapshot.beds.map((b: any) => ({ ...b, owner_id: user.id }))
+        await supabase.from('beds').upsert(bedsPayload, { onConflict: 'id' })
+      }
+    } else if (entityType === 'room') {
+      const roomData = snapshot.room || snapshot
+      const { error: insertErr } = await supabase.from('rooms').upsert({
+        ...roomData,
+        owner_id: user.id,
+      }, { onConflict: 'id' })
+
+      if (insertErr) {
+        return { success: false, error: `Could not restore room: ${insertErr.message}` }
+      }
+
+      if (Array.isArray(snapshot.beds) && snapshot.beds.length > 0) {
+        const bedsPayload = snapshot.beds.map((b: any) => ({ ...b, owner_id: user.id }))
+        await supabase.from('beds').upsert(bedsPayload, { onConflict: 'id' })
+      }
+    } else if (entityType === 'bed') {
+      const { error: insertErr } = await supabase.from('beds').upsert({
+        ...snapshot,
+        owner_id: user.id,
+      }, { onConflict: 'id' })
+
+      if (insertErr) {
+        return { success: false, error: `Could not restore bed: ${insertErr.message}` }
+      }
+    } else if (entityType === 'expense') {
+      const { error: insertErr } = await supabase.from('expenses').upsert({
+        ...snapshot,
+        owner_id: user.id,
+      }, { onConflict: 'id' })
+
+      if (insertErr) {
+        return { success: false, error: `Could not restore expense: ${insertErr.message}` }
+      }
+    } else if (entityType === 'complaint') {
+      const { error: insertErr } = await supabase.from('complaints').upsert({
+        ...snapshot,
+        owner_id: user.id,
+      }, { onConflict: 'id' })
+
+      if (insertErr) {
+        return { success: false, error: `Could not restore complaint: ${insertErr.message}` }
+      }
+    } else if (entityType === 'payment') {
+      const cleanNotes = (snapshot.notes || '').replace(/\[REVERSED[^\]]*\]/g, '').trim()
+      await supabase
+        .from('payments')
+        .update({ notes: cleanNotes })
+        .eq('id', snapshot.id)
+        .eq('owner_id', user.id)
+    }
+
+    await admin.from('platform_audit_logs').update({
+      metadata: {
+        ...meta,
+        status: 'restored',
+        restored_at: new Date().toISOString(),
+      },
+    }).eq('id', trashId).eq('actor_id', user.id)
+
+    await admin.from('platform_audit_logs').insert({
+      actor_id: user.id,
+      action: `restore_${entityType}`,
+      target_type: entityType,
+      target_id: String(logEntry.target_id),
+      metadata: {
+        restored_at: new Date().toISOString(),
+        entity_name: meta.entity_name,
+      },
+    })
+
+    const typeLabels: Record<string, string> = {
+      property: 'Property',
+      room: 'Room',
+      bed: 'Bed',
+      tenant: 'Tenant',
+      expense: 'Expense',
+      complaint: 'Complaint',
+      payment: 'Payment',
+    }
+
+    return {
+      success: true,
+      message: `${typeLabels[entityType] || 'Record'} restored successfully.`,
+    }
+  } catch (err: any) {
+    console.error('restoreTrashRecordAction exception:', err)
+    return { success: false, error: err?.message || 'Failed to restore record.' }
+  }
+}
+
+/**
+ * Server Action: Permanently Delete Record from Trash
+ * Validates ownership, marks the audit log as 'purged' with confirmation safeguard.
+ */
+export async function permanentlyDeleteTrashAction(trashId: string): Promise<TrashActionResult> {
+  try {
+    const supabase = await createClient()
+    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    if (authErr || !user) {
+      return { success: false, error: 'Your session has expired. Please sign in again.' }
+    }
+
+    const admin = await createAdminClient()
+    const { data: logEntry, error: fetchErr } = await admin
+      .from('platform_audit_logs')
+      .select('*')
+      .eq('id', trashId)
+      .eq('actor_id', user.id)
+      .maybeSingle()
+
+    if (fetchErr || !logEntry) {
+      return { success: false, error: 'Trash record not found or unauthorized.' }
+    }
+
+    await admin
+      .from('platform_audit_logs')
+      .update({
+        metadata: {
+          ...(logEntry.metadata || {}),
+          status: 'purged',
+          purged_at: new Date().toISOString(),
+        },
+      })
+      .eq('id', trashId)
+      .eq('actor_id', user.id)
+
+    return {
+      success: true,
+      message: 'Record permanently deleted.',
+    }
+  } catch (err: any) {
+    console.error('permanentlyDeleteTrashAction exception:', err)
+    return { success: false, error: err?.message || 'Failed to permanently delete record.' }
+  }
+}
+
+/**
+ * Legacy delete actions rerouted to soft-delete (moveToTrashAction) to prevent accidental permanent deletion
+ */
+export async function deleteTenantAction(tenantId: string): Promise<{ success: boolean; error?: string }> {
+  const res = await moveToTrashAction({ entityType: 'tenant', entityId: tenantId })
+  return { success: res.success, error: res.error }
+}
+
 export async function deleteExpenseAction(expenseId: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const supabase = await createClient()
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
-
-    if (authErr || !user) {
-      return { success: false, error: 'Your session has expired. Please sign in again.' }
-    }
-
-    if (!expenseId) {
-      return { success: false, error: 'Expense ID is required.' }
-    }
-
-    const { error: deleteErr } = await supabase
-      .from('expenses')
-      .delete()
-      .eq('id', expenseId)
-      .eq('owner_id', user.id)
-
-    if (deleteErr) {
-      console.error('deleteExpenseAction DB Error:', deleteErr)
-      return { success: false, error: deleteErr.message || 'Could not delete expense entry.' }
-    }
-
-    return { success: true }
-  } catch (err: any) {
-    console.error('deleteExpenseAction exception:', err)
-    return { success: false, error: err?.message || 'Unexpected server error while deleting expense.' }
-  }
+  const res = await moveToTrashAction({ entityType: 'expense', entityId: expenseId })
+  return { success: res.success, error: res.error }
 }
 
-/**
- * Server Action: Delete Payment Record
- * Strictly owner-isolated hard delete.
- */
 export async function deletePaymentAction(paymentId: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const supabase = await createClient()
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
-
-    if (authErr || !user) {
-      return { success: false, error: 'Your session has expired. Please sign in again.' }
-    }
-
-    if (!paymentId) {
-      return { success: false, error: 'Payment ID is required.' }
-    }
-
-    const { error: deleteErr } = await supabase
-      .from('payments')
-      .delete()
-      .eq('id', paymentId)
-      .eq('owner_id', user.id)
-
-    if (deleteErr) {
-      console.error('deletePaymentAction DB Error:', deleteErr)
-      return { success: false, error: deleteErr.message || 'Could not delete payment record.' }
-    }
-
-    return { success: true }
-  } catch (err: any) {
-    console.error('deletePaymentAction exception:', err)
-    return { success: false, error: err?.message || 'Unexpected server error while deleting payment.' }
-  }
+  const res = await moveToTrashAction({ entityType: 'payment', entityId: paymentId })
+  return { success: res.success, error: res.error }
 }
+

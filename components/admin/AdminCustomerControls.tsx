@@ -22,16 +22,24 @@ import {
 
 interface AdminCustomerControlsProps {
   owners: any[]
-  propertyByOwner: Record<string, any>
+  propertiesByOwner?: Record<string, any[]>
+  propertyByOwner?: Record<string, any>
+  roomsCountByOwner?: Record<string, number>
+  bedsCountByOwner?: Record<string, number>
   tenantsCountByOwner: Record<string, number>
+  revenueByOwner?: Record<string, number>
   subscriptionByOwner: Record<string, any>
   auditLogs: any[]
 }
 
 export function AdminCustomerControls({
   owners,
-  propertyByOwner,
+  propertiesByOwner,
+  propertyByOwner = {},
+  roomsCountByOwner = {},
+  bedsCountByOwner = {},
   tenantsCountByOwner,
+  revenueByOwner = {},
   subscriptionByOwner,
   auditLogs,
 }: AdminCustomerControlsProps) {
@@ -167,8 +175,9 @@ export function AdminCustomerControls({
             <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#74798a]">
               <tr>
                 <th className="px-5 py-3.5">Customer / Contact</th>
-                <th className="px-5 py-3.5">Property</th>
-                <th className="px-5 py-3.5">Residents</th>
+                <th className="px-5 py-3.5">Properties & Inventory</th>
+                <th className="px-5 py-3.5">Residents & Occupancy</th>
+                <th className="px-5 py-3.5">Platform Revenue</th>
                 <th className="px-5 py-3.5">Plan / Trial</th>
                 <th className="px-5 py-3.5">Status</th>
                 <th className="px-5 py-3.5 text-right">Admin Actions</th>
@@ -176,9 +185,14 @@ export function AdminCustomerControls({
             </thead>
             <tbody className="divide-y divide-[#f0f1f4]">
               {filteredOwners.map((owner) => {
-                const prop = propertyByOwner[owner.id]
+                const ownerProps = propertiesByOwner?.[owner.id] || (propertyByOwner[owner.id] ? [propertyByOwner[owner.id]] : [])
+                const prop = ownerProps[0] || null
+                const roomsCount = roomsCountByOwner[owner.id] || 0
+                const bedsCount = bedsCountByOwner[owner.id] || 0
                 const tenantCount = tenantsCountByOwner[owner.id] || 0
+                const revenue = revenueByOwner[owner.id] || 0
                 const sub = subscriptionByOwner[owner.id]
+                const occupancyRate = bedsCount > 0 ? Math.round((tenantCount / bedsCount) * 100) : 0
 
                 let trialBadge = sub?.plan ? sub.plan.toUpperCase() : '7-Day Trial'
                 let trialClass = 'bg-[#f4ede3] text-[#9a7651]'
@@ -205,19 +219,41 @@ export function AdminCustomerControls({
                     <td className="px-5 py-4">
                       <p className="font-bold text-[#202536]">{owner.full_name || 'PG Owner'}</p>
                       <p className="mt-0.5 text-[11px] text-[#85899a]">{owner.email}</p>
+                      {owner.created_at && (
+                        <p className="mt-0.5 text-[10px] text-[#a4a7b2]">
+                          Joined {new Date(owner.created_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      )}
                     </td>
                     <td className="px-5 py-4">
                       {prop ? (
                         <div>
-                          <p className="font-semibold text-[#44485a]">{prop.name}</p>
-                          <p className="text-[11px] text-[#969baa]">{prop.city || 'Location unconfigured'}</p>
+                          <p className="font-semibold text-[#44485a]">
+                            {prop.name}
+                            {ownerProps.length > 1 && (
+                              <span className="ml-1 text-[10px] font-bold text-[#9a7651]">
+                                (+{ownerProps.length - 1} more)
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-[#969baa]">
+                            {roomsCount} room{roomsCount === 1 ? '' : 's'} · {bedsCount} bed{bedsCount === 1 ? '' : 's'}
+                          </p>
                         </div>
                       ) : (
                         <span className="text-[#a0a3af] italic">Setup Pending</span>
                       )}
                     </td>
-                    <td className="px-5 py-4 font-semibold text-[#555a6c]">
-                      {tenantCount} resident{tenantCount === 1 ? '' : 's'}
+                    <td className="px-5 py-4">
+                      <p className="font-semibold text-[#555a6c]">
+                        {tenantCount} resident{tenantCount === 1 ? '' : 's'}
+                      </p>
+                      <p className="text-[10px] text-[#85899a]">
+                        {bedsCount > 0 ? `${occupancyRate}% occupancy` : 'No beds configured'}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4 font-semibold text-[#3d3934]">
+                      ₹{revenue.toLocaleString('en-IN')}
                     </td>
                     <td className="px-5 py-4">
                       <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${trialClass}`}>

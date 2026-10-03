@@ -120,13 +120,15 @@ export async function ensureSuperAdmin(email: string) {
 
 export async function getPlatformCounts() {
   const admin = await createAdminClient()
-  const [profiles, audit, properties, tenants, subscriptions, payments] = await Promise.all([
+  const [profiles, audit, properties, tenants, subscriptions, payments, rooms, beds] = await Promise.all([
     admin.from('profiles').select('id, email, full_name, role, status, created_at').order('created_at', { ascending: false }),
-    admin.from('platform_audit_logs').select('id, action, target_type, created_at, metadata').order('created_at', { ascending: false }).limit(50),
+    admin.from('platform_audit_logs').select('id, actor_id, action, target_type, target_id, created_at, metadata').order('created_at', { ascending: false }).limit(200),
     admin.from('properties').select('id, owner_id, name, city, contact_number, created_at'),
-    admin.from('tenants').select('id, owner_id, full_name, status, monthly_rent, created_at'),
-    admin.from('subscriptions').select('id, owner_id, plan, status, trial_start, trial_end, current_period_end'),
-    admin.from('payments').select('id, amount, paid_at, payment_method'),
+    admin.from('tenants').select('id, owner_id, property_id, room_id, bed_id, full_name, status, monthly_rent, created_at'),
+    admin.from('subscriptions').select('id, owner_id, plan, status, trial_start, trial_end, current_period_start, current_period_end'),
+    admin.from('payments').select('id, owner_id, property_id, tenant_id, amount, paid_at, payment_method, payment_type, notes, created_at'),
+    admin.from('rooms').select('id, property_id, owner_id, room_number, floor, room_type, base_rent'),
+    admin.from('beds').select('id, property_id, room_id, owner_id, bed_number, status, monthly_rate'),
   ])
   return {
     profiles: profiles.data ?? [],
@@ -135,6 +137,8 @@ export async function getPlatformCounts() {
     tenants: tenants.data ?? [],
     subscriptions: subscriptions.data ?? [],
     payments: payments.data ?? [],
+    rooms: rooms.data ?? [],
+    beds: beds.data ?? [],
   }
 }
 
