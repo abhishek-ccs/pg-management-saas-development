@@ -1,7 +1,9 @@
 import { SUPPORT_EMAIL } from '@/lib/constants'
+import { PRICING_CONFIG } from '@/lib/pricing'
+import { getSiteUrl } from '@/lib/site'
 
 export function StructuredData() {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staybook.in'
+  const baseUrl = getSiteUrl()
 
   const structuredData = {
     '@context': 'https://schema.org',
@@ -11,10 +13,23 @@ export function StructuredData() {
         '@id': `${baseUrl}/#organization`,
         name: 'StayBook Technologies',
         url: baseUrl,
-        logo: `${baseUrl}/icon.svg`,
+        logo: {
+          '@type': 'ImageObject',
+          url: `${baseUrl}/icon.svg`,
+          width: 512,
+          height: 512,
+        },
         email: SUPPORT_EMAIL,
-        description: 'Modern property and rental management SaaS for PGs, hostels, apartments, and rental houses.',
-        sameAs: ['https://x.com/staybook', 'https://linkedin.com/company/staybook'],
+        description:
+          'Modern cloud property management software and rental property management SaaS for PGs, hostels, apartments, and rental houses.',
+        contactPoint: [
+          {
+            '@type': 'ContactPoint',
+            email: SUPPORT_EMAIL,
+            contactType: 'customer support',
+            availableLanguage: ['en', 'hi'],
+          },
+        ],
       },
       {
         '@type': 'SoftwareApplication',
@@ -23,28 +38,34 @@ export function StructuredData() {
         applicationCategory: 'BusinessApplication',
         operatingSystem: 'All modern web browsers (Chrome, Safari, Firefox, Edge)',
         url: baseUrl,
-        description: 'Complete property, PG, hostel, and rental management software featuring automated rent collection, unit and bed occupancy tracking, utility calculation, and tenant ledger.',
-
+        description:
+          'Property management software and rental property management SaaS for PGs, hostels, and apartments with resident records, automated rent receipts, bed availability, and ledgers.',
+        publisher: {
+          '@id': `${baseUrl}/#organization`,
+        },
         offers: [
           {
             '@type': 'Offer',
-            name: '7-Day Free Trial',
+            name: `${PRICING_CONFIG.trialDays}-Day Free Trial`,
             price: '0',
-            priceCurrency: 'INR',
+            priceCurrency: PRICING_CONFIG.currency,
+            description: 'Full workspace access with live database isolation. Zero credit card needed.',
           },
           {
             '@type': 'Offer',
-            name: 'Starter Plan',
-            price: '499',
-            priceCurrency: 'INR',
+            name: 'Monthly Subscription',
+            price: String(PRICING_CONFIG.monthlyRate),
+            priceCurrency: PRICING_CONFIG.currency,
             billingDuration: 'P1M',
+            description: 'Flexible month-to-month billing with no lock-in. Cancel anytime with 1 click.',
           },
           {
             '@type': 'Offer',
-            name: 'Growth Pro',
-            price: '999',
-            priceCurrency: 'INR',
-            billingDuration: 'P1M',
+            name: 'Annual Subscription',
+            price: String(PRICING_CONFIG.yearlyRate),
+            priceCurrency: PRICING_CONFIG.currency,
+            billingDuration: 'P1Y',
+            description: 'Best value for serious PG owners. Uninterrupted operations with maximum savings.',
           },
         ],
       },

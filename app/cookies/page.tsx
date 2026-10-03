@@ -1,12 +1,22 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Building2, ArrowLeft, Cookie } from 'lucide-react'
 import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
+import { PublicFooter } from '@/components/public/PublicFooter'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
+import { constructMetadata } from '@/lib/site'
 
-export const metadata = {
-  title: 'Cookie Policy | StayBook',
-  description: 'Detailed breakdown of essential, functional, and analytics cookies used across StayBook.',
-}
+export const metadata: Metadata = constructMetadata({
+  title: 'Cookie Policy | StayBook Rental Property Management',
+  description:
+    'Detailed breakdown of essential authentication, session security, and language preference cookies used across the StayBook platform.',
+  path: '/cookies',
+  keywords: [
+    'StayBook cookies',
+    'cookie policy SaaS',
+    'privacy cookies property software',
+  ],
+})
 
 export default function CookiePolicyPage() {
   return (
@@ -120,6 +130,8 @@ export default function CookiePolicyPage() {
           </div>
         </div>
       </div>
+
+      <PublicFooter />
     </main>
   )
 }

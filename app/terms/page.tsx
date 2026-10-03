@@ -1,12 +1,22 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Building2, ArrowLeft } from 'lucide-react'
 import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
+import { PublicFooter } from '@/components/public/PublicFooter'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
+import { constructMetadata } from '@/lib/site'
 
-export const metadata = {
-  title: 'Terms of Service | StayBook',
-  description: 'Terms and conditions governing the use of StayBook PG & Property Management SaaS platform.',
-}
+export const metadata: Metadata = constructMetadata({
+  title: 'Terms of Service | StayBook Property Management Software',
+  description:
+    'Terms and conditions governing the use of StayBook property and rental management software, subscription lifecycle, data rights, and governing law.',
+  path: '/terms',
+  keywords: [
+    'StayBook terms',
+    'property management software terms of service',
+    'rental property SaaS agreement',
+  ],
+})
 
 export default function TermsPage() {
   return (
@@ -114,6 +124,8 @@ export default function TermsPage() {
           </div>
         </div>
       </div>
+
+      <PublicFooter />
     </main>
   )
 }

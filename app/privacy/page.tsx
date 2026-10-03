@@ -1,12 +1,23 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Building2, ArrowLeft, ShieldCheck, Mail } from 'lucide-react'
 import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
+import { PublicFooter } from '@/components/public/PublicFooter'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
+import { constructMetadata } from '@/lib/site'
 
-export const metadata = {
-  title: 'Privacy Policy | StayBook',
-  description: 'Privacy Policy detailing data processing under GDPR and the India Digital Personal Data Protection (DPDP) Act 2023.',
-}
+export const metadata: Metadata = constructMetadata({
+  title: 'Privacy Policy | StayBook Rental Property Management',
+  description:
+    'StayBook privacy policy explaining data protection, customer privacy, and compliance with the India Digital Personal Data Protection (DPDP) Act 2023 and EU GDPR.',
+  path: '/privacy',
+  keywords: [
+    'StayBook privacy policy',
+    'property management software privacy',
+    'tenant data protection',
+    'DPDP Act 2023 compliance',
+  ],
+})
 
 export default function PrivacyPage() {
   return (
@@ -137,6 +148,8 @@ export default function PrivacyPage() {
           </div>
         </div>
       </div>
+
+      <PublicFooter />
     </main>
   )
 }

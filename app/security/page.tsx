@@ -1,12 +1,23 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { Building2, ArrowLeft, ShieldCheck, Lock, Database, Server, Key } from 'lucide-react'
 import { LegalNoticeHeader } from '@/components/legal/LegalNoticeHeader'
+import { PublicFooter } from '@/components/public/PublicFooter'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
+import { constructMetadata } from '@/lib/site'
 
-export const metadata = {
-  title: 'Security Architecture & Sub-processors | StayBook',
-  description: 'Enterprise security standards, database encryption, Row Level Security, and sub-processor disclosures.',
-}
+export const metadata: Metadata = constructMetadata({
+  title: 'Security Architecture & Data Protection | StayBook Property SaaS',
+  description:
+    'Enterprise security standards, PostgreSQL Row Level Security (RLS) isolation, AES-256 database encryption, and sub-processor disclosures.',
+  path: '/security',
+  keywords: [
+    'StayBook security',
+    'property management software security',
+    'Row Level Security SaaS',
+    'database encryption tenant isolation',
+  ],
+})
 
 export default function SecurityPage() {
   return (
@@ -126,6 +137,8 @@ export default function SecurityPage() {
           </div>
         </div>
       </div>
+
+      <PublicFooter />
     </main>
   )
 }

@@ -16,6 +16,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { StayBookLogo } from '@/components/ui/StayBookLogo'
 import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
+import { PublicFooter } from '@/components/public/PublicFooter'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { useI18n } from '@/lib/i18n'
 import {
@@ -154,6 +155,11 @@ export default function LandingPage() {
             {t.landing.badge}
           </p>
           <h1 className="max-w-2xl text-4xl sm:text-5xl lg:text-6xl font-semibold leading-[1.08] tracking-[-0.04em] text-[#403a34]">
+            <span className="block text-xs sm:text-sm font-semibold uppercase tracking-widest text-[#9a7651] mb-3 font-sans">
+              {locale === 'hi'
+                ? 'पीजी, हॉस्टल और रेंटल प्रॉपर्टी मैनेजमेंट सॉफ्टवेयर'
+                : 'Property Management & Rental Property Software'}
+            </span>
             {t.landing.heroTitle}{' '}
             <span className="font-serif italic font-normal text-[#9a7651] block sm:inline">
               {t.landing.heroTitleHighlight}
@@ -487,90 +493,7 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer id="contact" className="bg-[#2c2926] text-[#f8f0e5] border-t border-[#403a34]">
-        <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8">
-          <div className="grid gap-10 md:grid-cols-4">
-            <div className="md:col-span-2">
-              <div className="flex items-center gap-2.5">
-                <StayBookLogo iconSize={36} subtitleText="PROPERTY MANAGEMENT" />
-              </div>
-              <p className="mt-4 max-w-sm text-xs leading-6 text-[#cbbfaf]">
-                {t.landing.footerDesc}
-              </p>
-              <p className="mt-4 text-[11px] text-[#9a9187]">
-                &copy; {new Date().getFullYear()} StayBook Technologies. Built for property owners & managers.
-              </p>
-            </div>
-
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-white">
-                {t.landing.footerLegal}
-              </p>
-              <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
-                <li>
-                  <Link href="/terms" className="hover:text-white hover:underline">
-                    {t.legal.termsOfService}
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/privacy" className="hover:text-white hover:underline">
-                    {t.legal.privacyPolicy}
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/cookies" className="hover:text-white hover:underline">
-                    {t.legal.cookiePolicy}
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/security" className="hover:text-white hover:underline">
-                    {t.legal.securityDisclosures}
-                  </Link>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-white">
-                {t.landing.footerSupport}
-              </p>
-              <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
-                <li>
-                  <a
-                    href={getMailtoSupport('StayBook Support Inquiry')}
-                    className="hover:text-white hover:underline"
-                  >
-                    {SUPPORT_EMAIL}
-                  </a>
-                </li>
-                <li>
-                  <span className="block text-[11px] text-[#9a9187]">
-                    {locale === 'hi' ? 'शिकायत निवारण अधिकारी:' : 'Grievance Officer:'}
-                  </span>
-                  <a
-                    href={getMailtoSupport('StayBook Grievance Redressal')}
-                    className="hover:text-white hover:underline"
-                  >
-                    {SUPPORT_EMAIL}
-                  </a>
-                </li>
-                <li className="pt-2">
-                  <LocaleSwitcher />
-                </li>
-                <li className="pt-2 border-t border-[#403a34]">
-                  <Link
-                    href="/admin/login"
-                    className="text-[11px] text-[#8b8277] hover:text-[#f8f0e5] transition-colors flex items-center gap-1.5"
-                  >
-                    <span className="size-1.5 rounded-full bg-[#8b8277]" />
-                    {locale === 'hi' ? 'स्टाफ लॉगिन' : 'Staff Login'}
-                  </Link>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </main>
   )
 }

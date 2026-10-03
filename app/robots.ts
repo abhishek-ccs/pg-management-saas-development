@@ -1,7 +1,8 @@
 import type { MetadataRoute } from 'next'
+import { getSiteUrl } from '@/lib/site'
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staynest.in'
+  const baseUrl = getSiteUrl()
 
   return {
     rules: [
@@ -17,14 +18,18 @@ export default function robots(): MetadataRoute.Robots {
           '/privacy',
           '/cookies',
           '/security',
-          '/login',
-          '/signup',
         ],
         disallow: [
+          '/dashboard',
           '/dashboard/',
+          '/admin',
           '/admin/',
+          '/login',
+          '/signup',
+          '/auth/',
           '/api/',
           '/_next/',
+          '/private/',
         ],
       },
     ],

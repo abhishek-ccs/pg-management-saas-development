@@ -3,27 +3,20 @@ import { Analytics } from '@vercel/analytics/next'
 import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner'
 import { StructuredData } from '@/components/seo/StructuredData'
 import { I18nProvider } from '@/lib/i18n'
+import { getSiteUrl, TARGET_KEYWORDS } from '@/lib/site'
 import './globals.css'
 
-const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staybook.in'
+const baseUrl = getSiteUrl()
 
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: {
-    default: 'StayBook | Modern Property & Rental Management Software',
+    default: 'StayBook | Property Management Software & Rental Property Management',
     template: '%s | StayBook',
   },
   description:
-    'Modern cloud property and rental management SaaS for PGs, hostels, apartments, and rental houses. Track occupancy, manage residents, log utilities, automate rent receipts, and reconcile ledgers.',
-  keywords: [
-    'property management software',
-    'PG management software',
-    'hostel management system',
-    'apartment rental management',
-    'tenant management software',
-    'rent ledger SaaS',
-    'StayBook',
-  ],
+    'Modern cloud property management software and rental property management SaaS for PGs, hostels, apartments, and rental houses. Track occupancy, manage residents, log utilities, automate rent receipts, and reconcile ledgers.',
+  keywords: TARGET_KEYWORDS,
   authors: [{ name: 'StayBook Technologies' }],
   creator: 'StayBook Technologies',
   publisher: 'StayBook Technologies',
@@ -32,12 +25,15 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
+  alternates: {
+    canonical: baseUrl,
+  },
   openGraph: {
     type: 'website',
     locale: 'en_IN',
     url: baseUrl,
     siteName: 'StayBook Property Management SaaS',
-    title: 'StayBook | Modern Property & Rental Management Software',
+    title: 'StayBook | Property Management Software & Rental Property Management',
     description:
       'Replace spreadsheets with a calm, accurate rental property management system for PGs, hostels, apartments, and rental houses.',
     images: [
@@ -45,15 +41,15 @@ export const metadata: Metadata = {
         url: '/icon.svg',
         width: 512,
         height: 512,
-        alt: 'StayBook Property Management SaaS',
+        alt: 'StayBook - Property Management Software & Rental Property Management',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'StayBook | Modern Property & Rental Management Software',
+    title: 'StayBook | Property Management Software & Rental Property Management',
     description:
-      'Modern cloud property and rental management SaaS for PGs, hostels, apartments, and houses.',
+      'Modern cloud property and rental management software for PGs, hostels, apartments, and houses.',
     images: ['/icon.svg'],
   },
   robots: {

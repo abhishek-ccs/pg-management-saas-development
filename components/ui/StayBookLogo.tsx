@@ -35,8 +35,10 @@ export function StayBookIcon({
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={`shrink-0 ${className}`}
-      aria-hidden="true"
+      role="img"
+      aria-label="StayBook Property Management Software Logo"
     >
+      <title>StayBook Property Management Software Logo</title>
       {/* Outer circular badge */}
       <circle
         cx="24"

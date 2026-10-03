@@ -43,9 +43,16 @@ export function applySecurityHeaders(response: NextResponse, pathname: string = 
     'camera=(), microphone=(), geolocation=(), payment=(self "https://checkout.razorpay.com" "https://js.stripe.com"), browsing-topics=()'
   )
 
-  // 7. Prevent search engine indexing of private authenticated areas
-  if (pathname.startsWith('/admin') || pathname.startsWith('/dashboard') || pathname.startsWith('/api')) {
-    response.headers.set('X-Robots-Tag', 'noindex, nofollow')
+  // 7. Prevent search engine indexing of private authenticated and auth areas
+  if (
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/dashboard') ||
+    pathname.startsWith('/api') ||
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/signup') ||
+    pathname.startsWith('/auth')
+  ) {
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
   }
 
   return response
