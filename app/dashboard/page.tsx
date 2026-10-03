@@ -365,6 +365,15 @@ export default function DashboardPage() {
   const [deletePropertyInput, setDeletePropertyInput] = useState('')
   const [isDeletingProperty, setIsDeletingProperty] = useState(false)
 
+  // Loading & Double-Click Protection States for Modals
+  const [isSavingRoom, setIsSavingRoom] = useState(false)
+  const [isSavingBed, setIsSavingBed] = useState(false)
+  const [isSavingTenant, setIsSavingTenant] = useState(false)
+  const [isSavingPayment, setIsSavingPayment] = useState(false)
+  const [isSavingExpense, setIsSavingExpense] = useState(false)
+  const [isSavingElectricity, setIsSavingElectricity] = useState(false)
+  const [isSavingComplaint, setIsSavingComplaint] = useState(false)
+
   const [showRoomModal, setShowRoomModal] = useState(false)
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
   const [showAddBedModal, setShowAddBedModal] = useState<{ open: boolean; roomId: string; roomNumber: string }>({
@@ -891,6 +900,7 @@ export default function DashboardPage() {
   // Add Room
   async function handleAddRoom(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingRoom) return
     if (!userId || !property.id) {
       flash('Please set up your property before adding rooms.')
       setShowPropertyModal(true)
@@ -907,47 +917,55 @@ export default function DashboardPage() {
 
     if (!roomNumber) return
 
-    const { data: newRoom, error: roomErr } = await supabase
-      .from('rooms')
-      .insert({
+    setIsSavingRoom(true)
+    try {
+      const { data: newRoom, error: roomErr } = await supabase
+        .from('rooms')
+        .insert({
+          owner_id: userId,
+          property_id: property.id,
+          room_number: roomNumber,
+          floor,
+          room_type: roomType,
+          base_rent: baseRent,
+        })
+        .select('id,room_number,floor,room_type,base_rent')
+        .single()
+
+      if (roomErr) {
+        flash(roomErr.message.includes('unique') ? 'A room with this number already exists.' : 'Could not add room.')
+        return
+      }
+
+      // Auto-create associated beds matching capacity
+      const bedsToInsert = Array.from({ length: bedsCount }, (_, i) => ({
         owner_id: userId,
         property_id: property.id,
-        room_number: roomNumber,
-        floor,
-        room_type: roomType,
-        base_rent: baseRent,
-      })
-      .select('id,room_number,floor,room_type,base_rent')
-      .single()
+        room_id: newRoom.id,
+        bed_number: `${roomNumber}-${String.fromCharCode(65 + i)}`,
+        status: 'available',
+        monthly_rate: baseRent,
+      }))
 
-    if (roomErr) {
-      flash(roomErr.message.includes('unique') ? 'A room with this number already exists.' : 'Could not add room.')
-      return
+      const { data: insertedBeds } = await supabase.from('beds').insert(bedsToInsert).select('id,property_id,room_id,bed_number,status,monthly_rate')
+
+      setRooms((prev) => [...prev, newRoom])
+      if (insertedBeds) {
+        setBeds((prev) => [...prev, ...insertedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate) }))])
+      }
+      setShowRoomModal(false)
+      flash(`Room ${roomNumber} added with ${bedsCount} bed${bedsCount > 1 ? 's' : ''}.`)
+    } catch {
+      flash('An error occurred while creating the room.')
+    } finally {
+      setIsSavingRoom(false)
     }
-
-    // Auto-create associated beds matching capacity
-    const bedsToInsert = Array.from({ length: bedsCount }, (_, i) => ({
-      owner_id: userId,
-      property_id: property.id,
-      room_id: newRoom.id,
-      bed_number: `${roomNumber}-${String.fromCharCode(65 + i)}`,
-      status: 'available',
-      monthly_rate: baseRent,
-    }))
-
-    const { data: insertedBeds } = await supabase.from('beds').insert(bedsToInsert).select('id,property_id,room_id,bed_number,status,monthly_rate')
-
-    setRooms((prev) => [...prev, newRoom])
-    if (insertedBeds) {
-      setBeds((prev) => [...prev, ...insertedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate) }))])
-    }
-    setShowRoomModal(false)
-    flash(`Room ${roomNumber} added with ${bedsCount} bed${bedsCount > 1 ? 's' : ''}.`)
   }
 
   // Edit Room
   async function handleUpdateRoom(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingRoom) return
     if (!userId || !editingRoom) return
 
     const fd = new FormData(e.currentTarget)
@@ -958,28 +976,35 @@ export default function DashboardPage() {
 
     if (!roomNumber) return
 
-    const { data: updated, error } = await supabase
-      .from('rooms')
-      .update({
-        room_number: roomNumber,
-        floor,
-        room_type: roomType,
-        base_rent: baseRent,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', editingRoom.id)
-      .eq('owner_id', userId)
-      .select('id,room_number,floor,room_type,base_rent')
-      .single()
+    setIsSavingRoom(true)
+    try {
+      const { data: updated, error } = await supabase
+        .from('rooms')
+        .update({
+          room_number: roomNumber,
+          floor,
+          room_type: roomType,
+          base_rent: baseRent,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingRoom.id)
+        .eq('owner_id', userId)
+        .select('id,room_number,floor,room_type,base_rent')
+        .single()
 
-    if (error) {
-      flash('Could not update room details.')
-      return
+      if (error) {
+        flash('Could not update room details.')
+        return
+      }
+
+      setRooms((prev) => prev.map((r) => (r.id === editingRoom.id ? updated : r)))
+      setEditingRoom(null)
+      flash(`Room ${roomNumber} updated successfully.`)
+    } catch {
+      flash('An error occurred while updating the room.')
+    } finally {
+      setIsSavingRoom(false)
     }
-
-    setRooms((prev) => prev.map((r) => (r.id === editingRoom.id ? updated : r)))
-    setEditingRoom(null)
-    flash(`Room ${roomNumber} updated successfully.`)
   }
 
   // Delete Room
@@ -1007,6 +1032,7 @@ export default function DashboardPage() {
   // Add Bed to Room
   async function handleAddBed(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingBed) return
     if (!userId || !property.id || !showAddBedModal.roomId) return
 
     const fd = new FormData(e.currentTarget)
@@ -1015,27 +1041,34 @@ export default function DashboardPage() {
 
     if (!bedNumber) return
 
-    const { data, error } = await supabase
-      .from('beds')
-      .insert({
-        owner_id: userId,
-        property_id: property.id,
-        room_id: showAddBedModal.roomId,
-        bed_number: bedNumber,
-        status: 'available',
-        monthly_rate: rate,
-      })
-      .select('id,property_id,room_id,bed_number,status,monthly_rate')
-      .single()
+    setIsSavingBed(true)
+    try {
+      const { data, error } = await supabase
+        .from('beds')
+        .insert({
+          owner_id: userId,
+          property_id: property.id,
+          room_id: showAddBedModal.roomId,
+          bed_number: bedNumber,
+          status: 'available',
+          monthly_rate: rate,
+        })
+        .select('id,property_id,room_id,bed_number,status,monthly_rate')
+        .single()
 
-    if (error) {
-      flash('Could not add bed. Bed number might already exist in this room.')
-      return
+      if (error) {
+        flash('Could not add bed. Bed number might already exist in this room.')
+        return
+      }
+
+      setBeds((prev) => [...prev, { ...data, monthly_rate: Number(data.monthly_rate) }])
+      setShowAddBedModal({ open: false, roomId: '', roomNumber: '' })
+      flash(`Bed ${bedNumber} added.`)
+    } catch {
+      flash('An error occurred while adding the bed.')
+    } finally {
+      setIsSavingBed(false)
     }
-
-    setBeds((prev) => [...prev, { ...data, monthly_rate: Number(data.monthly_rate) }])
-    setShowAddBedModal({ open: false, roomId: '', roomNumber: '' })
-    flash(`Bed ${bedNumber} added.`)
   }
 
   // Toggle Bed Status
@@ -1081,6 +1114,7 @@ export default function DashboardPage() {
   // Add Tenant (Enforces Room Capacity + Bed Validation + Proactive Session Freshness)
   async function handleAddTenant(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingTenant) return
     if (!userId) return
 
     // CRITICAL: Extract HTMLFormElement and FormData synchronously before any asynchronous await!
@@ -1106,132 +1140,139 @@ export default function DashboardPage() {
       return
     }
 
-    const sessionCheck = await ensureFreshSession(supabase)
-    if (!sessionCheck.valid) {
-      flash('Your session has expired. Please sign in again.')
-      router.push('/login?next=/dashboard')
-      return
-    }
-
-
-    // 1. Room Capacity Validation
-    if (roomId && roomId !== 'unassigned') {
-      const targetRoom = rooms.find((r) => r.id === roomId)
-      if (targetRoom) {
-        const roomBeds = beds.filter((b) => b.room_id === targetRoom.id)
-        const maxCapacity = getRoomMaxCapacity(targetRoom.room_type, roomBeds.length)
-        const currentActiveTenants = tenants.filter(
-          (t) => t.room_id === targetRoom.id && t.status !== 'Vacated'
-        )
-
-        if (currentActiveTenants.length >= maxCapacity) {
-          flash(
-            `Capacity exceeded: Room ${targetRoom.room_number} (${targetRoom.room_type}) only accommodates ${maxCapacity} resident(s).`
-          )
-          return
-        }
-      }
-    }
-
-    // 2. Bed Assignment Validation
-    if (bedId && bedId !== 'unassigned') {
-      const isBedOccupied = tenants.some(
-        (t) => t.bed_id === bedId && t.status !== 'Vacated'
-      )
-      if (isBedOccupied) {
-        flash('The selected bed is already occupied by another active resident.')
-        return
-      }
-    }
-
-    // 3. Server Action Execution (with resilient client fallback)
-    let createdTenant: any = null
-    const actionRes = await createTenantAction({
-      name,
-      phone,
-      roomId,
-      bedId,
-      propertyId: property.id || null,
-      rent,
-      deposit,
-      joiningDate,
-      dueDay,
-    })
-
-    if (actionRes.success && actionRes.tenant) {
-      createdTenant = actionRes.tenant
-    } else {
-      if (actionRes.error?.includes('session has expired')) {
+    setIsSavingTenant(true)
+    try {
+      const sessionCheck = await ensureFreshSession(supabase)
+      if (!sessionCheck.valid) {
         flash('Your session has expired. Please sign in again.')
         router.push('/login?next=/dashboard')
         return
       }
 
-      // Direct client fallback using guaranteed columns
-      const { data: newTenant, error } = await supabase
-        .from('tenants')
-        .insert({
-          owner_id: userId,
-          property_id: property.id || null,
-          room_id: roomId && roomId !== 'unassigned' ? roomId : null,
-          bed_id: bedId && bedId !== 'unassigned' ? bedId : null,
-          full_name: name,
-          phone,
-          monthly_rent: rent,
-          security_deposit: deposit,
-          joining_date: joiningDate,
-          status: 'Pending',
-        })
-        .select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id')
-        .single()
+      // 1. Room Capacity Validation
+      if (roomId && roomId !== 'unassigned') {
+        const targetRoom = rooms.find((r) => r.id === roomId)
+        if (targetRoom) {
+          const roomBeds = beds.filter((b) => b.room_id === targetRoom.id)
+          const maxCapacity = getRoomMaxCapacity(targetRoom.room_type, roomBeds.length)
+          const currentActiveTenants = tenants.filter(
+            (t) => t.room_id === targetRoom.id && t.status !== 'Vacated'
+          )
 
-      if (error) {
-        if (error.code === 'PGRST303' || error.message?.includes('JWT') || error.message?.includes('expired')) {
+          if (currentActiveTenants.length >= maxCapacity) {
+            flash(
+              `Capacity exceeded: Room ${targetRoom.room_number} (${targetRoom.room_type}) only accommodates ${maxCapacity} resident(s).`
+            )
+            return
+          }
+        }
+      }
+
+      // 2. Bed Assignment Validation
+      if (bedId && bedId !== 'unassigned') {
+        const isBedOccupied = tenants.some(
+          (t) => t.bed_id === bedId && t.status !== 'Vacated'
+        )
+        if (isBedOccupied) {
+          flash('The selected bed is already occupied by another active resident.')
+          return
+        }
+      }
+
+      // 3. Server Action Execution (with resilient client fallback)
+      let createdTenant: any = null
+      const actionRes = await createTenantAction({
+        name,
+        phone,
+        roomId,
+        bedId,
+        propertyId: property.id || null,
+        rent,
+        deposit,
+        joiningDate,
+        dueDay,
+      })
+
+      if (actionRes.success && actionRes.tenant) {
+        createdTenant = actionRes.tenant
+      } else {
+        if (actionRes.error?.includes('session has expired')) {
           flash('Your session has expired. Please sign in again.')
           router.push('/login?next=/dashboard')
           return
         }
-        flash(actionRes.error || error.message || 'Could not register resident record.')
-        return
+
+        // Direct client fallback using guaranteed columns
+        const { data: newTenant, error } = await supabase
+          .from('tenants')
+          .insert({
+            owner_id: userId,
+            property_id: property.id || null,
+            room_id: roomId && roomId !== 'unassigned' ? roomId : null,
+            bed_id: bedId && bedId !== 'unassigned' ? bedId : null,
+            full_name: name,
+            phone,
+            monthly_rent: rent,
+            security_deposit: deposit,
+            joining_date: joiningDate,
+            status: 'Pending',
+          })
+          .select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,status,room_id,bed_id')
+          .single()
+
+        if (error) {
+          if (error.code === 'PGRST303' || error.message?.includes('JWT') || error.message?.includes('expired')) {
+            flash('Your session has expired. Please sign in again.')
+            router.push('/login?next=/dashboard')
+            return
+          }
+          flash(actionRes.error || error.message || 'Could not register resident record.')
+          return
+        }
+        createdTenant = newTenant
       }
-      createdTenant = newTenant
+
+      // If bed was assigned, set bed status to 'occupied'
+      if (createdTenant.bed_id) {
+        await supabase.from('beds').update({ status: 'occupied' }).eq('id', createdTenant.bed_id)
+        setBeds((prev) => prev.map((b) => (b.id === createdTenant.bed_id ? { ...b, status: 'occupied' } : b)))
+      }
+
+      const roomName = rooms.find((r) => r.id === createdTenant.room_id)?.room_number || 'Unassigned'
+      const bedName = beds.find((b) => b.id === createdTenant.bed_id)?.bed_number || ''
+
+      setTenants((prev) => [
+        {
+          id: createdTenant.id,
+          property_id: createdTenant.property_id || property.id,
+          name: createdTenant.full_name,
+          phone: createdTenant.phone,
+          room_id: createdTenant.room_id,
+          bed_id: createdTenant.bed_id,
+          bed_number: bedName,
+          room: roomName,
+          rent: Number(createdTenant.monthly_rent),
+          deposit: Number(createdTenant.security_deposit || 0),
+          joiningDate: createdTenant.joining_date,
+          rent_due_day: dueDay,
+          status: 'Pending',
+        },
+        ...prev,
+      ])
+
+      setShowTenantModal(false)
+      flash(`Resident ${name} registered successfully.`)
+    } catch {
+      flash('An error occurred while registering the resident.')
+    } finally {
+      setIsSavingTenant(false)
     }
-
-    // If bed was assigned, set bed status to 'occupied'
-    if (createdTenant.bed_id) {
-      await supabase.from('beds').update({ status: 'occupied' }).eq('id', createdTenant.bed_id)
-      setBeds((prev) => prev.map((b) => (b.id === createdTenant.bed_id ? { ...b, status: 'occupied' } : b)))
-    }
-
-    const roomName = rooms.find((r) => r.id === createdTenant.room_id)?.room_number || 'Unassigned'
-    const bedName = beds.find((b) => b.id === createdTenant.bed_id)?.bed_number || ''
-
-    setTenants((prev) => [
-      {
-        id: createdTenant.id,
-        property_id: createdTenant.property_id || property.id,
-        name: createdTenant.full_name,
-        phone: createdTenant.phone,
-        room_id: createdTenant.room_id,
-        bed_id: createdTenant.bed_id,
-        bed_number: bedName,
-        room: roomName,
-        rent: Number(createdTenant.monthly_rent),
-        deposit: Number(createdTenant.security_deposit || 0),
-        joiningDate: createdTenant.joining_date,
-        rent_due_day: dueDay,
-        status: 'Pending',
-      },
-      ...prev,
-    ])
-
-    setShowTenantModal(false)
-    flash(`Resident ${name} registered successfully.`)
   }
 
   // Edit Tenant Details
   async function handleUpdateTenant(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingTenant) return
     if (!userId || !editingTenant) return
 
     // CRITICAL: Extract HTMLFormElement and FormData synchronously before any asynchronous await!
@@ -1258,130 +1299,136 @@ export default function DashboardPage() {
       return
     }
 
-    const sessionCheck = await ensureFreshSession(supabase)
-    if (!sessionCheck.valid) {
-      flash('Your session has expired. Please sign in again.')
-      router.push('/login?next=/dashboard')
-      return
-    }
-
-
-    // Validate room capacity on reassignment
-    if (roomId && roomId !== 'unassigned' && roomId !== editingTenant.room_id && status !== 'Vacated') {
-      const targetRoom = rooms.find((r) => r.id === roomId)
-      if (targetRoom) {
-        const roomBeds = beds.filter((b) => b.room_id === targetRoom.id)
-        const maxCapacity = getRoomMaxCapacity(targetRoom.room_type, roomBeds.length)
-        const currentActiveTenants = tenants.filter(
-          (t) => t.room_id === targetRoom.id && t.status !== 'Vacated' && t.id !== editingTenant.id
-        )
-
-        if (currentActiveTenants.length >= maxCapacity) {
-          flash(`Cannot reassign: Room ${targetRoom.room_number} (${targetRoom.room_type}) is at full capacity (${maxCapacity} residents).`)
-          return
-        }
-      }
-    }
-
-    // Validate bed assignment
-    if (bedId && bedId !== 'unassigned' && bedId !== editingTenant.bed_id && status !== 'Vacated') {
-      const isBedOccupied = tenants.some(
-        (t) => t.bed_id === bedId && t.status !== 'Vacated' && t.id !== editingTenant.id
-      )
-      if (isBedOccupied) {
-        flash('The selected bed is already occupied by another active resident.')
-        return
-      }
-    }
-
-    const finalRoomId = roomId && roomId !== 'unassigned' ? roomId : null
-    const finalBedId = bedId && bedId !== 'unassigned' ? bedId : null
-
-    // Server action execution with client fallback
-    const updateRes = await updateTenantAction(editingTenant.id, {
-      name,
-      phone,
-      roomId: finalRoomId,
-      bedId: finalBedId,
-      rent,
-      deposit,
-      joiningDate,
-      status,
-    })
-
-    if (!updateRes.success) {
-      if (updateRes.error?.includes('session has expired')) {
+    setIsSavingTenant(true)
+    try {
+      const sessionCheck = await ensureFreshSession(supabase)
+      if (!sessionCheck.valid) {
         flash('Your session has expired. Please sign in again.')
         router.push('/login?next=/dashboard')
         return
       }
 
-      const { error: clientUpdateErr } = await supabase
-        .from('tenants')
-        .update({
-          full_name: name,
-          phone,
-          room_id: finalRoomId,
-          bed_id: finalBedId,
-          monthly_rent: rent,
-          security_deposit: deposit,
-          joining_date: joiningDate,
-          status,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', editingTenant.id)
-        .eq('owner_id', userId)
+      // Validate room capacity on reassignment
+      if (roomId && roomId !== 'unassigned' && roomId !== editingTenant.room_id && status !== 'Vacated') {
+        const targetRoom = rooms.find((r) => r.id === roomId)
+        if (targetRoom) {
+          const roomBeds = beds.filter((b) => b.room_id === targetRoom.id)
+          const maxCapacity = getRoomMaxCapacity(targetRoom.room_type, roomBeds.length)
+          const currentActiveTenants = tenants.filter(
+            (t) => t.room_id === targetRoom.id && t.status !== 'Vacated' && t.id !== editingTenant.id
+          )
 
-      if (clientUpdateErr) {
-        if (clientUpdateErr.code === 'PGRST303' || clientUpdateErr.message?.includes('JWT') || clientUpdateErr.message?.includes('expired')) {
+          if (currentActiveTenants.length >= maxCapacity) {
+            flash(`Cannot reassign: Room ${targetRoom.room_number} (${targetRoom.room_type}) is at full capacity (${maxCapacity} residents).`)
+            return
+          }
+        }
+      }
+
+      // Validate bed assignment
+      if (bedId && bedId !== 'unassigned' && bedId !== editingTenant.bed_id && status !== 'Vacated') {
+        const isBedOccupied = tenants.some(
+          (t) => t.bed_id === bedId && t.status !== 'Vacated' && t.id !== editingTenant.id
+        )
+        if (isBedOccupied) {
+          flash('The selected bed is already occupied by another active resident.')
+          return
+        }
+      }
+
+      const finalRoomId = roomId && roomId !== 'unassigned' ? roomId : null
+      const finalBedId = bedId && bedId !== 'unassigned' ? bedId : null
+
+      // Server action execution with client fallback
+      const updateRes = await updateTenantAction(editingTenant.id, {
+        name,
+        phone,
+        roomId: finalRoomId,
+        bedId: finalBedId,
+        rent,
+        deposit,
+        joiningDate,
+        status,
+      })
+
+      if (!updateRes.success) {
+        if (updateRes.error?.includes('session has expired')) {
           flash('Your session has expired. Please sign in again.')
           router.push('/login?next=/dashboard')
           return
         }
-        flash(`Could not update tenant: ${clientUpdateErr.message}`)
-        return
+
+        const { error: clientUpdateErr } = await supabase
+          .from('tenants')
+          .update({
+            full_name: name,
+            phone,
+            room_id: finalRoomId,
+            bed_id: finalBedId,
+            monthly_rent: rent,
+            security_deposit: deposit,
+            joining_date: joiningDate,
+            status,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingTenant.id)
+          .eq('owner_id', userId)
+
+        if (clientUpdateErr) {
+          if (clientUpdateErr.code === 'PGRST303' || clientUpdateErr.message?.includes('JWT') || clientUpdateErr.message?.includes('expired')) {
+            flash('Your session has expired. Please sign in again.')
+            router.push('/login?next=/dashboard')
+            return
+          }
+          flash(`Could not update tenant: ${clientUpdateErr.message}`)
+          return
+        }
       }
-    }
 
-    // Sync Bed Statuses
-    if (editingTenant.bed_id && editingTenant.bed_id !== finalBedId) {
-      await supabase.from('beds').update({ status: 'available' }).eq('id', editingTenant.bed_id)
-      setBeds((prev) => prev.map((b) => (b.id === editingTenant.bed_id ? { ...b, status: 'available' } : b)))
-    }
-    if (finalBedId && status !== 'Vacated') {
-      await supabase.from('beds').update({ status: 'occupied' }).eq('id', finalBedId)
-      setBeds((prev) => prev.map((b) => (b.id === finalBedId ? { ...b, status: 'occupied' } : b)))
-    } else if (finalBedId && status === 'Vacated') {
-      await supabase.from('beds').update({ status: 'available' }).eq('id', finalBedId)
-      setBeds((prev) => prev.map((b) => (b.id === finalBedId ? { ...b, status: 'available' } : b)))
-    }
+      // Sync Bed Statuses
+      if (editingTenant.bed_id && editingTenant.bed_id !== finalBedId) {
+        await supabase.from('beds').update({ status: 'available' }).eq('id', editingTenant.bed_id)
+        setBeds((prev) => prev.map((b) => (b.id === editingTenant.bed_id ? { ...b, status: 'available' } : b)))
+      }
+      if (finalBedId && status !== 'Vacated') {
+        await supabase.from('beds').update({ status: 'occupied' }).eq('id', finalBedId)
+        setBeds((prev) => prev.map((b) => (b.id === finalBedId ? { ...b, status: 'occupied' } : b)))
+      } else if (finalBedId && status === 'Vacated') {
+        await supabase.from('beds').update({ status: 'available' }).eq('id', finalBedId)
+        setBeds((prev) => prev.map((b) => (b.id === finalBedId ? { ...b, status: 'available' } : b)))
+      }
 
-    const roomName = rooms.find((r) => r.id === finalRoomId)?.room_number || 'Unassigned'
-    const bedName = beds.find((b) => b.id === finalBedId)?.bed_number || ''
+      const roomName = rooms.find((r) => r.id === finalRoomId)?.room_number || 'Unassigned'
+      const bedName = beds.find((b) => b.id === finalBedId)?.bed_number || ''
 
-    setTenants((prev) =>
-      prev.map((t) =>
-        t.id === editingTenant.id
-          ? {
-              ...t,
-              name,
-              phone,
-              room_id: finalRoomId,
-              bed_id: finalBedId,
-              room: roomName,
-              bed_number: bedName,
-              rent,
-              deposit,
-              joiningDate,
-              rent_due_day: dueDay,
-              status,
-            }
-          : t
+      setTenants((prev) =>
+        prev.map((t) =>
+          t.id === editingTenant.id
+            ? {
+                ...t,
+                name,
+                phone,
+                room_id: finalRoomId,
+                bed_id: finalBedId,
+                room: roomName,
+                bed_number: bedName,
+                rent,
+                deposit,
+                joiningDate,
+                rent_due_day: dueDay,
+                status,
+              }
+            : t
+        )
       )
-    )
 
-    setEditingTenant(null)
-    flash(`Resident ${name} updated successfully.`)
+      setEditingTenant(null)
+      flash(`Resident ${name} updated successfully.`)
+    } catch {
+      flash('An error occurred while updating the resident.')
+    } finally {
+      setIsSavingTenant(false)
+    }
   }
 
   // Vacate Tenant (Frees capacity and bed)
@@ -1560,6 +1607,7 @@ export default function DashboardPage() {
   // Update / Edit Existing Payment
   async function handleUpdatePayment(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingPayment) return
     if (!userId || !editingPayment) return
 
     const fd = new FormData(e.currentTarget)
@@ -1575,42 +1623,49 @@ export default function DashboardPage() {
       return
     }
 
-    const { error } = await supabase
-      .from('payments')
-      .update({
-        amount,
-        payment_method: method,
-        payment_type: type,
-        paid_at: paidAt,
-        month_covered: monthCovered || null,
-        notes: notes || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', editingPayment.id)
-      .eq('owner_id', userId)
+    setIsSavingPayment(true)
+    try {
+      const { error } = await supabase
+        .from('payments')
+        .update({
+          amount,
+          payment_method: method,
+          payment_type: type,
+          paid_at: paidAt,
+          month_covered: monthCovered || null,
+          notes: notes || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingPayment.id)
+        .eq('owner_id', userId)
 
-    if (error) {
-      flash(`Could not update payment: ${error.message}`)
-      return
-    }
+      if (error) {
+        flash(`Could not update payment: ${error.message}`)
+        return
+      }
 
-    setPayments((prev) =>
-      prev.map((p) =>
-        p.id === editingPayment.id
-          ? {
-              ...p,
-              amount,
-              payment_method: method,
-              payment_type: type,
-              paid_at: paidAt,
-              month_covered: monthCovered || undefined,
-              notes,
-            }
-          : p
+      setPayments((prev) =>
+        prev.map((p) =>
+          p.id === editingPayment.id
+            ? {
+                ...p,
+                amount,
+                payment_method: method,
+                payment_type: type,
+                paid_at: paidAt,
+                month_covered: monthCovered || undefined,
+                notes,
+              }
+            : p
+        )
       )
-    )
-    setEditingPayment(null)
-    flash('Payment record updated successfully.')
+      setEditingPayment(null)
+      flash('Payment record updated successfully.')
+    } catch {
+      flash('An error occurred while updating payment record.')
+    } finally {
+      setIsSavingPayment(false)
+    }
   }
 
   // Delete Payment
@@ -1676,6 +1731,7 @@ export default function DashboardPage() {
   // Add Expense
   async function handleAddExpense(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingExpense) return
     if (!userId) return
 
     const fd = new FormData(e.currentTarget)
@@ -1690,33 +1746,41 @@ export default function DashboardPage() {
       return
     }
 
-    const { data: newExp, error } = await supabase
-      .from('expenses')
-      .insert({
-        owner_id: userId,
-        property_id: property.id || null,
-        title,
-        category,
-        amount,
-        expense_date: date,
-        notes,
-      })
-      .select('id,title,category,amount,expense_date,notes')
-      .single()
+    setIsSavingExpense(true)
+    try {
+      const { data: newExp, error } = await supabase
+        .from('expenses')
+        .insert({
+          owner_id: userId,
+          property_id: property.id || null,
+          title,
+          category,
+          amount,
+          expense_date: date,
+          notes,
+        })
+        .select('id,title,category,amount,expense_date,notes')
+        .single()
 
-    if (error) {
-      flash('Could not record expense.')
-      return
+      if (error) {
+        flash('Could not record expense.')
+        return
+      }
+
+      setExpenses((prev) => [{ ...newExp, amount: Number(newExp.amount) }, ...prev])
+      setShowExpenseModal(false)
+      flash('Expense logged successfully.')
+    } catch {
+      flash('An error occurred while logging the expense.')
+    } finally {
+      setIsSavingExpense(false)
     }
-
-    setExpenses((prev) => [{ ...newExp, amount: Number(newExp.amount) }, ...prev])
-    setShowExpenseModal(false)
-    flash('Expense logged successfully.')
   }
 
   // Edit Expense
   async function handleUpdateExpense(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingExpense) return
     if (!userId || !editingExpense) return
 
     const fd = new FormData(e.currentTarget)
@@ -1728,28 +1792,35 @@ export default function DashboardPage() {
 
     if (!title || amount <= 0) return
 
-    const { error } = await supabase
-      .from('expenses')
-      .update({
-        title,
-        category,
-        amount,
-        expense_date: date,
-        notes,
-      })
-      .eq('id', editingExpense.id)
-      .eq('owner_id', userId)
+    setIsSavingExpense(true)
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .update({
+          title,
+          category,
+          amount,
+          expense_date: date,
+          notes,
+        })
+        .eq('id', editingExpense.id)
+        .eq('owner_id', userId)
 
-    if (error) {
-      flash('Could not update expense.')
-      return
+      if (error) {
+        flash('Could not update expense.')
+        return
+      }
+
+      setExpenses((prev) =>
+        prev.map((ex) => (ex.id === editingExpense.id ? { ...ex, title, category, amount, expense_date: date, notes } : ex))
+      )
+      setEditingExpense(null)
+      flash('Expense entry updated.')
+    } catch {
+      flash('An error occurred while updating the expense.')
+    } finally {
+      setIsSavingExpense(false)
     }
-
-    setExpenses((prev) =>
-      prev.map((ex) => (ex.id === editingExpense.id ? { ...ex, title, category, amount, expense_date: date, notes } : ex))
-    )
-    setEditingExpense(null)
-    flash('Expense entry updated.')
   }
 
   // Delete Expense
@@ -1775,6 +1846,7 @@ export default function DashboardPage() {
   // Add Electricity Reading (Auto-prefills previous reading)
   async function handleAddElectricity(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingElectricity) return
     if (!userId) return
 
     const fd = new FormData(e.currentTarget)
@@ -1789,42 +1861,49 @@ export default function DashboardPage() {
       return
     }
 
-    const { data, error } = await supabase
-      .from('electricity_readings')
-      .insert({
-        owner_id: userId,
-        property_id: property.id || null,
-        room_id: roomId && roomId !== 'general' ? roomId : null,
-        previous_reading: prevReading,
-        current_reading: currReading,
-        rate_per_unit: rate,
-        reading_date: date,
-      })
-      .select('id,previous_reading,current_reading,rate_per_unit,reading_date,room_id')
-      .single()
+    setIsSavingElectricity(true)
+    try {
+      const { data, error } = await supabase
+        .from('electricity_readings')
+        .insert({
+          owner_id: userId,
+          property_id: property.id || null,
+          room_id: roomId && roomId !== 'general' ? roomId : null,
+          previous_reading: prevReading,
+          current_reading: currReading,
+          rate_per_unit: rate,
+          reading_date: date,
+        })
+        .select('id,previous_reading,current_reading,rate_per_unit,reading_date,room_id')
+        .single()
 
-    if (error) {
-      flash('Could not record meter reading.')
-      return
+      if (error) {
+        flash('Could not record meter reading.')
+        return
+      }
+
+      const roomName = rooms.find((r) => r.id === data.room_id)?.room_number || 'General'
+
+      setElectricity((prev) => [
+        {
+          id: data.id,
+          room_id: data.room_id,
+          room: roomName,
+          previous_reading: Number(data.previous_reading),
+          current_reading: Number(data.current_reading),
+          rate_per_unit: Number(data.rate_per_unit),
+          reading_date: data.reading_date,
+        },
+        ...prev,
+      ])
+
+      setShowElectricityModal(false)
+      flash('Meter reading recorded successfully.')
+    } catch {
+      flash('An error occurred while recording meter reading.')
+    } finally {
+      setIsSavingElectricity(false)
     }
-
-    const roomName = rooms.find((r) => r.id === data.room_id)?.room_number || 'General'
-
-    setElectricity((prev) => [
-      {
-        id: data.id,
-        room_id: data.room_id,
-        room: roomName,
-        previous_reading: Number(data.previous_reading),
-        current_reading: Number(data.current_reading),
-        rate_per_unit: Number(data.rate_per_unit),
-        reading_date: data.reading_date,
-      },
-      ...prev,
-    ])
-
-    setShowElectricityModal(false)
-    flash('Meter reading recorded successfully.')
   }
 
   // Delete Electricity Reading
@@ -1846,6 +1925,7 @@ export default function DashboardPage() {
   // Add Complaint
   async function handleAddComplaint(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingComplaint) return
     if (!userId) return
 
     const fd = new FormData(e.currentTarget)
@@ -1856,28 +1936,35 @@ export default function DashboardPage() {
 
     if (!title) return
 
-    const { data, error } = await supabase
-      .from('complaints')
-      .insert({
-        owner_id: userId,
-        property_id: property.id || null,
-        title,
-        tenant: tenantName,
-        priority,
-        status: 'Open',
-        description: desc,
-      })
-      .select('id,title,tenant,priority,status,description,created_at')
-      .single()
+    setIsSavingComplaint(true)
+    try {
+      const { data, error } = await supabase
+        .from('complaints')
+        .insert({
+          owner_id: userId,
+          property_id: property.id || null,
+          title,
+          tenant: tenantName,
+          priority,
+          status: 'Open',
+          description: desc,
+        })
+        .select('id,title,tenant,priority,status,description,created_at')
+        .single()
 
-    if (error) {
-      flash('Could not register complaint.')
-      return
+      if (error) {
+        flash('Could not register complaint.')
+        return
+      }
+
+      setComplaints((prev) => [data, ...prev])
+      setShowComplaintModal(false)
+      flash('Complaint ticket logged.')
+    } catch {
+      flash('An error occurred while registering the complaint.')
+    } finally {
+      setIsSavingComplaint(false)
     }
-
-    setComplaints((prev) => [data, ...prev])
-    setShowComplaintModal(false)
-    flash('Complaint ticket logged.')
   }
 
   // Resolve Complaint
@@ -2107,7 +2194,7 @@ export default function DashboardPage() {
               <a
                 href="/admin"
                 title="Open StayBook Super Admin Console"
-                className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#866342] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
               >
                 <ShieldCheck className="size-3.5 text-[#8b5a2b]" />
                 <span>Staff Admin</span>
@@ -2467,7 +2554,7 @@ export default function DashboardPage() {
           >
             <form onSubmit={handleSaveProperty} className="flex flex-col gap-4">
               <p className="text-xs text-[#74798a]">
-                Please fill in your rental property details. Required fields are marked (<span className="text-[#9a7651] font-bold">*</span>).
+                Please fill in your rental property details. Required fields are marked (<span className="text-[#8b5a2b] font-bold">*</span>).
               </p>
               <Field
                 label="Property Name"
@@ -2481,7 +2568,7 @@ export default function DashboardPage() {
                 <select
                   name="property_type"
                   defaultValue={getPropertyType(editTarget)}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b] transition-all"
                 >
                   <option value="pg_hostel">PG / Hostel (Room & Bed Sharing)</option>
                   <option value="apartment">Apartment / Society Flat (Whole Unit)</option>
@@ -2512,7 +2599,7 @@ export default function DashboardPage() {
               </div>
               <button
                 disabled={isSavingProperty}
-                className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342] disabled:opacity-60"
+                className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
               >
                 {isSavingProperty && <Loader2 className="size-4 animate-spin" />}
                 {isSavingProperty
@@ -2528,7 +2615,7 @@ export default function DashboardPage() {
 
       {/* 2. Delete Property Confirmation Modal (Requires typing "DELETE") */}
       {showDeletePropertyModal && (
-        <Modal title="Delete Entire Property Workspace" onClose={() => setShowDeletePropertyModal(false)}>
+        <Modal title="Delete Entire Property Workspace" onClose={() => !isDeletingProperty && setShowDeletePropertyModal(false)}>
           <div className="flex flex-col gap-4">
             <div className="rounded-xl border border-[#ffe0e0] bg-[#fff5f5] p-3 text-xs text-[#b95c3c]">
               <div className="flex items-center gap-2 font-bold mb-1">
@@ -2552,11 +2639,12 @@ export default function DashboardPage() {
             <div className="mt-2 flex justify-end gap-3">
               <button
                 type="button"
+                disabled={isDeletingProperty}
                 onClick={() => {
                   setShowDeletePropertyModal(false)
                   setDeletePropertyInput('')
                 }}
-                className="rounded-xl border border-[#e8dfd4] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#f7f3ed]"
+                className="rounded-xl border border-[#e8dfd4] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#f7f3ed] disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -2564,7 +2652,7 @@ export default function DashboardPage() {
                 type="button"
                 disabled={deletePropertyInput.trim() !== 'DELETE' || isDeletingProperty}
                 onClick={handleDeleteProperty}
-                className="flex items-center gap-2 rounded-xl bg-[#b95c3c] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#a04e32] disabled:opacity-40"
+                className="flex items-center gap-2 rounded-xl bg-[#b95c3c] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#a04e32] disabled:opacity-40 transition-colors"
               >
                 {isDeletingProperty && <Loader2 className="size-4 animate-spin" />}
                 Permanently Delete Property
@@ -2576,7 +2664,7 @@ export default function DashboardPage() {
 
       {/* 3. Add Room Modal */}
       {showRoomModal && (
-        <Modal title={isPgHostel ? 'Add Room & Beds' : 'Add Unit / Room'} onClose={() => setShowRoomModal(false)}>
+        <Modal title={isPgHostel ? 'Add Room & Beds' : 'Add Unit / Room'} onClose={() => !isSavingRoom && setShowRoomModal(false)}>
           <form onSubmit={handleAddRoom} className="flex flex-col gap-4">
             <Field
               label={isPgHostel ? 'Room Number / Name' : 'Unit / Flat / Room Number'}
@@ -2588,7 +2676,7 @@ export default function DashboardPage() {
               <Field label="Floor Number" name="floor" type="number" defaultValue="1" required />
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 {isPgHostel ? 'Room Type' : 'Unit Type'}
-                <select name="room_type" className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
+                <select name="room_type" className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
                   {isPgHostel ? (
                     <>
                       <option value="Single">Single Occupancy (1 Bed)</option>
@@ -2622,8 +2710,13 @@ export default function DashboardPage() {
                 required
               />
             </div>
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              {isPgHostel ? 'Configure Room & Beds' : 'Create Unit / Room'}
+            <button
+              type="submit"
+              disabled={isSavingRoom}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingRoom && <Loader2 className="size-4 animate-spin" />}
+              {isSavingRoom ? 'Configuring Room...' : (isPgHostel ? 'Configure Room & Beds' : 'Create Unit / Room')}
             </button>
           </form>
         </Modal>
@@ -2631,7 +2724,7 @@ export default function DashboardPage() {
 
       {/* 4. Edit Room Modal */}
       {editingRoom && (
-        <Modal title={isPgHostel ? `Edit Room ${editingRoom.room_number}` : `Edit Unit ${editingRoom.room_number}`} onClose={() => setEditingRoom(null)}>
+        <Modal title={isPgHostel ? `Edit Room ${editingRoom.room_number}` : `Edit Unit ${editingRoom.room_number}`} onClose={() => !isSavingRoom && setEditingRoom(null)}>
           <form onSubmit={handleUpdateRoom} className="flex flex-col gap-4">
             <Field
               label={isPgHostel ? 'Room Number / Name' : 'Unit / Flat / Room Number'}
@@ -2643,7 +2736,7 @@ export default function DashboardPage() {
               <Field label="Floor Number" name="floor" type="number" defaultValue={editingRoom.floor} required />
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 {isPgHostel ? 'Room Type' : 'Unit Type'}
-                <select name="room_type" defaultValue={editingRoom.room_type} className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
+                <select name="room_type" defaultValue={editingRoom.room_type} className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
                   {isPgHostel ? (
                     <>
                       <option value="Single">Single Occupancy (1 Bed)</option>
@@ -2670,8 +2763,13 @@ export default function DashboardPage() {
               defaultValue={editingRoom.base_rent}
               required
             />
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Save Changes
+            <button
+              type="submit"
+              disabled={isSavingRoom}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingRoom && <Loader2 className="size-4 animate-spin" />}
+              {isSavingRoom ? 'Saving Changes...' : 'Save Changes'}
             </button>
           </form>
         </Modal>
@@ -2679,7 +2777,7 @@ export default function DashboardPage() {
 
       {/* 5. Add Bed to Room Modal */}
       {showAddBedModal.open && (
-        <Modal title={`Add Bed to Room ${showAddBedModal.roomNumber}`} onClose={() => setShowAddBedModal({ open: false, roomId: '', roomNumber: '' })}>
+        <Modal title={`Add Bed to Room ${showAddBedModal.roomNumber}`} onClose={() => !isSavingBed && setShowAddBedModal({ open: false, roomId: '', roomNumber: '' })}>
           <form onSubmit={handleAddBed} className="flex flex-col gap-4">
             <Field
               label="Bed Label"
@@ -2695,8 +2793,13 @@ export default function DashboardPage() {
               defaultValue={rooms.find((r) => r.id === showAddBedModal.roomId)?.base_rent || 0}
               required
             />
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Add Bed to Room
+            <button
+              type="submit"
+              disabled={isSavingBed}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingBed && <Loader2 className="size-4 animate-spin" />}
+              {isSavingBed ? 'Adding Bed...' : 'Add Bed to Room'}
             </button>
           </form>
         </Modal>
@@ -2704,7 +2807,7 @@ export default function DashboardPage() {
 
       {/* 6. Onboard New Tenant Modal (with Auto-Prefill + Capacity Check) */}
       {showTenantModal && (
-        <Modal title="Onboard New Resident" onClose={() => setShowTenantModal(false)}>
+        <Modal title="Onboard New Resident" onClose={() => !isSavingTenant && setShowTenantModal(false)}>
           <form onSubmit={handleAddTenant} className="flex flex-col gap-4">
             <Field label="Full Name" name="name" placeholder="Resident full name" required />
             <Field label="Contact Phone" name="phone" placeholder="10-15 digit mobile number" required />
@@ -2732,7 +2835,7 @@ export default function DashboardPage() {
                       setTenantFormBedId('unassigned')
                     }
                   }}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
                 >
                   <option value="unassigned">Unassigned</option>
                   {rooms.map((r) => {
@@ -2757,7 +2860,7 @@ export default function DashboardPage() {
                     name="bed_id"
                     value={tenantFormBedId}
                     onChange={(e) => setTenantFormBedId(e.target.value)}
-                    className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                    className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
                   >
                     <option value="unassigned">Unassigned</option>
                     {beds
@@ -2777,7 +2880,7 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Field
                 label="Monthly Rent (₹)"
                 name="rent"
@@ -2804,8 +2907,13 @@ export default function DashboardPage() {
               required
             />
 
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Create Resident Record
+            <button
+              type="submit"
+              disabled={isSavingTenant}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingTenant && <Loader2 className="size-4 animate-spin" />}
+              {isSavingTenant ? 'Onboarding Resident...' : 'Create Resident Record'}
             </button>
           </form>
         </Modal>
@@ -2813,7 +2921,7 @@ export default function DashboardPage() {
 
       {/* 7. Edit Tenant Modal */}
       {editingTenant && (
-        <Modal title={`Edit Resident: ${editingTenant.name}`} onClose={() => setEditingTenant(null)}>
+        <Modal title={`Edit Resident: ${editingTenant.name}`} onClose={() => !isSavingTenant && setEditingTenant(null)}>
           <form onSubmit={handleUpdateTenant} className="flex flex-col gap-4">
             <Field label="Full Name" name="name" defaultValue={editingTenant.name} required />
             <Field label="Contact Phone" name="phone" defaultValue={editingTenant.phone} required />
@@ -2824,7 +2932,7 @@ export default function DashboardPage() {
                 <select
                   name="room_id"
                   defaultValue={editingTenant.room_id || 'unassigned'}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
                 >
                   <option value="unassigned">Unassigned</option>
                   {rooms.map((r) => {
@@ -2848,7 +2956,7 @@ export default function DashboardPage() {
                   <select
                     name="bed_id"
                     defaultValue={editingTenant.bed_id || 'unassigned'}
-                    className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                    className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
                   >
                     <option value="unassigned">Unassigned</option>
                     {beds.map((b) => {
@@ -2873,7 +2981,7 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Field label="Monthly Rent (₹)" name="rent" type="number" defaultValue={editingTenant.rent} required />
               <Field label="Security Deposit (₹)" name="deposit" type="number" defaultValue={editingTenant.deposit} />
               <Field
@@ -2892,7 +3000,7 @@ export default function DashboardPage() {
                 <select
                   name="status"
                   defaultValue={editingTenant.status}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
                 >
                   <option value="Paid">Paid</option>
                   <option value="Pending">Pending</option>
@@ -2902,8 +3010,13 @@ export default function DashboardPage() {
               </label>
             </div>
 
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Update Resident Details
+            <button
+              type="submit"
+              disabled={isSavingTenant}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingTenant && <Loader2 className="size-4 animate-spin" />}
+              {isSavingTenant ? 'Updating Resident...' : 'Update Resident Details'}
             </button>
           </form>
         </Modal>
@@ -2928,7 +3041,7 @@ export default function DashboardPage() {
                   }
                 }}
                 required
-                className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
               >
                 <option value="">Choose resident...</option>
                 {tenants
@@ -2952,7 +3065,7 @@ export default function DashboardPage() {
               />
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Payment Method
-                <select name="payment_method" className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
+                <select name="payment_method" className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
                   <option value="upi">UPI / GPay / PhonePe</option>
                   <option value="cash">Cash</option>
                   <option value="bank_transfer">Bank Transfer / NEFT</option>
@@ -2968,7 +3081,7 @@ export default function DashboardPage() {
                   name="payment_type"
                   value={paymentFormType}
                   onChange={(e) => setPaymentFormType(e.target.value)}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
                 >
                   <option value="rent">Monthly Rent</option>
                   <option value="deposit">Security Deposit</option>
@@ -2993,7 +3106,10 @@ export default function DashboardPage() {
               placeholder="e.g. UTR #12345678"
             />
 
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
+            <button
+              type="submit"
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+            >
               Record Payment & Issue Receipt
             </button>
           </form>
@@ -3002,13 +3118,13 @@ export default function DashboardPage() {
 
       {/* 9. Add Expense Modal */}
       {showExpenseModal && (
-        <Modal title="Log Operating Expense" onClose={() => setShowExpenseModal(false)}>
+        <Modal title="Log Operating Expense" onClose={() => !isSavingExpense && setShowExpenseModal(false)}>
           <form onSubmit={handleAddExpense} className="flex flex-col gap-4">
             <Field label="Description" name="title" placeholder="e.g. Water Tanker Refill, Wi-Fi Bill" required />
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Category
-                <select name="category" className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
+                <select name="category" className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
                   <option value="maintenance">Repairs & Maintenance</option>
                   <option value="electricity">Electricity Bill</option>
                   <option value="water">Water Supply</option>
@@ -3023,8 +3139,13 @@ export default function DashboardPage() {
             </div>
             <Field label="Date" name="expense_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required />
             <Field label="Vendor / Notes" name="notes" placeholder="Vendor name or remarks" />
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Save Expense Entry
+            <button
+              type="submit"
+              disabled={isSavingExpense}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingExpense && <Loader2 className="size-4 animate-spin" />}
+              {isSavingExpense ? 'Logging Expense...' : 'Save Expense Entry'}
             </button>
           </form>
         </Modal>
@@ -3032,13 +3153,13 @@ export default function DashboardPage() {
 
       {/* 10. Edit Expense Modal */}
       {editingExpense && (
-        <Modal title="Edit Expense" onClose={() => setEditingExpense(null)}>
+        <Modal title="Edit Expense" onClose={() => !isSavingExpense && setEditingExpense(null)}>
           <form onSubmit={handleUpdateExpense} className="flex flex-col gap-4">
             <Field label="Description" name="title" defaultValue={editingExpense.title} required />
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Category
-                <select name="category" defaultValue={editingExpense.category} className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
+                <select name="category" defaultValue={editingExpense.category} className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
                   <option value="maintenance">Repairs & Maintenance</option>
                   <option value="electricity">Electricity Bill</option>
                   <option value="water">Water Supply</option>
@@ -3053,8 +3174,13 @@ export default function DashboardPage() {
             </div>
             <Field label="Date" name="expense_date" type="date" defaultValue={editingExpense.expense_date} required />
             <Field label="Vendor / Notes" name="notes" defaultValue={editingExpense.notes} />
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Save Changes
+            <button
+              type="submit"
+              disabled={isSavingExpense}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingExpense && <Loader2 className="size-4 animate-spin" />}
+              {isSavingExpense ? 'Saving Changes...' : 'Save Changes'}
             </button>
           </form>
         </Modal>
@@ -3062,7 +3188,7 @@ export default function DashboardPage() {
 
       {/* 11. Add Electricity Modal (Auto-prefills previous reading) */}
       {showElectricityModal && (
-        <Modal title="Record Electricity Meter Reading" onClose={() => setShowElectricityModal(false)}>
+        <Modal title="Record Electricity Meter Reading" onClose={() => !isSavingElectricity && setShowElectricityModal(false)}>
           <form onSubmit={handleAddElectricity} className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
               Select Meter / Room
@@ -3076,7 +3202,7 @@ export default function DashboardPage() {
                   const lastReading = electricity.find((el) => el.room_id === selId)?.current_reading || 0
                   setElecFormPrevReading(lastReading)
                 }}
-                className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]"
               >
                 <option value="general">Building General Meter</option>
                 {rooms.map((r) => (
@@ -3104,8 +3230,13 @@ export default function DashboardPage() {
               <Field label="Reading Date" name="reading_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required />
             </div>
 
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Record Reading
+            <button
+              type="submit"
+              disabled={isSavingElectricity}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingElectricity && <Loader2 className="size-4 animate-spin" />}
+              {isSavingElectricity ? 'Recording Reading...' : 'Record Reading'}
             </button>
           </form>
         </Modal>
@@ -3113,13 +3244,13 @@ export default function DashboardPage() {
 
       {/* 12. Add Complaint Modal */}
       {showComplaintModal && (
-        <Modal title="Log Maintenance Ticket / Complaint" onClose={() => setShowComplaintModal(false)}>
+        <Modal title="Log Maintenance Ticket / Complaint" onClose={() => !isSavingComplaint && setShowComplaintModal(false)}>
           <form onSubmit={handleAddComplaint} className="flex flex-col gap-4">
             <Field label="Issue Summary" name="title" placeholder="e.g. Geyser not heating in Room 201" required />
             <div className="grid grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Reported by Resident
-                <select name="tenant" className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
+                <select name="tenant" className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
                   {tenants
                     .filter((t) => t.status !== 'Vacated')
                     .map((t) => (
@@ -3132,7 +3263,7 @@ export default function DashboardPage() {
               </label>
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Priority
-                <select name="priority" className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]">
+                <select name="priority" className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
                   <option value="Medium">Medium</option>
                   <option value="High">High</option>
                   <option value="Low">Low</option>
@@ -3140,8 +3271,13 @@ export default function DashboardPage() {
               </label>
             </div>
             <Field label="Details / Remarks" name="description" placeholder="Additional repair technician context" />
-            <button className="mt-2 rounded-xl bg-[#9a7651] py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#866342]">
-              Register Complaint Ticket
+            <button
+              type="submit"
+              disabled={isSavingComplaint}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+            >
+              {isSavingComplaint && <Loader2 className="size-4 animate-spin" />}
+              {isSavingComplaint ? 'Logging Ticket...' : 'Register Complaint Ticket'}
             </button>
           </form>
         </Modal>
@@ -3172,35 +3308,6 @@ export default function DashboardPage() {
         </Modal>
       )}
 
-      {/* 14. High-Impact Operation Confirmation Dialog */}
-      {confirmDialog.open && (
-        <Modal title={confirmDialog.title} onClose={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}>
-          <div className="flex flex-col gap-4">
-            <p className="text-sm leading-6 text-[#74798a]">{confirmDialog.description}</p>
-            <div className="mt-3 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
-                className="rounded-xl border border-[#e8dfd4] bg-white px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#f7f3ed]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  await confirmDialog.onConfirm()
-                  setConfirmDialog((prev) => ({ ...prev, open: false }))
-                }}
-                className={`rounded-xl px-4 py-2.5 text-xs font-semibold text-white shadow-sm ${
-                  confirmDialog.isDestructive ? 'bg-[#b95c3c] hover:bg-[#a04e32]' : 'bg-[#9a7651] hover:bg-[#866342]'
-                }`}
-              >
-                {confirmDialog.actionLabel}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
 
       {/* 15. Formal Receipt Preview & Print Modal */}
       {selectedReceipt && (
@@ -3208,7 +3315,7 @@ export default function DashboardPage() {
           <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-6 text-sm" id="printable-receipt">
             <div className="flex items-start justify-between border-b border-[#e4d9cc] pb-4">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#9a7651]">StayBook Official Receipt</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#8b5a2b]">StayBook Official Receipt</span>
                 <h4 className="mt-1 text-base font-bold text-[#3d3934]">{property.name || 'Rental Property'}</h4>
                 <p className="text-xs text-[#85899a]">{property.address || 'Address on file'}</p>
               </div>
@@ -3224,7 +3331,7 @@ export default function DashboardPage() {
                 <p className="font-semibold text-[#44485a]">{selectedReceipt.tenant_name}</p>
                 <p className="text-[#74798a]">Room: {selectedReceipt.room_number}</p>
                 {selectedReceipt.month_covered && (
-                  <p className="text-[11px] text-[#9a7651] font-medium mt-1">Period: {selectedReceipt.month_covered}</p>
+                  <p className="text-[11px] text-[#8b5a2b] font-medium mt-1">Period: {selectedReceipt.month_covered}</p>
                 )}
               </div>
               <div>
@@ -3273,7 +3380,7 @@ export default function DashboardPage() {
               </div>
               <button
                 onClick={() => setSelectedReceipt(null)}
-                className="rounded-lg bg-[#9a7651] px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+                className="rounded-lg bg-[#8b5a2b] px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
               >
                 Close
               </button>
@@ -3284,13 +3391,13 @@ export default function DashboardPage() {
 
       {/* Edit Payment Modal */}
       {editingPayment && (
-        <Modal title={`Edit Payment REC-${editingPayment.id.slice(0, 8).toUpperCase()}`} onClose={() => setEditingPayment(null)}>
+        <Modal title={`Edit Payment REC-${editingPayment.id.slice(0, 8).toUpperCase()}`} onClose={() => !isSavingPayment && setEditingPayment(null)}>
           <form onSubmit={handleUpdatePayment} className="flex flex-col gap-4">
             <div className="rounded-xl bg-[#faf7f2] p-3 text-xs text-[#555a6c]">
               <span className="font-semibold text-[#3d3934]">Resident:</span> {editingPayment.tenant_name} (Room {editingPayment.room_number})
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field
                 label="Amount (₹)"
                 name="amount"
@@ -3303,7 +3410,7 @@ export default function DashboardPage() {
                 <select
                   name="payment_method"
                   defaultValue={editingPayment.payment_method}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b] transition-all"
                 >
                   <option value="upi">UPI / GPay / PhonePe</option>
                   <option value="cash">Cash</option>
@@ -3313,13 +3420,13 @@ export default function DashboardPage() {
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Payment Type
                 <select
                   name="payment_type"
                   defaultValue={editingPayment.payment_type}
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7651]"
+                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b] transition-all"
                 >
                   <option value="rent">Monthly Rent</option>
                   <option value="deposit">Security Deposit</option>
@@ -3353,16 +3460,19 @@ export default function DashboardPage() {
             <div className="mt-2 flex justify-end gap-2">
               <button
                 type="button"
+                disabled={isSavingPayment}
                 onClick={() => setEditingPayment(null)}
-                className="rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2]"
+                className="rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-xl bg-[#9a7651] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+                disabled={isSavingPayment}
+                className="flex items-center gap-1.5 rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] disabled:opacity-50 transition-colors"
               >
-                Save Payment Changes
+                {isSavingPayment && <Loader2 className="size-3.5 animate-spin" />}
+                {isSavingPayment ? 'Saving Changes...' : 'Save Payment Changes'}
               </button>
             </div>
           </form>
@@ -3384,7 +3494,7 @@ export default function DashboardPage() {
                   onClick={() => setDashboardBillingCycle('yearly')}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all ${
                     dashboardBillingCycle === 'yearly'
-                      ? 'bg-[#9a7651] text-white shadow-xs'
+                      ? 'bg-[#8b5a2b] text-white shadow-xs'
                       : 'text-[#676b7d] hover:text-[#3d3934]'
                   }`}
                 >
@@ -3400,7 +3510,7 @@ export default function DashboardPage() {
                   onClick={() => setDashboardBillingCycle('monthly')}
                   className={`rounded-lg px-3 py-1.5 font-medium transition-all ${
                     dashboardBillingCycle === 'monthly'
-                      ? 'bg-[#9a7651] text-white shadow-xs'
+                      ? 'bg-[#8b5a2b] text-white shadow-xs'
                       : 'text-[#676b7d] hover:text-[#3d3934]'
                   }`}
                 >
@@ -3412,7 +3522,7 @@ export default function DashboardPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-5">
                 <h4 className="font-bold text-sm">7-Day Free Trial</h4>
-                <p className="text-2xl font-bold mt-1 text-[#9a7651]">
+                <p className="text-2xl font-bold mt-1 text-[#8b5a2b]">
                   ₹0<span className="text-xs font-normal text-[#85899a]"> / 7 days</span>
                 </p>
                 <p className="text-[11px] text-[#85899a] mt-0.5">No credit card required</p>
@@ -3424,16 +3534,16 @@ export default function DashboardPage() {
                 </ul>
               </div>
 
-              <div className="rounded-2xl border-2 border-[#9a7651] bg-[#faf7f2] p-5 relative">
+              <div className="rounded-2xl border-2 border-[#8b5a2b] bg-[#faf7f2] p-5 relative">
                 <div className="absolute top-4 right-4">
-                  <span className="rounded-full bg-[#9a7651] px-2.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
+                  <span className="rounded-full bg-[#8b5a2b] px-2.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
                     Recommended
                   </span>
                 </div>
                 <h4 className="font-bold text-sm">Growth Pro</h4>
                 {dashboardBillingCycle === 'yearly' ? (
                   <div>
-                    <p className="text-2xl font-bold mt-1 text-[#9a7651]">
+                    <p className="text-2xl font-bold mt-1 text-[#8b5a2b]">
                       {formatINR(PRICING_CONFIG.yearlyRate)}
                       <span className="text-xs font-normal text-[#85899a]"> / year</span>
                     </p>
@@ -3443,7 +3553,7 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <div>
-                    <p className="text-2xl font-bold mt-1 text-[#9a7651]">
+                    <p className="text-2xl font-bold mt-1 text-[#8b5a2b]">
                       {formatINR(PRICING_CONFIG.monthlyRate)}
                       <span className="text-xs font-normal text-[#85899a]"> / month</span>
                     </p>
@@ -3463,7 +3573,7 @@ export default function DashboardPage() {
             <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <a
                 href={getMailtoSupport('Subscription Inquiry')}
-                className="text-xs font-medium text-[#9a7651] hover:underline"
+                className="text-xs font-medium text-[#8b5a2b] hover:underline"
               >
                 Questions? Email {SUPPORT_EMAIL}
               </a>
@@ -3472,7 +3582,7 @@ export default function DashboardPage() {
                   setShowPricingModal(false)
                   flash(`Plan upgrade to Growth Pro (${dashboardBillingCycle}) selected. Payment checkout gateway connecting...`)
                 }}
-                className="rounded-xl bg-[#9a7651] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+                className="rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
               >
                 Continue with Growth Pro ({dashboardBillingCycle === 'yearly' ? `${formatINR(PRICING_CONFIG.yearlyRate)}/yr` : `${formatINR(PRICING_CONFIG.monthlyRate)}/mo`})
               </button>
@@ -3513,10 +3623,10 @@ export default function DashboardPage() {
                     setIsConfirming(false)
                   }
                 }}
-                className={`flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 ${
+                className={`flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 transition-colors ${
                   confirmDialog.isDestructive
                     ? 'bg-[#b95c3c] hover:bg-[#9e4a2e]'
-                    : 'bg-[#9a7651] hover:bg-[#866342]'
+                    : 'bg-[#8b5a2b] hover:bg-[#784b20]'
                 }`}
               >
                 {isConfirming && <Loader2 className="size-3.5 animate-spin" />}
@@ -3539,7 +3649,7 @@ export default function DashboardPage() {
           </div>
           <button
             onClick={handleExecuteUndo}
-            className="flex items-center gap-1.5 rounded-xl bg-[#9a7651] px-3.5 py-1.5 text-xs font-bold text-white shadow hover:bg-[#b58c64] transition-colors"
+            className="flex items-center gap-1.5 rounded-xl bg-[#8b5a2b] px-3.5 py-1.5 text-xs font-bold text-white shadow hover:bg-[#784b20] transition-colors"
           >
             <Undo2 className="size-3.5" />
             Undo ({undoItem.secondsLeft}s)
@@ -4080,7 +4190,7 @@ function PropertyTab({
         </div>
         <button
           onClick={onAddProperty}
-          className="flex items-center justify-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342] transition-colors"
+          className="flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
         >
           <Plus className="size-4" /> Add New Property
         </button>
@@ -4100,13 +4210,13 @@ function PropertyTab({
                   key={p.id}
                   className={`rounded-2xl border p-5 transition-all shadow-xs ${
                     isSelected
-                      ? 'border-[#9a7651] bg-[#fdfbf7] ring-2 ring-[#9a7651]/20'
+                      ? 'border-[#8b5a2b] bg-[#fdfbf7] ring-2 ring-[#8b5a2b]/20'
                       : 'border-[#e8dfd4] bg-white hover:border-[#c5b19b]'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3">
-                      <div className={`grid size-10 place-items-center rounded-xl ${isSelected ? 'bg-[#9a7651] text-white' : 'bg-[#f4ede3] text-[#9a7651]'}`}>
+                      <div className={`grid size-10 place-items-center rounded-xl ${isSelected ? 'bg-[#8b5a2b] text-white' : 'bg-[#faf3ea] text-[#8b5a2b]'}`}>
                         <Building2 className="size-5" />
                       </div>
                       <div>
@@ -4122,11 +4232,11 @@ function PropertyTab({
                   </div>
                   <div className="mt-4 flex items-center justify-between border-t border-[#f0ece5] pt-3 text-xs">
                     {isSelected ? (
-                      <span className="text-[11px] font-semibold text-[#9a7651]">Selected Workspace</span>
+                      <span className="text-[11px] font-semibold text-[#8b5a2b]">Selected Workspace</span>
                     ) : (
                       <button
                         onClick={() => onSelectProperty && onSelectProperty(p.id)}
-                        className="rounded-lg bg-[#f4ede3] px-3 py-1.5 text-xs font-semibold text-[#7e5c3b] hover:bg-[#e8decb]"
+                        className="rounded-lg bg-[#faf3ea] px-3 py-1.5 text-xs font-semibold text-[#8b5a2b] hover:bg-[#f2e6d6] transition-colors"
                       >
                         Switch Property
                       </button>
@@ -4149,14 +4259,14 @@ function PropertyTab({
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center border-b border-[#f0f1f4] pb-6">
           <div className="flex items-center gap-4">
-            <div className="grid size-14 place-items-center rounded-2xl bg-[#f4ede3] text-[#9a7651]">
+            <div className="grid size-14 place-items-center rounded-2xl bg-[#faf3ea] text-[#8b5a2b]">
               <Building2 className="size-7" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-xl font-bold">{property.name || 'No Property Configured'}</h3>
                 {property.name && (
-                  <span className="rounded-md bg-[#f4ede3] px-2 py-0.5 text-[10px] font-bold text-[#866342]">
+                  <span className="rounded-md bg-[#faf3ea] px-2 py-0.5 text-[10px] font-bold text-[#8b5a2b]">
                     Current Workspace
                   </span>
                 )}
@@ -4169,7 +4279,7 @@ function PropertyTab({
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => onEdit(property)}
-              className="rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+              className="rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
             >
               {property.name ? 'Edit Details' : 'Add Property'}
             </button>
@@ -4222,14 +4332,14 @@ function RoomsTab({
 }: any) {
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Rooms & Beds</h2>
+          <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Rooms & Beds</h2>
           <p className="text-xs text-[#85899a]">Room occupancy, capacity rules, and bed allocations.</p>
         </div>
         <button
           onClick={onAddRoom}
-          className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors self-start sm:self-auto"
         >
           <Plus className="size-4" /> Add Room
         </button>
@@ -4255,27 +4365,27 @@ function RoomsTab({
             const isFull = assignedTenants.length >= maxCap
 
             return (
-              <div key={r.id} className="rounded-2xl border border-[#e9ebf0] bg-white p-5 shadow-sm flex flex-col justify-between">
+              <div key={r.id} className="rounded-2xl border border-[#ebe4da] bg-white p-5 shadow-sm flex flex-col justify-between hover:border-[#d8cbbe] transition-all">
                 <div>
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className="rounded-md bg-[#f4ede3] px-2 py-0.5 text-[10px] font-bold text-[#9a7651]">
+                      <span className="rounded-md bg-[#faf3ea] px-2 py-0.5 text-[10px] font-bold text-[#8b5a2b]">
                         Floor {r.floor}
                       </span>
-                      <h3 className="mt-2 text-lg font-bold">Room {r.room_number}</h3>
+                      <h3 className="mt-2 text-lg font-bold text-[#2c221e]">Room {r.room_number}</h3>
                       <p className="text-xs text-[#85899a]">{r.room_type}</p>
                     </div>
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => onEditRoom(r)}
-                        className="rounded-lg p-1.5 text-[#a0a3af] hover:bg-[#faf7f2] hover:text-[#9a7651]"
+                        className="rounded-lg p-1.5 text-[#a0a3af] hover:bg-[#faf7f2] hover:text-[#8b5a2b] transition-colors"
                         title="Edit room"
                       >
                         <Pencil className="size-3.5" />
                       </button>
                       <button
                         onClick={() => onDeleteRoom(r.id, r.room_number)}
-                        className="rounded-lg p-1.5 text-[#a0a3af] hover:bg-[#fff0f0] hover:text-[#b95c3c]"
+                        className="rounded-lg p-1.5 text-[#a0a3af] hover:bg-[#fff0f0] hover:text-[#b95c3c] transition-colors"
                         title="Delete room"
                       >
                         <Trash2 className="size-3.5" />
@@ -4306,7 +4416,7 @@ function RoomsTab({
                       <p className="text-[11px] font-semibold text-[#676b7d]">Beds ({roomBeds.length})</p>
                       <button
                         onClick={() => onAddBed(r.id, r.room_number)}
-                        className="flex items-center gap-1 text-[11px] font-semibold text-[#9a7651] hover:underline"
+                        className="flex items-center gap-1 text-[11px] font-semibold text-[#8b5a2b] hover:underline"
                       >
                         <Plus className="size-3" /> Add Bed
                       </button>
@@ -4392,13 +4502,13 @@ function TenantsTab({
     <div>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Tenants & Residents</h2>
+          <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Tenants & Residents</h2>
           <p className="text-xs text-[#85899a]">Active resident directory, room assignments, due dates, and WhatsApp reminders.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={onAddTenant}
-            className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+            className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
           >
             <Plus className="size-4" /> Onboard Resident
           </button>
@@ -4411,7 +4521,7 @@ function TenantsTab({
           onClick={() => setStatusFilter('all')}
           className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
             statusFilter === 'all'
-              ? 'bg-[#9a7651] text-white shadow-xs'
+              ? 'bg-[#8b5a2b] text-white shadow-xs'
               : 'border border-[#e8dfd4] bg-white text-[#676b7d] hover:bg-[#faf7f2]'
           }`}
         >
@@ -4496,7 +4606,7 @@ function TenantsTab({
                       <td className="px-5 py-4 text-[#676b7d]">
                         Room {t.room} {t.bed_number ? `· Bed ${t.bed_number}` : ''}
                       </td>
-                      <td className="px-5 py-4 font-semibold text-[#866342]">{currency(t.rent)}</td>
+                      <td className="px-5 py-4 font-semibold text-[#784b20]">{currency(t.rent)}</td>
                       <td className="px-5 py-4 text-[#74798a]">
                         <span className="font-medium text-[#44485a]">
                           {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
@@ -4529,7 +4639,7 @@ function TenantsTab({
                           {t.status !== 'Paid' && t.status !== 'Vacated' && (
                             <button
                               onClick={() => onRecordPayment(t)}
-                              className="rounded-lg bg-[#9a7651]/10 px-2 py-1 text-[11px] font-semibold text-[#9a7651] hover:bg-[#9a7651]/20 transition-colors"
+                              className="rounded-lg bg-[#8b5a2b]/10 px-2.5 py-1 text-[11px] font-semibold text-[#8b5a2b] hover:bg-[#8b5a2b]/20 transition-colors"
                             >
                               Collect
                             </button>
@@ -4537,7 +4647,7 @@ function TenantsTab({
 
                           <button
                             onClick={() => onEditTenant(t)}
-                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#9a7651] hover:bg-[#faf7f2]"
+                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
                             title="Edit resident details"
                           >
                             <Pencil className="size-3.5" />
@@ -4546,7 +4656,7 @@ function TenantsTab({
                           {t.status !== 'Vacated' && (
                             <button
                               onClick={() => onVacateTenant(t.id, t.name)}
-                              className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b46b1a] hover:bg-[#faf7f2]"
+                              className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b46b1a] hover:bg-[#faf7f2] transition-colors"
                               title="Mark as vacated"
                             >
                               <UserMinus className="size-3.5" />
@@ -4555,7 +4665,7 @@ function TenantsTab({
 
                           <button
                             onClick={() => onDeleteTenant(t.id, t.name)}
-                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5]"
+                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
                             title="Delete resident (Soft-delete with 5s undo)"
                           >
                             <Trash2 className="size-3.5" />
@@ -4587,14 +4697,14 @@ function PaymentsTab({
 }: any) {
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Rent & Payments Ledger</h2>
+          <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Rent & Payments Ledger</h2>
           <p className="text-xs text-[#85899a]">Confirmed collections, exact timestamps in owner timezone, and owner controls.</p>
         </div>
         <button
           onClick={onRecordPayment}
-          className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors self-start sm:self-auto"
         >
           <Plus className="size-4" /> Record Payment
         </button>
@@ -4612,7 +4722,7 @@ function PaymentsTab({
           />
         )
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-[#e9ebf0] bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-[#ebe4da] bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-xs">
               <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
@@ -4628,7 +4738,7 @@ function PaymentsTab({
               </thead>
               <tbody className="divide-y divide-[#eee6dc]">
                 {payments.map((p: PaymentRecord) => (
-                  <tr key={p.id} className="hover:bg-[#fbf8f3]">
+                  <tr key={p.id} className="hover:bg-[#fbf8f3] transition-colors">
                     <td className="px-5 py-4 font-mono font-bold text-[#676b7d]">
                       REC-{p.id.slice(0, 8).toUpperCase()}
                     </td>
@@ -4641,7 +4751,7 @@ function PaymentsTab({
                         {p.payment_type}
                       </span>
                       {p.month_covered && (
-                        <p className="mt-1 text-[11px] font-medium text-[#9a7651]">{p.month_covered}</p>
+                        <p className="mt-1 text-[11px] font-medium text-[#8b5a2b]">{p.month_covered}</p>
                       )}
                     </td>
                     <td className="px-5 py-4 uppercase text-[10px] text-[#85899a]">{p.payment_method}</td>
@@ -4653,20 +4763,20 @@ function PaymentsTab({
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => onViewReceipt(p)}
-                          className="rounded-lg border border-[#e8dfd4] px-2.5 py-1 text-xs font-semibold text-[#9a7651] hover:bg-[#faf7f2]"
+                          className="rounded-lg border border-[#e8dfd4] px-2.5 py-1 text-xs font-semibold text-[#8b5a2b] hover:bg-[#faf7f2] hover:border-[#8b5a2b] transition-colors"
                         >
                           Receipt
                         </button>
                         <button
                           onClick={() => onEditPayment(p)}
-                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#9a7651] hover:bg-[#faf7f2]"
+                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
                           title="Edit payment entry"
                         >
                           <Pencil className="size-3.5" />
                         </button>
                         <button
                           onClick={() => onDeletePayment(p.id, p.amount, p.tenant_name)}
-                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5]"
+                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
                           title="Delete payment (Soft-delete with 5s undo)"
                         >
                           <Trash2 className="size-3.5" />
@@ -4745,7 +4855,7 @@ function DeletedRecordsTab({
                       <tr key={p.id} className="hover:bg-[#fbf8f3]">
                         <td className="px-4 py-3 font-mono font-bold text-[#676b7d]">REC-{p.id.slice(0, 8).toUpperCase()}</td>
                         <td className="px-4 py-3 font-semibold text-[#3d3934]">{p.tenant_name}</td>
-                        <td className="px-4 py-3 font-bold text-[#866342]">{currency(p.amount)}</td>
+                        <td className="px-4 py-3 font-bold text-[#784b20]">{currency(p.amount)}</td>
                         <td className="px-4 py-3 text-[#74798a]">{formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}</td>
                         <td className="px-4 py-3 text-[#b95c3c]">{formatPaymentTimestamp(p.deleted_at, 'Asia/Kolkata', locale)}</td>
                         <td className="px-4 py-3 text-right">
@@ -4795,7 +4905,7 @@ function DeletedRecordsTab({
                         <td className="px-4 py-3 font-bold text-[#3d3934]">{t.name}</td>
                         <td className="px-4 py-3 text-[#676b7d]">{t.phone || '—'}</td>
                         <td className="px-4 py-3 text-[#676b7d]">Room {t.room}</td>
-                        <td className="px-4 py-3 font-semibold text-[#866342]">{currency(t.rent)}</td>
+                        <td className="px-4 py-3 font-semibold text-[#784b20]">{currency(t.rent)}</td>
                         <td className="px-4 py-3 text-[#b95c3c]">{formatPaymentTimestamp(t.deleted_at, 'Asia/Kolkata', locale)}</td>
                         <td className="px-4 py-3 text-right">
                           <button
@@ -4822,14 +4932,14 @@ function DeletedRecordsTab({
 function ElectricityTab({ records, rooms, onAddReading, onDeleteReading, searchQuery, onClearSearch }: any) {
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Electricity & Utilities</h2>
+          <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Electricity & Utilities</h2>
           <p className="text-xs text-[#85899a]">Meter reading logger and automated consumption charges.</p>
         </div>
         <button
           onClick={onAddReading}
-          className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors self-start sm:self-auto"
         >
           <Plus className="size-4" /> Record Reading
         </button>
@@ -4847,7 +4957,7 @@ function ElectricityTab({ records, rooms, onAddReading, onDeleteReading, searchQ
           />
         )
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-[#e9ebf0] bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-[#ebe4da] bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px] text-left text-xs">
               <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
@@ -4867,18 +4977,18 @@ function ElectricityTab({ records, rooms, onAddReading, onDeleteReading, searchQ
                   const units = Math.max(0, el.current_reading - el.previous_reading)
                   const total = units * el.rate_per_unit
                   return (
-                    <tr key={el.id} className="hover:bg-[#fbf8f3]">
+                    <tr key={el.id} className="hover:bg-[#fbf8f3] transition-colors">
                       <td className="px-5 py-4 font-bold text-[#3d3934]">Room {el.room}</td>
                       <td className="px-5 py-4 text-[#676b7d]">{el.previous_reading}</td>
                       <td className="px-5 py-4 text-[#676b7d]">{el.current_reading}</td>
-                      <td className="px-5 py-4 font-bold text-[#866342]">{units} units</td>
+                      <td className="px-5 py-4 font-bold text-[#784b20]">{units} units</td>
                       <td className="px-5 py-4 text-[#676b7d]">{currency(el.rate_per_unit)}</td>
                       <td className="px-5 py-4 font-bold text-[#44485a]">{currency(total)}</td>
                       <td className="px-5 py-4 text-[#85899a]">{new Date(el.reading_date).toLocaleDateString('en-IN')}</td>
                       <td className="px-5 py-4 text-right">
                         <button
                           onClick={() => onDeleteReading(el.id, el.room)}
-                          className="rounded-lg p-1 text-[#a0a3af] hover:text-[#b95c3c]"
+                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
                           title="Delete reading"
                         >
                           <Trash2 className="size-3.5" />
@@ -4899,14 +5009,14 @@ function ElectricityTab({ records, rooms, onAddReading, onDeleteReading, searchQ
 function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDeleteExpense, searchQuery, onClearSearch }: any) {
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Operating Expenses</h2>
+          <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Operating Expenses</h2>
           <p className="text-xs text-[#85899a]">Track property repairs, utility bills, and vendor costs.</p>
         </div>
         <button
           onClick={onAddExpense}
-          className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors self-start sm:self-auto"
         >
           <Plus className="size-4" /> Log Expense
         </button>
@@ -4929,7 +5039,7 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
           />
         )
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-[#e9ebf0] bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-[#ebe4da] bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px] text-left text-xs">
               <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
@@ -4943,23 +5053,23 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
               </thead>
               <tbody className="divide-y divide-[#eee6dc]">
                 {expenses.map((e: Expense) => (
-                  <tr key={e.id} className="hover:bg-[#fbf8f3]">
+                  <tr key={e.id} className="hover:bg-[#fbf8f3] transition-colors">
                     <td className="px-5 py-4 font-bold text-[#3d3934]">{e.title}</td>
                     <td className="px-5 py-4 uppercase text-[10px] text-[#85899a]">{e.category}</td>
                     <td className="px-5 py-4 text-[#676b7d]">{new Date(e.expense_date).toLocaleDateString('en-IN')}</td>
                     <td className="px-5 py-4 font-bold text-[#b95c3c]">{currency(e.amount)}</td>
                     <td className="px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => onEditExpense(e)}
-                          className="rounded-lg p-1 text-[#a0a3af] hover:text-[#9a7651]"
+                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
                           title="Edit expense"
                         >
                           <Pencil className="size-3.5" />
                         </button>
                         <button
                           onClick={() => onDeleteExpense(e.id, e.title)}
-                          className="rounded-lg p-1 text-[#a0a3af] hover:text-[#b95c3c]"
+                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
                           title="Delete expense"
                         >
                           <Trash2 className="size-3.5" />
@@ -4980,14 +5090,14 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
 function ComplaintsTab({ complaints, onAddComplaint, onResolve, onDelete, searchQuery, onClearSearch }: any) {
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Resident Complaints & Maintenance</h2>
+          <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Resident Complaints & Maintenance</h2>
           <p className="text-xs text-[#85899a]">Track repair tickets and resolve resident issues promptly.</p>
         </div>
         <button
           onClick={onAddComplaint}
-          className="flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+          className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors self-start sm:self-auto"
         >
           <Plus className="size-4" /> Log Complaint
         </button>
@@ -5009,7 +5119,7 @@ function ComplaintsTab({ complaints, onAddComplaint, onResolve, onDelete, search
           {complaints.map((c: Complaint) => (
             <div
               key={c.id}
-              className="flex flex-col gap-4 rounded-2xl border border-[#e9ebf0] bg-white p-5 shadow-sm sm:flex-row sm:items-center justify-between"
+              className="flex flex-col gap-4 rounded-2xl border border-[#ebe4da] bg-white p-5 shadow-sm sm:flex-row sm:items-center justify-between hover:border-[#d8cbbe] transition-all"
             >
               <div className="flex-1">
                 <div className="mb-1.5 flex items-center gap-2">
@@ -5022,7 +5132,7 @@ function ComplaintsTab({ complaints, onAddComplaint, onResolve, onDelete, search
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      c.status === 'Resolved' ? 'bg-[#e7f7f0] text-[#328d68]' : 'bg-[#f4ede3] text-[#9a7651]'
+                      c.status === 'Resolved' ? 'bg-[#e7f7f0] text-[#328d68]' : 'bg-[#faf3ea] text-[#8b5a2b]'
                     }`}
                   >
                     {c.status}
@@ -5039,14 +5149,14 @@ function ComplaintsTab({ complaints, onAddComplaint, onResolve, onDelete, search
                 {c.status !== 'Resolved' && (
                   <button
                     onClick={() => onResolve(c.id)}
-                    className="rounded-lg border border-[#9a7651] px-3.5 py-2 text-xs font-semibold text-[#866342] hover:bg-[#fbf8f3]"
+                    className="rounded-lg border border-[#8b5a2b] px-3.5 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#fbf8f3] transition-colors"
                   >
                     Mark Resolved
                   </button>
                 )}
                 <button
                   onClick={() => onDelete(c.id, c.title)}
-                  className="rounded-lg p-2 text-[#a0a3af] hover:text-[#b95c3c]"
+                  className="rounded-lg p-2 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
                   title="Delete ticket"
                 >
                   <Trash2 className="size-4" />
@@ -5105,7 +5215,7 @@ function ReportsTab({ property, rooms, beds, tenants, revenueMonth, expensesMont
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="w-24 bg-[#eee6dc] rounded-full h-2 overflow-hidden">
-                    <div className="bg-[#9a7651] h-full" style={{ width: `${pct}%` }} />
+                    <div className="bg-[#8b5a2b] h-full" style={{ width: `${pct}%` }} />
                   </div>
                   <span className="font-semibold text-[#555a6c]">
                     {count} / {cap} ({pct}%)
@@ -5173,7 +5283,7 @@ function SettingsTab({
           </div>
           <button
             onClick={onAddProperty}
-            className="flex items-center gap-1.5 rounded-lg bg-[#9a7651] px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-[#866342]"
+            className="flex items-center gap-1.5 rounded-lg bg-[#8b5a2b] px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
           >
             <Plus className="size-3.5" />
             Add Property
@@ -5186,7 +5296,7 @@ function SettingsTab({
               <p className="text-xs font-semibold text-[#676b7d]">No properties configured yet.</p>
               <button
                 onClick={onAddProperty}
-                className="mt-2 text-xs font-bold text-[#9a7651] hover:underline"
+                className="mt-2 text-xs font-bold text-[#8b5a2b] hover:underline"
               >
                 + Set Up Your First Property
               </button>
@@ -5199,7 +5309,7 @@ function SettingsTab({
                   key={p.id}
                   className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border p-4 transition-all ${
                     isActive
-                      ? 'border-[#9a7651] bg-[#fbf8f3] shadow-2xs'
+                      ? 'border-[#8b5a2b] bg-[#fbf8f3] shadow-2xs'
                       : 'border-[#e8dfd4] bg-white hover:border-[#cfb79f]'
                   }`}
                 >
@@ -5207,13 +5317,13 @@ function SettingsTab({
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm text-[#3d3934]">{p.name}</span>
                       {isActive ? (
-                        <span className="rounded-md bg-[#9a7651] px-2 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
+                        <span className="rounded-md bg-[#8b5a2b] px-2 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
                           Active Workspace
                         </span>
                       ) : (
                         <button
                           onClick={() => onSelectProperty && onSelectProperty(p.id)}
-                          className="rounded-md border border-[#9a7651] px-2 py-0.5 text-[10px] font-semibold text-[#866342] hover:bg-[#faf7f2]"
+                          className="rounded-md border border-[#8b5a2b] px-2 py-0.5 text-[10px] font-semibold text-[#784b20] hover:bg-[#faf7f2] transition-colors"
                         >
                           Switch Here
                         </button>
@@ -5228,14 +5338,14 @@ function SettingsTab({
                   <div className="flex items-center gap-2 self-start sm:self-center">
                     <button
                       onClick={() => onEditSpecificProperty ? onEditSpecificProperty(p.id) : onEditProperty()}
-                      className="rounded-lg border border-[#d8c2aa] px-3 py-1 text-xs font-medium text-[#866342] hover:bg-[#faf7f2]"
+                      className="rounded-lg border border-[#d8c2aa] px-3 py-1 text-xs font-medium text-[#784b20] hover:bg-[#faf7f2] transition-colors"
                     >
                       Edit
                     </button>
                     {isActive && (
                       <button
                         onClick={onDeleteProperty}
-                        className="rounded-lg border border-[#ffe0e0] px-3 py-1 text-xs font-medium text-[#b95c3c] hover:bg-[#fff5f5]"
+                        className="rounded-lg border border-[#ffe0e0] px-3 py-1 text-xs font-medium text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
                       >
                         Delete
                       </button>
@@ -5252,7 +5362,7 @@ function SettingsTab({
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1.5 font-bold text-[#9a7651]">
+              <span className="flex items-center gap-1.5 font-bold text-[#8b5a2b]">
                 <Sparkles className="size-4" />
                 7-Day Free Trial
               </span>
@@ -5262,7 +5372,7 @@ function SettingsTab({
                     ? 'bg-[#ffebe8] text-[#b95c3c]'
                     : isEndingSoon
                     ? 'bg-[#fff4e5] text-[#b46b1a]'
-                    : 'bg-[#f4ede3] text-[#9a7651]'
+                    : 'bg-[#faf3ea] text-[#8b5a2b]'
                 }`}
               >
                 {isTrialExpired
@@ -5281,7 +5391,7 @@ function SettingsTab({
           </div>
           <button
             onClick={onViewPlans}
-            className="self-start sm:self-center shrink-0 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+            className="self-start sm:self-center shrink-0 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
           >
             Upgrade Plan
           </button>
@@ -5289,7 +5399,7 @@ function SettingsTab({
       </div>
 
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
-        <div className="flex items-center gap-2.5 text-[#9a7651]">
+        <div className="flex items-center gap-2.5 text-[#8b5a2b]">
           <CircleHelp className="size-5" />
           <h3 className="text-base font-bold text-[#3d3934]">Help & Dedicated Support</h3>
         </div>
@@ -5299,11 +5409,11 @@ function SettingsTab({
         <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-4 text-xs">
           <div>
             <p className="font-semibold text-[#44485a]">Official Support Email</p>
-            <p className="font-mono text-[#9a7651]">{SUPPORT_EMAIL}</p>
+            <p className="font-mono text-[#8b5a2b]">{SUPPORT_EMAIL}</p>
           </div>
           <a
             href={getMailtoSupport('StayBook Owner Support Request')}
-            className="inline-flex items-center justify-center rounded-lg bg-[#9a7651] px-4 py-2 text-xs font-semibold text-white hover:bg-[#866342] transition-colors"
+            className="inline-flex items-center justify-center rounded-lg bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
           >
             Email Support
           </a>
@@ -5312,8 +5422,8 @@ function SettingsTab({
 
       {/* Discreet Platform Admin Console Shortcut for Verified Administrators */}
       {isSuperAdminUser && (
-        <div className="rounded-2xl border border-[#9a7651]/30 bg-[#faf7f2] p-6 shadow-sm">
-          <div className="flex items-center gap-2.5 text-[#9a7651]">
+        <div className="rounded-2xl border border-[#8b5a2b]/30 bg-[#faf7f2] p-6 shadow-sm">
+          <div className="flex items-center gap-2.5 text-[#8b5a2b]">
             <ShieldCheck className="size-5" />
             <h3 className="text-base font-bold text-[#3d3934]">StayBook Super Admin Console</h3>
           </div>
@@ -5340,7 +5450,7 @@ function SettingsTab({
         <p className="mt-1 text-xs text-[#a04e32]">Securely end your current workspace session.</p>
         <button
           onClick={onSignOut}
-          className="mt-4 rounded-xl border border-[#b95c3c] bg-white px-4 py-2 text-xs font-semibold text-[#b95c3c] hover:bg-[#fff5f5]"
+          className="mt-4 rounded-xl border border-[#b95c3c] bg-white px-4 py-2 text-xs font-semibold text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
         >
           Sign Out of StayBook
         </button>
@@ -5373,7 +5483,7 @@ function EmptyState({ title, description, action, actionLabel }: any) {
         {action && (
           <button
             onClick={action}
-            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#9a7651] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#866342]"
+            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
           >
             <Plus className="size-3.5" />
             {actionLabel}
@@ -5395,7 +5505,7 @@ function EmptySearchState({ query, onClear }: any) {
         </p>
         <button
           onClick={onClear}
-          className="mt-4 rounded-xl border border-[#e8dfd4] px-4 py-2 text-xs font-semibold text-[#866342] hover:bg-[#faf7f2]"
+          className="mt-4 rounded-xl border border-[#e8dfd4] px-4 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#faf7f2] hover:border-[#8b5a2b] transition-colors"
         >
           Clear Search Filter
         </button>
@@ -5408,7 +5518,7 @@ function Field({ label, name, placeholder, type = 'text', defaultValue, value, o
   return (
     <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
       <span>
-        {label} {required && <span className="text-[#9a7651] font-bold">*</span>}
+        {label} {required && <span className="text-[#8b5a2b] font-bold">*</span>}
       </span>
       <input
         type={type}
@@ -5419,7 +5529,7 @@ function Field({ label, name, placeholder, type = 'text', defaultValue, value, o
         onChange={onChange}
         min={min}
         required={required}
-        className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors focus:border-[#9a7651]"
+        className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
       />
     </label>
   )
