@@ -43,11 +43,16 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
   current_period_end TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  razorpay_customer_id TEXT,
+  razorpay_subscription_id TEXT,
+  razorpay_plan_id TEXT,
+  razorpay_payment_id TEXT,
   CONSTRAINT uq_subscriptions_owner UNIQUE (owner_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscriptions_owner ON public.subscriptions(owner_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON public.subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_rzp_sub ON public.subscriptions(razorpay_subscription_id);
 
 -- ------------------------------------------------------------------------------
 -- 4. Platform Audit Logs Table (Privileged Super Admin Activity)

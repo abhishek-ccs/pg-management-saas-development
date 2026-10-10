@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Check, ShieldCheck, Sparkles, HelpCircle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Check, ShieldCheck, Sparkles, HelpCircle, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useI18n } from '@/lib/i18n'
 import {
@@ -15,16 +16,169 @@ import {
 } from '@/lib/pricing'
 
 export function PricingContent() {
+  const router = useRouter()
   const [hasSession, setHasSession] = useState<boolean | null>(null)
+  const [isSubscribed, setIsSubscribed] = useState(false)
   const [billingCycle, setBillingCycle] = useState<'yearly' | 'monthly'>('yearly')
+  const [loadingPlan, setLoadingPlan] = useState<'monthly' | 'yearly' | null>(null)
+  const [errorMessage, setErrorMessage] = useState('')
   const { t, locale } = useI18n()
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const requestedPlan = new URLSearchParams(window.location.search).get('plan')
+      if (requestedPlan === 'monthly' || requestedPlan === 'yearly') {
+        setBillingCycle(requestedPlan)
+      }
+    }
+
     const supabase = createClient()
-    supabase.auth.getUser().then(({ data }: { data: any }) => {
-      setHasSession(!!data?.user)
+    supabase.auth.getUser().then(async ({ data }: { data: any }) => {
+      const user = data?.user
+      setHasSession(!!user)
+      if (user) {
+        const { data: sub } = await supabase
+          .from('subscriptions')
+          .select('status')
+          .eq('owner_id', user.id)
+          .maybeSingle()
+        if (sub?.status === 'active') {
+          setIsSubscribed(true)
+        }
+      }
     })
   }, [])
+
+  const loadRazorpayScript = useCallback((): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (typeof window !== 'undefined' && (window as any).Razorpay) {
+        resolve(true)
+        return
+      }
+      const existing = document.getElementById('razorpay-checkout-script')
+      if (existing) {
+        existing.addEventListener('load', () => resolve(true))
+        existing.addEventListener('error', () => resolve(false))
+        return
+      }
+      const script = document.createElement('script')
+      script.id = 'razorpay-checkout-script'
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.async = true
+      script.onload = () => resolve(true)
+      script.onerror = () => resolve(false)
+      document.body.appendChild(script)
+    })
+  }, [])
+
+  async function handleSubscribe(planType: 'monthly' | 'yearly') {
+    setErrorMessage('')
+
+    // 1. If not authenticated, route through login flow preserving return URL
+    if (!hasSession) {
+      const destination = `/pricing?plan=${planType}`
+      router.push(`/login?next=${encodeURIComponent(destination)}`)
+      return
+    }
+
+    // 2. If already subscribed, route straight to dashboard
+    if (isSubscribed) {
+      router.push('/dashboard')
+      return
+    }
+
+    setLoadingPlan(planType)
+
+    try {
+      // 3. Create server-side subscription on Razorpay
+      const res = await fetch('/api/razorpay/create-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planType }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.subscriptionId) {
+        throw new Error(data.error || 'Failed to initialize subscription with Razorpay.')
+      }
+
+      // 4. Load Razorpay Checkout SDK
+      const scriptReady = await loadRazorpayScript()
+      if (!scriptReady) {
+        throw new Error('Unable to load payment gateway checkout. Please check internet connection.')
+      }
+
+      // 5. Open Razorpay Checkout modal
+      const options = {
+        key: data.keyId,
+        subscription_id: data.subscriptionId,
+        name: 'StayBook',
+        description:
+          planType === 'yearly'
+            ? 'Yearly Subscription — 7-Day Free Trial'
+            : 'Monthly Subscription — 7-Day Free Trial',
+        image: '/favicon.ico',
+        prefill: {
+          name: data.user?.name || '',
+          email: data.user?.email || '',
+        },
+        theme: {
+          color: '#9a7651',
+        },
+        handler: async (response: {
+          razorpay_payment_id: string
+          razorpay_subscription_id: string
+          razorpay_signature: string
+        }) => {
+          try {
+            const verifyRes = await fetch('/api/razorpay/verify-subscription', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_subscription_id: response.razorpay_subscription_id,
+                razorpay_signature: response.razorpay_signature,
+                planType,
+              }),
+            })
+
+            const verifyData = await verifyRes.json()
+            if (verifyRes.ok && verifyData.success) {
+              window.location.href = '/dashboard?subscription=success'
+            } else {
+              setErrorMessage(
+                verifyData.error ||
+                  'Payment authorization received, but verification could not be confirmed.'
+              )
+            }
+          } catch (err: any) {
+            setErrorMessage(err?.message || 'Error communicating with verification server.')
+          } finally {
+            setLoadingPlan(null)
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setLoadingPlan(null)
+          },
+        },
+      }
+
+      const rzp = new (window as any).Razorpay(options)
+      rzp.on('payment.failed', (failResp: any) => {
+        setErrorMessage(
+          failResp.error?.description || 'Payment mandate authorization failed or was declined.'
+        )
+        setLoadingPlan(null)
+      })
+      rzp.open()
+    } catch (err: any) {
+      console.error('Subscription start failed:', err)
+      setErrorMessage(err?.message || 'Unable to open payment modal. Please try again.')
+      setLoadingPlan(null)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16">
@@ -81,6 +235,14 @@ export function PricingContent() {
           </button>
         </div>
       </div>
+
+      {/* Error Message Banner */}
+      {errorMessage && (
+        <div className="mt-6 mx-auto max-w-xl rounded-2xl border border-[#f5c6cb] bg-[#fff5f5] p-4 text-xs text-[#a02020] text-center shadow-xs flex items-center justify-center gap-2">
+          <AlertCircle className="size-4 shrink-0" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
 
       {/* Plan Cards */}
       <div className="mt-12 grid gap-6 md:grid-cols-3 items-stretch">
@@ -173,12 +335,18 @@ export function PricingContent() {
               </li>
             </ul>
           </div>
-          <Link
-            href={hasSession ? '/dashboard' : '/signup'}
-            className="mt-8 block rounded-xl bg-[#9a7651] py-2.5 text-center text-xs font-semibold text-white shadow-sm hover:bg-[#866342] transition-colors"
+          <button
+            type="button"
+            onClick={() => handleSubscribe('monthly')}
+            disabled={loadingPlan !== null}
+            className="mt-8 block w-full rounded-xl bg-[#9a7651] py-2.5 text-center text-xs font-semibold text-white shadow-sm hover:bg-[#866342] transition-colors disabled:opacity-60 cursor-pointer"
           >
-            {hasSession ? t.landing.goToDashboard : t.landing.startFreeTrial}
-          </Link>
+            {loadingPlan === 'monthly'
+              ? (locale === 'hi' ? 'प्रतीक्षा करें...' : 'Processing...')
+              : isSubscribed
+              ? t.landing.goToDashboard
+              : t.landing.startFreeTrial}
+          </button>
         </div>
 
         {/* 3. Yearly Plan */}
@@ -238,12 +406,18 @@ export function PricingContent() {
               </li>
             </ul>
           </div>
-          <Link
-            href={hasSession ? '/dashboard' : '/signup'}
-            className="mt-8 block rounded-xl bg-[#9a7651] py-2.5 text-center text-xs font-semibold text-white shadow-sm hover:bg-[#866342] transition-colors"
+          <button
+            type="button"
+            onClick={() => handleSubscribe('yearly')}
+            disabled={loadingPlan !== null}
+            className="mt-8 block w-full rounded-xl bg-[#9a7651] py-2.5 text-center text-xs font-semibold text-white shadow-sm hover:bg-[#866342] transition-colors disabled:opacity-60 cursor-pointer"
           >
-            {hasSession ? t.landing.goToDashboard : t.landing.startFreeTrial}
-          </Link>
+            {loadingPlan === 'yearly'
+              ? (locale === 'hi' ? 'प्रतीक्षा करें...' : 'Processing...')
+              : isSubscribed
+              ? t.landing.goToDashboard
+              : t.landing.startFreeTrial}
+          </button>
         </div>
       </div>
 

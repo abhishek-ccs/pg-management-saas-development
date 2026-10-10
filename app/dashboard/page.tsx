@@ -447,6 +447,122 @@ export default function DashboardPage() {
     window.setTimeout(() => setNotice(''), 3500)
   }
 
+  const [isUpgradingSubscription, setIsUpgradingSubscription] = useState(false)
+
+  const loadRazorpayScript = () => {
+    return new Promise<boolean>((resolve) => {
+      if (typeof window !== 'undefined' && (window as any).Razorpay) {
+        resolve(true)
+        return
+      }
+      const existing = document.getElementById('razorpay-checkout-script')
+      if (existing) {
+        existing.addEventListener('load', () => resolve(true))
+        existing.addEventListener('error', () => resolve(false))
+        return
+      }
+      const script = document.createElement('script')
+      script.id = 'razorpay-checkout-script'
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.async = true
+      script.onload = () => resolve(true)
+      script.onerror = () => resolve(false)
+      document.body.appendChild(script)
+    })
+  }
+
+  const handleUpgradePlan = async () => {
+    if (isUpgradingSubscription) return
+    setIsUpgradingSubscription(true)
+
+    try {
+      const res = await fetch('/api/razorpay/create-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planType: dashboardBillingCycle }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || !data.subscriptionId) {
+        flash(data.error || 'Failed to initialize payment gateway. Please verify Razorpay keys in environment.')
+        setIsUpgradingSubscription(false)
+        return
+      }
+
+      const scriptReady = await loadRazorpayScript()
+      if (!scriptReady) {
+        flash('Unable to load payment gateway checkout. Please check internet connection.')
+        setIsUpgradingSubscription(false)
+        return
+      }
+
+      const options = {
+        key: data.keyId,
+        subscription_id: data.subscriptionId,
+        name: 'StayBook',
+        description: `Growth Pro (${dashboardBillingCycle === 'yearly' ? 'Yearly' : 'Monthly'})`,
+        image: '/favicon.ico',
+        prefill: {
+          name: userName || data.user?.name || '',
+          email: userEmail || data.user?.email || '',
+        },
+        theme: {
+          color: '#8b5a2b',
+        },
+        handler: async (paymentResponse: {
+          razorpay_payment_id: string
+          razorpay_subscription_id: string
+          razorpay_signature: string
+        }) => {
+          try {
+            const verifyRes = await fetch('/api/razorpay/verify-subscription', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                razorpay_payment_id: paymentResponse.razorpay_payment_id,
+                razorpay_subscription_id: paymentResponse.razorpay_subscription_id,
+                razorpay_signature: paymentResponse.razorpay_signature,
+                planType: dashboardBillingCycle,
+              }),
+            })
+
+            const verifyData = await verifyRes.json()
+            if (verifyRes.ok && verifyData.success) {
+              setSubscriptionStatus(verifyData.status || 'active')
+              setSubscriptionPlan(verifyData.plan || dashboardBillingCycle)
+              setIsTrialExpired(false)
+              setShowPricingModal(false)
+              flash('🎉 Subscription activated successfully!')
+            } else {
+              flash(verifyData.error || 'Payment received, but server verification could not be confirmed.')
+            }
+          } catch (err: any) {
+            flash(err?.message || 'Error communicating with verification server.')
+          } finally {
+            setIsUpgradingSubscription(false)
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setIsUpgradingSubscription(false)
+          },
+        },
+      }
+
+      const rzp = new (window as any).Razorpay(options)
+      rzp.on('payment.failed', (failResp: any) => {
+        flash(failResp.error?.description || 'Payment mandate authorization failed or was declined.')
+        setIsUpgradingSubscription(false)
+      })
+      rzp.open()
+    } catch (err: any) {
+      console.error('Subscription checkout error:', err)
+      flash(err?.message || 'Unable to open payment modal. Please try again.')
+      setIsUpgradingSubscription(false)
+    }
+  }
+
   // ----------------------------------------------------------------------------
   // Real Database Fetching from Supabase
   // ----------------------------------------------------------------------------
@@ -4246,13 +4362,14 @@ export default function DashboardPage() {
                 Questions? Email {SUPPORT_EMAIL}
               </a>
               <button
-                onClick={() => {
-                  setShowPricingModal(false)
-                  flash(`Plan upgrade to Growth Pro (${dashboardBillingCycle}) selected. Payment checkout gateway connecting...`)
-                }}
-                className="rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
+                type="button"
+                disabled={isUpgradingSubscription}
+                onClick={handleUpgradePlan}
+                className="rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors disabled:opacity-60 cursor-pointer"
               >
-                Continue with Growth Pro ({dashboardBillingCycle === 'yearly' ? `${formatINR(PRICING_CONFIG.yearlyRate)}/yr` : `${formatINR(PRICING_CONFIG.monthlyRate)}/mo`})
+                {isUpgradingSubscription
+                  ? 'Connecting to payment gateway...'
+                  : `Continue with Growth Pro (${dashboardBillingCycle === 'yearly' ? `${formatINR(PRICING_CONFIG.yearlyRate)}/yr` : `${formatINR(PRICING_CONFIG.monthlyRate)}/mo`})`}
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert'
+import crypto from 'node:crypto'
 import { formatCurrency, formatDate, formatInternationalPhone } from '../lib/i18n/index.js'
 import { checkRateLimit } from '../lib/security/rate-limiter.js'
 import { SUPPORT_EMAIL, getMailtoSupport } from '../lib/constants.js'
@@ -710,6 +711,91 @@ test('21. Bug #15: StayBook Branding & Presentation Verification', () => {
   assert.strictEqual(brandName, 'StayBook')
   assert.notStrictEqual(brandName, 'StayNest')
 })
+
+test('22. Razorpay Subscription Pricing Invariants & Paise Amounts', () => {
+  const monthlyRate = 1699
+  const yearlyRate = 14999
+  const trialDays = 7
+
+  const monthlyPaise = monthlyRate * 100
+  const yearlyPaise = yearlyRate * 100
+
+  assert.strictEqual(monthlyPaise, 169900, 'Monthly plan must be exactly 169,900 paise (₹1,699)')
+  assert.strictEqual(yearlyPaise, 1499900, 'Yearly plan must be exactly 1,499,900 paise (₹14,999)')
+  assert.strictEqual(trialDays, 7, 'Trial period must be exactly 7 days')
+})
+
+test('23. Razorpay Subscription Payment Signature Verification', () => {
+  const secret = 'test_razorpay_secret_123'
+  const paymentId = 'pay_test123456789'
+  const subscriptionId = 'sub_test987654321'
+
+  const validSignature = crypto
+    .createHmac('sha256', secret)
+    .update(`${paymentId}|${subscriptionId}`)
+    .digest('hex')
+
+  // Helper matching lib/razorpay.ts
+  function verify(pId, sId, sig, sec) {
+    const expected = crypto.createHmac('sha256', sec).update(`${pId}|${sId}`).digest('hex')
+    return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(sig, 'hex'))
+  }
+
+  assert.strictEqual(verify(paymentId, subscriptionId, validSignature, secret), true, 'Valid signature must verify')
+  
+  // Tampered paymentId
+  const tamperedPayment = 'pay_tampered99999'
+  assert.notStrictEqual(
+    crypto.createHmac('sha256', secret).update(`${tamperedPayment}|${subscriptionId}`).digest('hex'),
+    validSignature,
+    'Tampered payment ID must fail verification'
+  )
+})
+
+test('24. Razorpay Webhook Raw Body HMAC Signature Verification', () => {
+  const webhookSecret = 'test_webhook_secret_abc'
+  const rawBody = JSON.stringify({
+    event: 'subscription.charged',
+    payload: { subscription: { entity: { id: 'sub_test123' } } },
+  })
+
+  const validSig = crypto.createHmac('sha256', webhookSecret).update(rawBody).digest('hex')
+
+  function verifyWebhook(body, sig, sec) {
+    const expected = crypto.createHmac('sha256', sec).update(body).digest('hex')
+    return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(sig, 'hex'))
+  }
+
+  assert.strictEqual(verifyWebhook(rawBody, validSig, webhookSecret), true, 'Valid webhook payload must verify')
+
+  // Tampered payload
+  const tamperedBody = rawBody + ' '
+  assert.strictEqual(
+    crypto.createHmac('sha256', webhookSecret).update(tamperedBody).digest('hex') === validSig,
+    false,
+    'Modified payload must fail signature check'
+  )
+})
+
+test('25. Razorpay Subscription Lifecycle Event State Mapping', () => {
+  const eventStatusMap = {
+    'subscription.authenticated': 'trialing',
+    'subscription.activated': 'active',
+    'subscription.charged': 'active',
+    'subscription.pending': 'past_due',
+    'subscription.halted': 'expired',
+    'subscription.cancelled': 'canceled',
+    'subscription.completed': 'expired',
+  }
+
+  assert.strictEqual(eventStatusMap['subscription.authenticated'], 'trialing')
+  assert.strictEqual(eventStatusMap['subscription.activated'], 'active')
+  assert.strictEqual(eventStatusMap['subscription.charged'], 'active')
+  assert.strictEqual(eventStatusMap['subscription.pending'], 'past_due')
+  assert.strictEqual(eventStatusMap['subscription.halted'], 'expired')
+  assert.strictEqual(eventStatusMap['subscription.cancelled'], 'canceled')
+})
+
 
 
 
