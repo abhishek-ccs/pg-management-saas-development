@@ -14,7 +14,7 @@ export function PublicFooter() {
         <div className="grid gap-10 sm:grid-cols-2 md:grid-cols-4">
           {/* Brand Info */}
           <div>
-            <div className="flex items-center gap-2.5">
+            <div className="inline-flex items-center rounded-lg bg-[#F8F2E8] px-3 py-2">
               <StayBookLogo iconSize={36} subtitleText="PROPERTY MANAGEMENT" />
             </div>
             <p className="mt-4 max-w-xs text-xs leading-6 text-[#cbbfaf]">
