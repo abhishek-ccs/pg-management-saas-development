@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Building2, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { isValidEmail } from '@/lib/validation'
+import { isValidEmail, getSafeRedirectPath } from '@/lib/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,7 +47,10 @@ export default function LoginPage() {
       return
     }
 
-    const destination = new URLSearchParams(window.location.search).get('next') || '/dashboard'
+    const destination = getSafeRedirectPath(
+      new URLSearchParams(window.location.search).get('next'),
+      '/dashboard'
+    )
     setMessage('Signed in successfully.')
     router.push(destination)
     router.refresh()

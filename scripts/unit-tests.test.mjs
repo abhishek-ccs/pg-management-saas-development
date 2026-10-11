@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert'
 import crypto from 'node:crypto'
 import { formatCurrency, formatDate, formatInternationalPhone } from '../lib/i18n/index.js'
-import { checkRateLimit } from '../lib/security/rate-limiter.js'
+import { checkRateLimit, checkSharedRateLimit } from '../lib/security/rate-limiter.js'
+import { sanitizeHealthError, HEALTH_ERROR_MESSAGES } from '../app/api/health/route.ts'
 import { SUPPORT_EMAIL, getMailtoSupport } from '../lib/constants.js'
 import {
   PRICING_CONFIG,
@@ -19,6 +20,7 @@ import {
   generateWhatsAppReminder,
   generateSmsReminder,
 } from '../lib/due-dates.js'
+import { isSafeRedirectPath, getSafeRedirectPath } from '../lib/validation.js'
 
 test('1. Support Email & Mailto URL Generation', () => {
   assert.ok(SUPPORT_EMAIL.includes('getstaynest@gmail.com'), 'Support email must default to getstaynest@gmail.com')
@@ -796,6 +798,218 @@ test('25. Razorpay Subscription Lifecycle Event State Mapping', () => {
   assert.strictEqual(eventStatusMap['subscription.cancelled'], 'canceled')
 })
 
+test('26. Open Redirect Defense: Strict Destination Validation & Sanitization', () => {
+  const maliciousDestinations = [
+    'https://evil.com',
+    'http://evil.com',
+    'https://attacker.com/login?token=leak',
+    '//evil.com',
+    '//attacker.com/phish',
+    '///evil.com',
+    '////evil.com',
+    '/\\evil.com',
+    '/\\\\evil.com',
+    '\\\\evil.com',
+    '\\evil.com',
+    'javascript:alert(document.cookie)',
+    'data:text/html,<script>alert(1)</script>',
+    'vbscript:msgbox(1)',
+    'file:///etc/passwd',
+    '/dashboard\r\nSet-Cookie:session=compromised',
+    '/dashboard\nEvil-Header:injected',
+    '/dashboard\0nullbyte',
+    'evil.com',
+    'staybook.in.attacker.com',
+    'http://staybook.in@attacker.com',
+    '   ',
+    '',
+    null,
+    undefined,
+    12345,
+    {},
+  ]
 
+  for (const malicious of maliciousDestinations) {
+    assert.strictEqual(
+      isSafeRedirectPath(malicious),
+      false,
+      `Unsafe redirect target must be rejected: ${String(malicious)}`
+    )
+    assert.strictEqual(
+      getSafeRedirectPath(malicious, '/dashboard'),
+      '/dashboard',
+      `Unsafe redirect must fallback to /dashboard: ${String(malicious)}`
+    )
+    assert.strictEqual(
+      getSafeRedirectPath(malicious, '/'),
+      '/',
+      `Unsafe redirect must fallback to /: ${String(malicious)}`
+    )
+  }
 
+  const legitimateDestinations = [
+    '/',
+    '/dashboard',
+    '/dashboard?plan=yearly',
+    '/pricing?plan=monthly#annual-comparison',
+    '/admin',
+    '/admin/setup-security',
+    '/properties/prop-101/rooms',
+    '/console?error=unauthorized',
+    '/terms',
+    '/privacy',
+  ]
+
+  for (const legitimate of legitimateDestinations) {
+    assert.strictEqual(
+      isSafeRedirectPath(legitimate),
+      true,
+      `Legitimate local path must be accepted: ${legitimate}`
+    )
+    assert.strictEqual(
+      getSafeRedirectPath(legitimate, '/fallback'),
+      legitimate,
+      `Legitimate path must be preserved: ${legitimate}`
+    )
+  }
+})
+
+test('27. Health Endpoint Information Disclosure Defense (SEC-04)', () => {
+  // Test raw error scenarios that could expose internal architecture or credentials
+  const simulatedExceptions = [
+    'FATAL: password authentication failed for user "postgres" at postgresql://postgres:SuperSecretPassword123@db.supabase.co:5432/postgres',
+    'relation "public.profiles" does not exist at host 10.0.12.44:5432 with schema supabase_internal',
+    'Unhandled promise rejection: connect ECONNREFUSED 192.168.1.100:5432; apiKey=sb-admin-secret-token-12345',
+    'PostgREST-Error: { "hint": null, "details": "column users.secret_salt does not exist", "code": "42703" }',
+    new Error('PostgreSQL connection timed out to primary cluster aws-ap-south-1.supabase.co:5432'),
+    { message: 'database server failed authentication with service_role token eyJhbGciOi...' },
+    null,
+    undefined,
+  ]
+
+  for (const rawErr of simulatedExceptions) {
+    const degradedResult = sanitizeHealthError(rawErr, 'degraded')
+    const unreachableResult = sanitizeHealthError(rawErr, 'unreachable')
+
+    assert.strictEqual(
+      degradedResult,
+      HEALTH_ERROR_MESSAGES.degraded,
+      'Degraded error message must be generic and safe'
+    )
+    assert.strictEqual(
+      unreachableResult,
+      HEALTH_ERROR_MESSAGES.unreachable,
+      'Unreachable error message must be generic and safe'
+    )
+
+    // Ensure raw error strings are never leaked into the returned description
+    if (typeof rawErr === 'string') {
+      assert.strictEqual(degradedResult.includes(rawErr), false, 'Raw error string must not be present')
+      assert.strictEqual(unreachableResult.includes(rawErr), false, 'Raw error string must not be present')
+    }
+  }
+
+  // Verify structure of health error payloads ensures uptime monitoring compatibility while hiding details
+  const mockHealthPayload = {
+    status: 'degraded',
+    timestamp: new Date().toISOString(),
+    uptimeSec: 3600,
+    environment: 'production',
+    version: '1.0.0',
+    database: {
+      status: 'error',
+      error: sanitizeHealthError(new Error('Sensitive Postgres crash message'), 'degraded'),
+      latencyMs: 42,
+    },
+  }
+
+  assert.strictEqual(mockHealthPayload.status, 'degraded')
+  assert.strictEqual(mockHealthPayload.database.status, 'error')
+  assert.strictEqual(mockHealthPayload.database.error, 'Database service unavailable')
+  assert.strictEqual(typeof mockHealthPayload.database.latencyMs, 'number')
+  assert.ok(mockHealthPayload.timestamp, 'Timestamp must exist for uptime monitors')
+})
+
+test('28. Distributed & In-Memory Rate Limiting Architecture (SEC-05)', async () => {
+  const config = { maxTokens: 5, refillRatePerSec: 1 }
+
+  // 1. Unconfigured Upstash (local development / fallback) -> uses in-memory token bucket
+  const unconfiguredKey = 'auth:unconfigured-ip'
+  for (let i = 0; i < 5; i++) {
+    const res = await checkSharedRateLimit(unconfiguredKey, config, { url: '', token: '' })
+    assert.strictEqual(res.allowed, true, `Request ${i + 1} should be allowed`)
+    assert.strictEqual(res.store, 'memory', 'Must identify store as memory')
+  }
+  const exceededRes = await checkSharedRateLimit(unconfiguredKey, config, { url: '', token: '' })
+  assert.strictEqual(exceededRes.allowed, false, '6th request must be rate limited')
+  assert.strictEqual(exceededRes.remaining, 0)
+  assert.ok(exceededRes.retryAfterSec && exceededRes.retryAfterSec > 0)
+
+  // 2. Configured Upstash with atomic pipeline mock
+  let pipelineCalls = 0
+  let mockRedisCounter = 0
+  const mockFetchSuccess = async (url, options) => {
+    pipelineCalls++
+    mockRedisCounter++
+    assert.ok(url.endsWith('/pipeline'), 'Must invoke Upstash pipeline endpoint')
+    assert.strictEqual(options.method, 'POST')
+    assert.strictEqual(options.headers.Authorization, 'Bearer mock-test-token')
+    return {
+      ok: true,
+      status: 200,
+      json: async () => [{ result: mockRedisCounter }, { result: 1 }],
+    }
+  }
+
+  const distributedKey = 'api:distributed-ip-123'
+  // First 5 requests should pass via redis
+  for (let i = 1; i <= 5; i++) {
+    const res = await checkSharedRateLimit(distributedKey, config, {
+      url: 'https://mock-redis.upstash.io',
+      token: 'mock-test-token',
+      fetchFn: mockFetchSuccess,
+    })
+    assert.strictEqual(res.allowed, true)
+    assert.strictEqual(res.store, 'redis', 'Must indicate redis store')
+    assert.strictEqual(res.remaining, 5 - i)
+  }
+
+  // 6th request: mock counter will be 6 (> maxTokens of 5)
+  const rateLimitedRes = await checkSharedRateLimit(distributedKey, config, {
+    url: 'https://mock-redis.upstash.io',
+    token: 'mock-test-token',
+    fetchFn: mockFetchSuccess,
+  })
+  assert.strictEqual(rateLimitedRes.allowed, false, 'Should be denied when Redis count exceeds maxTokens')
+  assert.strictEqual(rateLimitedRes.remaining, 0)
+  assert.strictEqual(rateLimitedRes.store, 'redis')
+  assert.ok(rateLimitedRes.retryAfterSec && rateLimitedRes.retryAfterSec > 0)
+
+  // 3. Fail-safe behavior on Upstash network error
+  const mockFetchError = async () => {
+    throw new Error('Upstash network timeout')
+  }
+
+  const failSafeRes = await checkSharedRateLimit('api:fail-safe-ip', config, {
+    url: 'https://mock-redis.upstash.io',
+    token: 'mock-test-token',
+    fetchFn: mockFetchError,
+  })
+  assert.strictEqual(failSafeRes.allowed, true, 'Must gracefully fail open to memory without throwing')
+  assert.strictEqual(failSafeRes.store, 'memory', 'Must fallback to in-memory store')
+
+  // 4. Fail-safe behavior on Upstash HTTP 500 error
+  const mockFetch500 = async () => ({
+    ok: false,
+    status: 500,
+  })
+
+  const failSafe500Res = await checkSharedRateLimit('api:fail-safe-500-ip', config, {
+    url: 'https://mock-redis.upstash.io',
+    token: 'mock-test-token',
+    fetchFn: mockFetch500,
+  })
+  assert.strictEqual(failSafe500Res.allowed, true, 'HTTP 500 must fall back safely to in-memory')
+  assert.strictEqual(failSafe500Res.store, 'memory')
+})
 

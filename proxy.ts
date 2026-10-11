@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { updateSession } from '@/lib/supabase/proxy'
 import { applySecurityHeaders } from '@/lib/security/headers'
-import { checkRateLimit, ROUTE_LIMITS } from '@/lib/security/rate-limiter'
+import { checkSharedRateLimit, ROUTE_LIMITS } from '@/lib/security/rate-limiter'
 
 /**
  * Next.js 16 Proxy Convention (replaces deprecated middleware.ts convention)
@@ -9,7 +9,9 @@ import { checkRateLimit, ROUTE_LIMITS } from '@/lib/security/rate-limiter'
  */
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
+  const ip = request.headers.get('x-vercel-ip') ||
+             request.headers.get('cf-connecting-ip') ||
+             request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
              request.headers.get('x-real-ip') || 
              '127.0.0.1'
 
@@ -22,7 +24,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (limitCategory) {
-    const rateCheck = checkRateLimit(`${limitCategory}:${ip}`, ROUTE_LIMITS[limitCategory])
+    const rateCheck = await checkSharedRateLimit(`${limitCategory}:${ip}`, ROUTE_LIMITS[limitCategory])
     if (!rateCheck.allowed) {
       const rateLimitResponse = NextResponse.json(
         {

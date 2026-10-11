@@ -3,6 +3,27 @@ import { createAdminClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
+export const HEALTH_ERROR_MESSAGES = {
+  degraded: 'Database service unavailable',
+  unreachable: 'Service temporarily unavailable',
+} as const
+
+export function sanitizeHealthError(
+  _error: unknown,
+  category: keyof typeof HEALTH_ERROR_MESSAGES = 'unreachable'
+): string {
+  // Never expose raw exception strings, database hostnames, table structures, or credentials to client
+  return HEALTH_ERROR_MESSAGES[category]
+}
+
+function sanitizeLogMessage(message: unknown): string {
+  if (typeof message !== 'string') return 'Unknown internal exception'
+  // Redact any database connection credentials, passwords, or secret tokens from server logs
+  return message
+    .replace(/:\/\/([^:]+):([^@]+)@/g, '://$1:***@')
+    .replace(/(password|secret|key|token|bearer)=([^\s&]+)/gi, '$1=***')
+}
+
 export async function GET() {
   const startTime = Date.now()
 
@@ -13,6 +34,8 @@ export async function GET() {
     const latencyMs = Date.now() - startTime
 
     if (error) {
+      console.error('[Health Check] Database query failed:', sanitizeLogMessage(error.message))
+
       return NextResponse.json(
         {
           status: 'degraded',
@@ -22,11 +45,16 @@ export async function GET() {
           version: '1.0.0',
           database: {
             status: 'error',
-            error: error.message,
+            error: sanitizeHealthError(error, 'degraded'),
             latencyMs,
           },
         },
-        { status: 503 }
+        {
+          status: 503,
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          },
+        }
       )
     }
 
@@ -50,6 +78,8 @@ export async function GET() {
       }
     )
   } catch (err: any) {
+    console.error('[Health Check] Probe exception:', sanitizeLogMessage(err?.message))
+
     return NextResponse.json(
       {
         status: 'unhealthy',
@@ -59,11 +89,17 @@ export async function GET() {
         version: '1.0.0',
         database: {
           status: 'unreachable',
-          error: err?.message || 'Connection failure',
+          error: sanitizeHealthError(err, 'unreachable'),
           latencyMs: Date.now() - startTime,
         },
       },
-      { status: 503 }
+      {
+        status: 503,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
     )
   }
 }
+
