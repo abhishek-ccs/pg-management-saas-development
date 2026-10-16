@@ -51,7 +51,8 @@ export function applySecurityHeaders(response: NextResponse, pathname: string = 
     pathname.startsWith('/api') ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
-    pathname.startsWith('/auth')
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/portal')
   ) {
     response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
   }

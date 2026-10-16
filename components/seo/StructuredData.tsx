@@ -11,7 +11,7 @@ export function StructuredData() {
       {
         '@type': 'Organization',
         '@id': `${baseUrl}/#organization`,
-        name: 'StayBook Technologies',
+        name: 'BaseraBook Technologies',
         url: baseUrl,
         logo: {
           '@type': 'ImageObject',
@@ -34,7 +34,7 @@ export function StructuredData() {
       {
         '@type': 'SoftwareApplication',
         '@id': `${baseUrl}/#software`,
-        name: 'StayBook',
+        name: 'BaseraBook',
         applicationCategory: 'BusinessApplication',
         operatingSystem: 'All modern web browsers (Chrome, Safari, Firefox, Edge)',
         url: baseUrl,

@@ -21,12 +21,20 @@ import {
   generateSmsReminder,
 } from '../lib/due-dates.js'
 import { isSafeRedirectPath, getSafeRedirectPath } from '../lib/validation.js'
+import {
+  generateTenantToken,
+  hashToken,
+  signTenantSession,
+  verifyTenantSession,
+} from '../lib/tenant-access.ts'
+import { applySecurityHeaders } from '../lib/security/headers.ts'
+import { NextResponse } from 'next/server'
 
 test('1. Support Email & Mailto URL Generation', () => {
-  assert.ok(SUPPORT_EMAIL.includes('getstaynest@gmail.com'), 'Support email must default to getstaynest@gmail.com')
+  assert.ok(SUPPORT_EMAIL.includes('baserabook.team@gmail.com'), 'Support email must default to baserabook.team@gmail.com')
   const mailtoLink = getMailtoSupport('Billing Inquiry', 'Hello support team')
   assert.ok(mailtoLink.startsWith('mailto:'), 'Link must be valid mailto scheme')
-  assert.ok(mailtoLink.includes('getstaynest%40gmail.com') || mailtoLink.includes('getstaynest@gmail.com'), 'Must target support email')
+  assert.ok(mailtoLink.includes('baserabook.team%40gmail.com') || mailtoLink.includes('baserabook.team@gmail.com'), 'Must target support email')
   assert.ok(mailtoLink.includes('Billing'), 'Must encode subject')
 })
 
@@ -708,9 +716,10 @@ test('20. Bug #8: Strict Cross-Owner Isolation Law', () => {
   }
 })
 
-test('21. Bug #15: StayBook Branding & Presentation Verification', () => {
-  const brandName = 'StayBook'
-  assert.strictEqual(brandName, 'StayBook')
+test('21. BaseraBook Branding & Presentation Verification', () => {
+  const brandName = 'BaseraBook'
+  assert.strictEqual(brandName, 'BaseraBook')
+  assert.notStrictEqual(brandName, 'StayBook')
   assert.notStrictEqual(brandName, 'StayNest')
 })
 
@@ -819,8 +828,8 @@ test('26. Open Redirect Defense: Strict Destination Validation & Sanitization', 
     '/dashboard\nEvil-Header:injected',
     '/dashboard\0nullbyte',
     'evil.com',
-    'staybook.in.attacker.com',
-    'http://staybook.in@attacker.com',
+    'baserabook.in.attacker.com',
+    'http://baserabook.in@attacker.com',
     '   ',
     '',
     null,
@@ -1012,4 +1021,178 @@ test('28. Distributed & In-Memory Rate Limiting Architecture (SEC-05)', async ()
   assert.strictEqual(failSafe500Res.allowed, true, 'HTTP 500 must fall back safely to in-memory')
   assert.strictEqual(failSafe500Res.store, 'memory')
 })
+
+test('29. Tenant Portal: Cryptographic Token Entropy & One-Way Hash Verification', () => {
+  const generatedTokens = new Set()
+  const generatedHashes = new Set()
+
+  for (let i = 0; i < 50; i++) {
+    const { rawToken, tokenHash, tokenPreview } = generateTenantToken()
+
+    // High Entropy Verification: 32 bytes base64url is 43 characters
+    assert.strictEqual(rawToken.length, 43, 'Raw token must be 43 characters (256-bit URL-safe entropy)')
+    assert.match(rawToken, /^[A-Za-z0-9_-]+$/, 'Raw token must be URL-safe without special characters')
+
+    // Deterministic SHA-256 Hashing Verification
+    assert.strictEqual(tokenHash.length, 64, 'SHA-256 hash must be exactly 64 hex characters')
+    assert.strictEqual(hashToken(rawToken), tokenHash, 'hashToken must deterministically reproduce the stored hash')
+
+    // Preview Formatting (safe for owner UI, never exposes full secret)
+    assert.ok(tokenPreview.startsWith('tk_'), 'Token preview must start with prefix')
+    assert.ok(tokenPreview.length < 15, 'Preview must be concise and non-reversible')
+
+    generatedTokens.add(rawToken)
+    generatedHashes.add(tokenHash)
+  }
+
+  // Cryptographic collision barrier
+  assert.strictEqual(generatedTokens.size, 50, 'All generated tokens must be cryptographically unique')
+  assert.strictEqual(generatedHashes.size, 50, 'All generated hashes must be unique')
+})
+
+test('30. Tenant Portal: Tamper-Evident Signed Session & Expiration Invariant', () => {
+  const validPayload = {
+    tenantId: 'tenant-uuid-1234',
+    ownerId: 'owner-uuid-5678',
+    tokenId: 'token-uuid-9999',
+    expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+  }
+
+  const sessionString = signTenantSession(validPayload)
+  assert.ok(sessionString.includes('.'), 'Session string must contain signature separator')
+
+  // 1. Valid session verification
+  const verified = verifyTenantSession(sessionString)
+  assert.ok(verified !== null, 'Valid session must decode successfully')
+  assert.strictEqual(verified.tenantId, 'tenant-uuid-1234')
+  assert.strictEqual(verified.ownerId, 'owner-uuid-5678')
+
+  // 2. Tampered payload detection (e.g. attacker changes tenant ID)
+  const parts = sessionString.split('.')
+  const tamperedPayload = { ...validPayload, tenantId: 'attacker-tenant-id' }
+  const tamperedB64 = Buffer.from(JSON.stringify(tamperedPayload)).toString('base64url')
+  const tamperedSession = `${tamperedB64}.${parts[1]}`
+  assert.strictEqual(verifyTenantSession(tamperedSession), null, 'Tampered payload must fail cryptographic verification')
+
+  // 3. Tampered signature detection
+  const badSigSession = `${parts[0]}.invalid-signature-value`
+  assert.strictEqual(verifyTenantSession(badSigSession), null, 'Tampered signature must be rejected')
+
+  // 4. Expired session detection
+  const expiredPayload = {
+    ...validPayload,
+    expiresAt: Date.now() - 5000, // 5 seconds in the past
+  }
+  const expiredSession = signTenantSession(expiredPayload)
+  assert.strictEqual(verifyTenantSession(expiredSession), null, 'Expired session must return null')
+})
+
+test('31. Tenant Portal: Strict Multi-Tenant Data Isolation (Cross-Tenant Barrier)', () => {
+  // Scenario: Two tenants under the same PG Owner
+  const tenantAlpha = { id: 'tenant-alpha-uuid', name: 'Rohan Sharma' }
+  const tenantBeta = { id: 'tenant-beta-uuid', name: 'Vikram Singh' }
+
+  const databasePayments = [
+    { id: 'pay-alpha-1', tenant_id: 'tenant-alpha-uuid', amount: 8000, type: 'rent' },
+    { id: 'pay-alpha-2', tenant_id: 'tenant-alpha-uuid', amount: 8000, type: 'rent' },
+    { id: 'pay-beta-1', tenant_id: 'tenant-beta-uuid', amount: 9500, type: 'rent' },
+  ]
+
+  // Simulate Tenant Alpha accessing portal data:
+  // Server-side authorization handler:
+  const getTenantPortalPayments = (sessionTenantId) => {
+    // Queries database strictly enforcing session tenantId
+    return databasePayments.filter((p) => p.tenant_id === sessionTenantId)
+  }
+
+  const alphaPayments = getTenantPortalPayments(tenantAlpha.id)
+  assert.strictEqual(alphaPayments.length, 2, 'Tenant Alpha sees only their 2 payments')
+  assert.ok(alphaPayments.every((p) => p.tenant_id === tenantAlpha.id))
+  assert.strictEqual(alphaPayments.some((p) => p.tenant_id === tenantBeta.id), false, 'Alpha must never see Beta payments')
+
+  // Simulate Tenant Alpha attempting to fetch receipt of Tenant Beta:
+  const getReceiptById = (sessionTenantId, requestedPaymentId) => {
+    const payment = databasePayments.find((p) => p.id === requestedPaymentId && p.tenant_id === sessionTenantId)
+    if (!payment) return { error: 'NOT_AUTHORIZED_OR_NOT_FOUND', status: 404 }
+    return { success: true, payment }
+  }
+
+  const unauthorizedReceiptAttempt = getReceiptById(tenantAlpha.id, 'pay-beta-1')
+  assert.strictEqual(unauthorizedReceiptAttempt.status, 404, 'Attempt to access another tenant receipt must fail')
+
+  const authorizedReceipt = getReceiptById(tenantAlpha.id, 'pay-alpha-1')
+  assert.strictEqual(authorizedReceipt.success, true, 'Tenant can access their own receipt')
+})
+
+test('32. Tenant Portal: Token Revocation & Regeneration Lifecycle Simulation', () => {
+  // In-memory token store simulating public.tenant_access_tokens
+  const tokensTable = []
+
+  const issueTokenForTenant = (tenantId, ownerId) => {
+    // 1. Revoke any previous active tokens
+    tokensTable.forEach((t) => {
+      if (t.tenant_id === tenantId && !t.revoked_at) {
+        t.revoked_at = new Date().toISOString()
+      }
+    })
+
+    // 2. Issue new token
+    const { rawToken, tokenHash, tokenPreview } = generateTenantToken()
+    const record = {
+      id: `token-${tokensTable.length + 1}`,
+      owner_id: ownerId,
+      tenant_id: tenantId,
+      token_hash: tokenHash,
+      token_preview: tokenPreview,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      revoked_at: null,
+    }
+    tokensTable.push(record)
+    return rawToken
+  }
+
+  const validateRawToken = (rawToken) => {
+    const hash = hashToken(rawToken)
+    const record = tokensTable.find((t) => t.token_hash === hash)
+    if (!record) return { valid: false, reason: 'NOT_FOUND' }
+    if (record.revoked_at) return { valid: false, reason: 'REVOKED' }
+    if (new Date(record.expires_at).getTime() < Date.now()) return { valid: false, reason: 'EXPIRED' }
+    return { valid: true, record }
+  }
+
+  // Cycle 1: Issue Token 1
+  const token1 = issueTokenForTenant('tenant-1', 'owner-1')
+  assert.strictEqual(validateRawToken(token1).valid, true, 'Token 1 must be valid initially')
+
+  // Cycle 2: Regenerate (Issues Token 2, Revokes Token 1)
+  const token2 = issueTokenForTenant('tenant-1', 'owner-1')
+  assert.strictEqual(validateRawToken(token1).valid, false, 'Token 1 must now be revoked')
+  assert.strictEqual(validateRawToken(token1).reason, 'REVOKED')
+  assert.strictEqual(validateRawToken(token2).valid, true, 'Token 2 must be valid')
+
+  // Cycle 3: Explicit Owner Revoke
+  tokensTable.forEach((t) => {
+    if (t.tenant_id === 'tenant-1') t.revoked_at = new Date().toISOString()
+  })
+  assert.strictEqual(validateRawToken(token2).valid, false, 'Token 2 must now be revoked')
+  assert.strictEqual(validateRawToken(token2).reason, 'REVOKED')
+})
+
+test('33. Tenant Portal: Search Engine Privacy & No-Index Header Invariant (SEC-06)', () => {
+  const dummyResponse = NextResponse.next()
+  const portalResponse = applySecurityHeaders(dummyResponse, '/portal')
+  assert.strictEqual(
+    portalResponse.headers.get('X-Robots-Tag'),
+    'noindex, nofollow, noarchive',
+    '/portal must be protected from search engine indexing'
+  )
+
+  const portalApiResponse = applySecurityHeaders(dummyResponse, '/api/portal/data')
+  assert.strictEqual(
+    portalApiResponse.headers.get('X-Robots-Tag'),
+    'noindex, nofollow, noarchive',
+    '/api/portal must be protected from search engine indexing'
+  )
+})
+
 

@@ -18,7 +18,7 @@ import { PublicHeader } from '@/components/public/PublicHeader'
 import { PublicFooter } from '@/components/public/PublicFooter'
 
 export const metadata: Metadata = constructMetadata({
-  title: 'Features | StayBook Modern PG & Hostel Management Software',
+  title: 'Features | BaseraBook Modern PG & Hostel Management Software',
   description:
     'Explore comprehensive tools built for property managers and owners: room & bed inventory, tenant KYC onboarding, rent ledgers, WhatsApp receipts, electricity sub-meter calculation, and data restore safety.',
   path: '/features',
@@ -136,7 +136,7 @@ export default function FeaturesPage() {
         </h1>
 
         <p className="mt-5 max-w-2xl mx-auto text-base sm:text-lg text-[#776d62] leading-7">
-          StayBook brings your properties, rooms, tenants, rent collections, and utility bills together into one cohesive, cloud-based workspace.
+          BaseraBook brings your properties, rooms, tenants, rent collections, and utility bills together into one cohesive, cloud-based workspace.
         </p>
 
         <div className="mt-8 flex flex-wrap justify-center items-center gap-3">

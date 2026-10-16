@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Sign In | StayBook',
-  description: 'Sign in to your StayBook property management workspace.',
+  title: 'Sign In | BaseraBook',
+  description: 'Sign in to your BaseraBook property management workspace.',
   robots: {
     index: false,
     follow: false,

@@ -1,6 +1,6 @@
 import React from 'react'
 
-interface StayBookLogoProps {
+export interface StayBookLogoProps {
   className?: string
   iconSize?: number
   showSubtitle?: boolean
@@ -9,12 +9,14 @@ interface StayBookLogoProps {
   theme?: 'dark' | 'light' | 'inherit'
 }
 
+export type BaseraBookLogoProps = StayBookLogoProps
+
 /**
- * StayBook Brand Logo
+ * BaseraBook Brand Logo
  * Matches the reference image soft-luxury design:
  * - Circular outline badge with minimal architectural property/house line art
- * - Elegant serif 'StayBook' wordmark
- * - Tracked uppercase 'PROPERTY MANAGEMENT' subtitle
+ * - Elegant serif 'BaseraBook' wordmark
+ * - Tracked uppercase 'PROPERTY MANAGEMENT' subtitle or brand tagline
  */
 export function StayBookIcon({
   size = 40,
@@ -36,9 +38,9 @@ export function StayBookIcon({
       xmlns="http://www.w3.org/2000/svg"
       className={`shrink-0 ${className}`}
       role="img"
-      aria-label="StayBook Property Management Software Logo"
+      aria-label="BaseraBook Property Management Software Logo"
     >
-      <title>StayBook Property Management Software Logo</title>
+      <title>BaseraBook Property Management Software Logo</title>
       {/* Outer circular badge */}
       <circle
         cx="24"
@@ -114,6 +116,8 @@ export function StayBookIcon({
   )
 }
 
+export const BaseraBookIcon = StayBookIcon
+
 export function StayBookLogo({
   className = '',
   iconSize = 38,
@@ -127,7 +131,7 @@ export function StayBookLogo({
         <StayBookIcon size={iconSize} />
         <div className="mt-2.5">
           <span className="block font-serif text-xl font-bold tracking-tight text-[#2C221E]">
-            StayBook
+            BaseraBook
           </span>
           {showSubtitle && (
             <span className="block font-sans text-[8.5px] font-semibold uppercase tracking-[0.22em] text-[#8C6847]">
@@ -144,7 +148,7 @@ export function StayBookLogo({
       <StayBookIcon size={iconSize} />
       <div className="flex flex-col leading-none">
         <span className="font-serif text-[17px] font-bold tracking-tight text-[#2C221E]">
-          StayBook
+          BaseraBook
         </span>
         {showSubtitle && (
           <span className="mt-1 font-sans text-[8px] font-semibold uppercase tracking-[0.22em] text-[#8C6847]">
@@ -155,5 +159,7 @@ export function StayBookLogo({
     </div>
   )
 }
+
+export const BaseraBookLogo = StayBookLogo
 
 export default StayBookLogo

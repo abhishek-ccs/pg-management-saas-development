@@ -113,7 +113,7 @@ export function PricingContent() {
       const options = {
         key: data.keyId,
         subscription_id: data.subscriptionId,
-        name: 'StayBook',
+        name: 'BaseraBook',
         description:
           planType === 'yearly'
             ? 'Yearly Subscription — 7-Day Free Trial'
@@ -258,8 +258,8 @@ export function PricingContent() {
             </div>
             <p className="mt-3 text-xs leading-5 text-[#776d62]">
               {locale === 'hi'
-                ? 'StayBook के सभी टूल्स का 7 दिन तक पूर्ण उपयोग करके देखें।'
-                : 'Full access to all StayBook tools to configure your properties and test operations.'}
+                ? 'BaseraBook के सभी टूल्स का 7 दिन तक पूर्ण उपयोग करके देखें।'
+                : 'Full access to all BaseraBook tools to configure your properties and test operations.'}
             </p>
             <ul className="mt-6 flex flex-col gap-2.5 text-xs text-[#555a6c]">
               <li className="flex items-center gap-2">

@@ -122,7 +122,7 @@ export default async function AdminPage() {
               <ShieldCheck className="size-5" />
             </div>
             <div>
-              <p className="text-sm font-bold text-[#2c221e]">StayBook Platform</p>
+              <p className="text-sm font-bold text-[#2c221e]">BaseraBook Platform</p>
               <p className="text-[11px] text-[#85899a]">Super Admin Console · {current.user.email}</p>
             </div>
           </div>

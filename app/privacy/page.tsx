@@ -7,12 +7,12 @@ import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { constructMetadata } from '@/lib/site'
 
 export const metadata: Metadata = constructMetadata({
-  title: 'Privacy Policy | StayBook Rental Property Management',
+  title: 'Privacy Policy | BaseraBook Rental Property Management',
   description:
-    'StayBook privacy policy explaining data protection, customer privacy, and compliance with the India Digital Personal Data Protection (DPDP) Act 2023 and EU GDPR.',
+    'BaseraBook privacy policy explaining data protection, customer privacy, and compliance with the India Digital Personal Data Protection (DPDP) Act 2023 and EU GDPR.',
   path: '/privacy',
   keywords: [
-    'StayBook privacy policy',
+    'BaseraBook privacy policy',
     'property management software privacy',
     'tenant data protection',
     'DPDP Act 2023 compliance',
@@ -29,7 +29,7 @@ export default function PrivacyPage() {
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
               <Building2 className="size-5" />
             </span>
-            <span className="text-base font-bold tracking-tight">StayBook</span>
+            <span className="text-base font-bold tracking-tight">BaseraBook</span>
           </Link>
           <Link
             href="/"
@@ -48,7 +48,7 @@ export default function PrivacyPage() {
             <ShieldCheck className="size-6" />
             <span className="text-xs font-bold uppercase tracking-wider">Privacy & Data Governance</span>
           </div>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">StayBook Privacy Policy</h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">BaseraBook Privacy Policy</h1>
           <p className="mt-2 text-xs text-[#85899a]">
             Effective Date: September 28, 2026 · Compliant with India DPDP Act 2023 & EU GDPR
           </p>
@@ -57,7 +57,7 @@ export default function PrivacyPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">1. Overview & Data Roles</h2>
               <p className="mt-2">
-                StayBook respects your fundamental right to privacy. In operating our property management software, StayBook functions as:
+                BaseraBook respects your fundamental right to privacy. In operating our property management software, BaseraBook functions as:
               </p>
               <ul className="mt-2 list-disc pl-5 space-y-1">
                 <li>
@@ -82,7 +82,7 @@ export default function PrivacyPage() {
                 </div>
                 <div className="rounded-xl border border-[#eee4d7] bg-[#faf7f2] p-4">
                   <h3 className="font-bold text-[#3d3934]">C. Financial & Payment Metadata</h3>
-                  <p className="text-xs text-[#676b7d] mt-1">Transaction reference numbers, payment mode (UPI, Cash, Bank Transfer), timestamps, and gateway IDs (Razorpay Order ID, Stripe Customer ID). StayBook does not store complete debit/credit card numbers or CVVs.</p>
+                  <p className="text-xs text-[#676b7d] mt-1">Transaction reference numbers, payment mode (UPI, Cash, Bank Transfer), timestamps, and gateway IDs (Razorpay Order ID, Stripe Customer ID). BaseraBook does not store complete debit/credit card numbers or CVVs.</p>
                 </div>
               </div>
             </section>
@@ -101,7 +101,7 @@ export default function PrivacyPage() {
 
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">4. Authorized Sub-processors</h2>
-              <p className="mt-2">StayBook engages strictly vetted cloud infrastructure providers bound by contractual data protection agreements:</p>
+              <p className="mt-2">BaseraBook engages strictly vetted cloud infrastructure providers bound by contractual data protection agreements:</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 text-xs">
                 <div className="border border-[#e8dfd4] rounded-xl p-3 bg-white">
                   <p className="font-bold text-[#3d3934]">Supabase Inc.</p>
@@ -135,13 +135,13 @@ export default function PrivacyPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">6. Grievance Officer & Data Protection Officer (DPO)</h2>
               <p className="mt-2">
-                In compliance with Section 10 of the India Digital Personal Data Protection Act 2023, StayBook has appointed a dedicated Grievance Officer
+                In compliance with Section 10 of the India Digital Personal Data Protection Act 2023, BaseraBook has appointed a dedicated Grievance Officer
                 and Data Protection Officer to address any privacy complaints or data access requests:
               </p>
               <div className="mt-3 rounded-2xl border border-[#dcd3c5] bg-[#faf7f2] p-5 text-xs space-y-1.5">
                 <p><strong className="text-[#3d3934]">Designation:</strong> Data Protection & Grievance Redressal Officer</p>
-                <p><strong className="text-[#3d3934]">Entity:</strong> StayBook Technologies</p>
-                <p><strong className="text-[#3d3934]">Official Email:</strong> <a href={getMailtoSupport('StayBook Privacy & Grievance Request')} className="text-[#9a7651] underline font-semibold">{SUPPORT_EMAIL}</a></p>
+                <p><strong className="text-[#3d3934]">Entity:</strong> BaseraBook Technologies</p>
+                <p><strong className="text-[#3d3934]">Official Email:</strong> <a href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Privacy%20%26%20Grievance%20Request" className="text-[#9a7651] underline font-semibold">baserabook.team@gmail.com</a></p>
                 <p><strong className="text-[#3d3934]">Redressal SLA:</strong> All formal privacy inquiries are acknowledged within 24 hours and resolved within 7 business days.</p>
               </div>
             </section>

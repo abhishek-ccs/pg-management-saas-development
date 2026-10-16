@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 5. Update STAYBOOK database status via service-role admin client
+    // 5. Update BaseraBook database status via service-role admin client
     const targetPlan = (planType || rzpSub.notes?.plan_type || 'monthly') as SubscriptionPlanType
     const normalizedStatus =
       rzpSub.status === 'active'

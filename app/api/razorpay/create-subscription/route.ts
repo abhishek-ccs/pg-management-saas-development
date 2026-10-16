@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         user_email: user.email || '',
         plan_type: planType,
-        app: 'STAYBOOK',
+        app: 'BaseraBook',
       },
     }
 

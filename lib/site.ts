@@ -12,12 +12,12 @@ export function getSiteUrl(): string {
     process.env.NEXT_PUBLIC_APP_URL ||
     (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '') ||
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
-    'https://staybook.in'
+    'https://baserabook.in'
 
   return envUrl.replace(/\/$/, '')
 }
 
-export const SITE_NAME = 'StayBook'
+export const SITE_NAME = 'BaseraBook'
 export const DEFAULT_OG_IMAGE = '/icon.svg'
 
 export const TARGET_KEYWORDS = [
@@ -30,7 +30,7 @@ export const TARGET_KEYWORDS = [
   'Hostel Management System',
   'Tenant Management Software',
   'Rent Ledger SaaS',
-  'StayBook',
+  'BaseraBook',
 ]
 
 interface MetadataProps {
@@ -61,9 +61,9 @@ export function constructMetadata({
     title,
     description,
     keywords,
-    authors: [{ name: 'StayBook Technologies' }],
-    creator: 'StayBook Technologies',
-    publisher: 'StayBook Technologies',
+    authors: [{ name: 'BaseraBook Technologies' }],
+    creator: 'BaseraBook Technologies',
+    publisher: 'BaseraBook Technologies',
     metadataBase: new URL(siteUrl),
     alternates: {
       canonical: canonicalUrl,

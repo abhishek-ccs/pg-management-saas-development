@@ -111,7 +111,7 @@ function SuperAdminConsoleContent() {
             <ShieldCheck className="size-6" />
           </div>
           <div>
-            <p className="font-bold text-white tracking-wide">StayBook</p>
+            <p className="font-bold text-white tracking-wide">BaseraBook</p>
             <p className="text-[11px] uppercase tracking-[0.18em] text-[#d6c7b6]">Platform Console</p>
           </div>
         </div>
@@ -143,7 +143,7 @@ function SuperAdminConsoleContent() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              placeholder="admin@staybook.internal"
+              placeholder="admin@baserabook.internal"
               className="rounded-xl border border-[#786654] bg-[#36302a] px-3.5 py-3 text-sm text-white placeholder:text-[#8d7e6f] outline-none focus:border-[#c39d72] transition-colors"
             />
           </label>

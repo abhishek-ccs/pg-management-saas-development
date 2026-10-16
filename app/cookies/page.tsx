@@ -7,12 +7,12 @@ import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { constructMetadata } from '@/lib/site'
 
 export const metadata: Metadata = constructMetadata({
-  title: 'Cookie Policy | StayBook Rental Property Management',
+  title: 'Cookie Policy | BaseraBook Rental Property Management',
   description:
-    'Detailed breakdown of essential authentication, session security, and language preference cookies used across the StayBook platform.',
+    'Detailed breakdown of essential authentication, session security, and language preference cookies used across the BaseraBook platform.',
   path: '/cookies',
   keywords: [
-    'StayBook cookies',
+    'BaseraBook cookies',
     'cookie policy SaaS',
     'privacy cookies property software',
   ],
@@ -28,7 +28,7 @@ export default function CookiePolicyPage() {
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
               <Building2 className="size-5" />
             </span>
-            <span className="text-base font-bold tracking-tight">StayBook</span>
+            <span className="text-base font-bold tracking-tight">BaseraBook</span>
           </Link>
           <Link
             href="/"
@@ -47,7 +47,7 @@ export default function CookiePolicyPage() {
             <Cookie className="size-6" />
             <span className="text-xs font-bold uppercase tracking-wider">Cookie Governance</span>
           </div>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">StayBook Cookie Policy</h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">BaseraBook Cookie Policy</h1>
           <p className="mt-2 text-xs text-[#85899a]">
             Effective Date: September 28, 2026 · Compliant with ePrivacy Directive & DPDP Act 2023
           </p>
@@ -71,7 +71,7 @@ export default function CookiePolicyPage() {
                   </h3>
                   <p className="mt-2 text-xs text-[#676b7d]">
                     Essential for secure authentication, CSRF validation, and maintaining active property owner sessions. Without these cookies,
-                    the StayBook SaaS dashboard cannot operate securely.
+                    the BaseraBook SaaS dashboard cannot operate securely.
                   </p>
                   <p className="mt-2 font-mono text-[11px] text-[#9a7651]">
                     Key Cookies: <code className="bg-[#faf7f2] px-1.5 py-0.5 rounded">sb-*-auth-token</code>, <code className="bg-[#faf7f2] px-1.5 py-0.5 rounded">staynest_consent</code>
@@ -120,10 +120,10 @@ export default function CookiePolicyPage() {
               <p className="mt-2">
                 If you have questions about our cookie practices, reach our support team at:{' '}
                 <a
-                  href={getMailtoSupport('StayBook Cookie Policy Inquiry')}
+                  href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Cookie%20Policy%20Inquiry"
                   className="font-semibold text-[#9a7651] underline"
                 >
-                  {SUPPORT_EMAIL}
+                  baserabook.team@gmail.com
                 </a>
               </p>
             </section>

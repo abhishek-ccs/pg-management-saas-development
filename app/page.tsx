@@ -14,7 +14,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { StayBookLogo } from '@/components/ui/StayBookLogo'
+import { BaseraBookLogo } from '@/components/ui/BaseraBookLogo'
 import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
 import { PublicFooter } from '@/components/public/PublicFooter'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
@@ -74,25 +74,25 @@ export default function LandingPage() {
 
   const faqs = [
     {
-      q: locale === 'hi' ? 'StayBook क्या है?' : 'What is StayBook?',
+      q: locale === 'hi' ? 'BaseraBook क्या है?' : 'What is BaseraBook?',
       a:
         locale === 'hi'
-          ? 'StayBook पीजी, हॉस्टल, अपार्टमेंट, मकान और रेंटल प्रॉपर्टी स्वामियों के लिए बनाया गया एक आधुनिक क्लाउड सॉफ्टवेयर है। यह कमरों, यूनिट्स, किरायेदार रिकॉर्ड, देय तिथियों, बिजली बिल और मासिक बहीखाते को एक शांत कार्यक्षेत्र में प्रबंधित करता है।'
-          : 'StayBook is a modern property and rental management workspace designed for owners and managers of PGs, hostels, apartments, rental houses, and societies. It centralizes all your daily property operations—including property details, unit and room configurations, resident onboarding, rent collection, utilities, and financial ledgers—into one calm, intuitive dashboard.',
+          ? 'BaseraBook पीजी, हॉस्टल, अपार्टमेंट, मकान और रेंटल प्रॉपर्टी स्वामियों के लिए बनाया गया एक आधुनिक क्लाउड सॉफ्टवेयर है। यह कमरों, यूनिट्स, किरायेदार रिकॉर्ड, देय तिथियों, बिजली बिल और मासिक बहीखाते को एक शांत कार्यक्षेत्र में प्रबंधित करता है।'
+          : 'BaseraBook is a modern property and rental management workspace designed for owners and managers of PGs, hostels, apartments, rental houses, and societies. It centralizes all your daily property operations—including property details, unit and room configurations, resident onboarding, rent collection, utilities, and financial ledgers—into one calm, intuitive dashboard.',
     },
     {
-      q: locale === 'hi' ? 'StayBook का उपयोग कौन कर सकता है?' : 'Who can use StayBook?',
+      q: locale === 'hi' ? 'BaseraBook का उपयोग कौन कर सकता है?' : 'Who can use BaseraBook?',
       a:
         locale === 'hi'
-          ? 'StayBook पेइंग गेस्ट (PG), हॉस्टल, रेंटल हाउस, अपार्टमेंट, फ्लैट और आवासीय सोसायटियों के स्वामियों और प्रबंधकों के लिए निर्मित है जो स्प्रेडशीट और कागजी बहीखाते से मुक्त होना चाहते हैं।'
-          : 'StayBook is built specifically for owners and managers of PGs, student hostels, apartments, flats, independent rental houses, and residential societies of any size who want an organized, accurate property management system.',
+          ? 'BaseraBook पेइंग गेस्ट (PG), हॉस्टल, रेंटल हाउस, अपार्टमेंट, फ्लैट और आवासीय सोसायटियों के स्वामियों और प्रबंधकों के लिए निर्मित है जो स्प्रेडशीट और कागजी बहीखाते से मुक्त होना चाहते हैं।'
+          : 'BaseraBook is built specifically for owners and managers of PGs, student hostels, apartments, flats, independent rental houses, and residential societies of any size who want an organized, accurate property management system.',
     },
     {
       q: locale === 'hi' ? '7-दिवसीय निःशुल्क ट्रायल में क्या शामिल है?' : 'What does the 7-day free trial include?',
       a:
         locale === 'hi'
-          ? 'प्रत्येक नए खाते को बिना किसी अग्रिम भुगतान के 7 दिनों के लिए StayBook के सभी फीचर्स का पूर्ण उपयोग मिलता है। आप प्रॉपर्टी जोड़ सकते हैं, कमरे व यूनिट्स बना सकते हैं, और रसीदें जारी कर सकते हैं।'
-          : 'Every new account comes with unrestricted access to the complete StayBook workspace for 7 full days with zero upfront payment. You can set up your properties, configure rooms or units, onboard residents, record rent and payments, and access all reporting tools.',
+          ? 'प्रत्येक नए खाते को बिना किसी अग्रिम भुगतान के 7 दिनों के लिए BaseraBook के सभी फीचर्स का पूर्ण उपयोग मिलता है। आप प्रॉपर्टी जोड़ सकते हैं, कमरे व यूनिट्स बना सकते हैं, और रसीदें जारी कर सकते हैं।'
+          : 'Every new account comes with unrestricted access to the complete BaseraBook workspace for 7 full days with zero upfront payment. You can set up your properties, configure rooms or units, onboard residents, record rent and payments, and access all reporting tools.',
     },
     {
       q: locale === 'hi' ? 'ट्रायल समाप्त होने के बाद क्या होता है?' : 'What happens when my trial ends?',
@@ -105,8 +105,8 @@ export default function LandingPage() {
       q: locale === 'hi' ? 'क्या मैं पेशेवर भुगतान रसीदें डाउनलोड कर सकता हूँ?' : 'Can I download professional payment receipts?',
       a:
         locale === 'hi'
-          ? 'हाँ! जब भी आप किराया या बिल भुगतान दर्ज करते हैं, StayBook तुरंत एक औपचारिक रसीद तैयार करता है जिसे आप व्हाट्सएप पर साझा कर सकते हैं या पीडीएफ के रूप में डाउनलोड/प्रिंट कर सकते हैं।'
-          : 'Yes. Every time you record a rent or utility payment, StayBook generates a formal, formatted receipt featuring resident details, payment method, date, and amount breakdown. You can easily view, print, or save it directly as a clean PDF to share with your tenants.',
+          ? 'हाँ! जब भी आप किराया या बिल भुगतान दर्ज करते हैं, BaseraBook तुरंत एक औपचारिक रसीद तैयार करता है जिसे आप व्हाट्सएप पर साझा कर सकते हैं या पीडीएफ के रूप में डाउनलोड/प्रिंट कर सकते हैं।'
+          : 'Yes. Every time you record a rent or utility payment, BaseraBook generates a formal, formatted receipt featuring resident details, payment method, date, and amount breakdown. You can easily view, print, or save it directly as a clean PDF to share with your tenants.',
     },
   ]
 
@@ -116,7 +116,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-20 border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
           <Link href="/" className="flex items-center gap-2.5">
-            <StayBookLogo iconSize={38} subtitleText="PROPERTY MANAGEMENT" />
+            <BaseraBookLogo iconSize={38} subtitleText="PROPERTY MANAGEMENT" />
           </Link>
           <nav className="hidden items-center gap-7 text-sm text-[#776d62] md:flex">
             <Link href="#features">{t.nav.property}</Link>
@@ -150,6 +150,16 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="mx-auto grid max-w-6xl gap-12 px-5 pb-20 pt-16 sm:px-8 lg:grid-cols-[1.08fr_.92fr] lg:items-center lg:pb-28 lg:pt-24">
         <div>
+          {/* Prominent BaseraBook Branding & Official Tagline */}
+          <div className="mb-6">
+            <span className="block font-serif text-3xl sm:text-4xl font-bold tracking-tight text-[#2C221E]">
+              BaseraBook
+            </span>
+            <span className="block font-sans text-xs sm:text-sm font-semibold uppercase tracking-[0.22em] text-[#8C6847] mt-1">
+              Your Property. Smartly Managed.
+            </span>
+          </div>
+
           <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#e8d9c7] bg-white px-3 py-1.5 text-xs font-semibold text-[#9a7651]">
             <Sparkles className="size-3.5" />
             {t.landing.badge}
@@ -205,7 +215,7 @@ export default function LandingPage() {
             <div className="mb-7 flex items-center justify-between">
               <div>
                 <p className="text-xs text-[#a08d79]">{locale === 'hi' ? 'आपका कार्यक्षेत्र' : 'Your workspace'}</p>
-                <p className="mt-1 text-lg font-bold">StayBook Dashboard</p>
+                <p className="mt-1 text-lg font-bold">BaseraBook Dashboard</p>
               </div>
               <span className="rounded-full bg-[#f4ede3] px-2.5 py-1 text-[10px] font-semibold text-[#9a7651]">
                 {t.pricing.trialHeader}
@@ -318,8 +328,8 @@ export default function LandingPage() {
               </div>
               <p className="mt-3 text-xs leading-5 text-[#776d62]">
                 {locale === 'hi'
-                  ? 'StayBook के सभी टूल्स का 7 दिन तक पूर्ण उपयोग करके देखें।'
-                  : 'Full access to all StayBook tools to configure your property and see how it works for you.'}
+                  ? 'BaseraBook के सभी टूल्स का 7 दिन तक पूर्ण उपयोग करके देखें।'
+                  : 'Full access to all BaseraBook tools to configure your property and see how it works for you.'}
               </p>
               <ul className="mt-6 flex flex-col gap-2.5 text-xs text-[#555a6c]">
                 <li className="flex items-center gap-2">

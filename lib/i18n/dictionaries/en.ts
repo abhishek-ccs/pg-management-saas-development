@@ -2,8 +2,8 @@ import type { Dictionary } from '../types'
 
 export const enDictionary: Dictionary = {
   common: {
-    appName: 'StayBook',
-    tagline: 'Modern Property & Rental Management SaaS for PGs, Hostels, Houses & Apartments',
+    appName: 'BaseraBook',
+    tagline: 'Your Property. Smartly Managed.',
     save: 'Save',
     cancel: 'Cancel',
     delete: 'Delete',
@@ -62,7 +62,7 @@ export const enDictionary: Dictionary = {
     badge: 'Modern Property & Rental Management SaaS',
     heroTitle: 'Run your rental properties with clarity, accuracy, and ease.',
     heroTitleHighlight: 'Without spreadsheets.',
-    heroSubtitle: 'StayBook gives property owners and managers of PGs, hostels, apartments, rental houses, and societies complete visibility over rooms, units, resident ledgers, due dates, and rent collection in one calm workspace.',
+    heroSubtitle: 'BaseraBook gives property owners and managers of PGs, hostels, apartments, rental houses, and societies complete visibility over rooms, units, resident ledgers, due dates, and rent collection in one calm workspace.',
     startFreeTrial: 'Start 7-day free trial',
     goToDashboard: 'Go to workspace',
     viewLiveDemo: 'View live demo',
@@ -79,9 +79,9 @@ export const enDictionary: Dictionary = {
     perYear: '/ year',
     sevenDays: '/ 7 days',
     faqTitle: 'Frequently asked questions',
-    faqSubtitle: 'Everything you need to know about setting up StayBook.',
+    faqSubtitle: 'Everything you need to know about setting up BaseraBook.',
     ctaTitle: 'Ready to bring clarity to your rental property operations?',
-    ctaSubtitle: 'Join owners across India who manage their rooms, units, residents, and collections with StayBook.',
+    ctaSubtitle: 'Join owners across India who manage their rooms, units, residents, and collections with BaseraBook.',
     footerDesc: 'Modern cloud property and rental management software for PGs, hostels, rental houses, and apartments.',
     footerSupport: 'Support & Governance',
     footerLegal: 'Legal & Policies',

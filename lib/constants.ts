@@ -1,15 +1,15 @@
 /**
- * StayBook Global Constants
+ * BaseraBook Global Constants
  * Single source of truth for platform configuration and support contact.
  */
 
-export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'getstaynest@gmail.com'
+export const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'baserabook.team@gmail.com'
 
 /**
  * Generates a pre-filled, properly encoded mailto URL for customer support.
  */
 export function getMailtoSupport(
-  subject: string = 'StayBook Support Inquiry',
+  subject: string = 'BaseraBook Support Inquiry',
   body?: string
 ): string {
   const params = new URLSearchParams()
@@ -19,6 +19,6 @@ export function getMailtoSupport(
   return `mailto:${SUPPORT_EMAIL}${query ? `?${query}` : ''}`
 }
 
-export const APP_NAME = 'StayBook'
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://staybook.in'
+export const APP_NAME = 'BaseraBook'
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://baserabook.in'
 

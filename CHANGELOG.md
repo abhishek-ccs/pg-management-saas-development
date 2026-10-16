@@ -1,4 +1,4 @@
-# StayNest SaaS — Enterprise Upgrade & Final Launch Changelog
+# BaseraBook SaaS — Enterprise Upgrade & Final Launch Changelog
 
 All notable changes, bug fixes, security enhancements, and production launch features delivered on branch `feature/enterprise-upgrade-and-reset`.
 
@@ -7,7 +7,7 @@ All notable changes, bug fixes, security enhancements, and production launch fea
 ## [1.0.0-enterprise] — 2026-09-30
 
 ### 1. Support Email Architecture
-- **Single Source of Truth**: Replaced hardcoded and disparate contact emails across the repository with canonical `getstaynest@gmail.com` driven by `process.env.NEXT_PUBLIC_SUPPORT_EMAIL`.
+- **Single Source of Truth**: Configured canonical support email `baserabook.team@gmail.com` driven by `process.env.NEXT_PUBLIC_SUPPORT_EMAIL`.
 - **Centralized Helper**: Created [lib/constants.ts](file:///c:/Users/abhis/Desktop/pg%20ide/pg-management-saas-development/lib/constants.ts) defining `SUPPORT_EMAIL` and `getMailtoSupport(subject, body)` URL generator.
 - **Ubiquitous Propagation**: Updated all public footers, contact blocks, FAQ sections, Terms of Service ([app/terms/page.tsx](file:///c:/Users/abhis/Desktop/pg%20ide/pg-management-saas-development/app/terms/page.tsx)), Privacy Policy ([app/privacy/page.tsx](file:///c:/Users/abhis/Desktop/pg%20ide/pg-management-saas-development/app/privacy/page.tsx)), Cookie Policy ([app/cookies/page.tsx](file:///c:/Users/abhis/Desktop/pg%20ide/pg-management-saas-development/app/cookies/page.tsx)), Security documentation ([app/security/page.tsx](file:///c:/Users/abhis/Desktop/pg%20ide/pg-management-saas-development/app/security/page.tsx)), Error boundaries ([app/error.tsx](file:///c:/Users/abhis/Desktop/pg%20ide/pg-management-saas-development/app/error.tsx), [app/global-error.tsx](file:///c:/Users/abhis/Desktop/pg%20ide/pg-management-saas-development/app/global-error.tsx), [app/not-found.tsx](file:///c:/Users/abhis/Desktop/pg%20ide/pg-management-saas-development/app/not-found.tsx)), Structured Data schemas, and transactional email templates.
 

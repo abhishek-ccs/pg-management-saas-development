@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { calculateRentDueStatus } from '../lib/due-dates.js'
 
-console.log('=== RUNNING VERIFICATION SUITE FOR STAYBOOK REQUIREMENTS ===\n')
+console.log('=== RUNNING VERIFICATION SUITE FOR BASERABOOK REQUIREMENTS ===\n')
 
 // ---------------------------------------------------------------------------
 // 1. LANGUAGE BUTTON VERIFICATION

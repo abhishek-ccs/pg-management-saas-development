@@ -15,6 +15,11 @@ import {
   permanentlyDeleteTrashAction,
   type TrashRecord,
 } from './actions'
+import {
+  generateTenantLinkAction,
+  revokeTenantLinkAction,
+  getTenantLinkStatusAction,
+} from './tenant-link-actions'
 import { isValidPhone } from '@/lib/validation'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { useI18n } from '@/lib/i18n'
@@ -32,7 +37,7 @@ import {
   generateWhatsAppReminder,
   generateSmsReminder,
 } from '@/lib/due-dates'
-import { StayBookLogo, StayBookIcon } from '@/components/ui/StayBookLogo'
+import { BaseraBookLogo, BaseraBookIcon } from '@/components/ui/BaseraBookLogo'
 import {
   Activity,
   AlertTriangle,
@@ -47,12 +52,14 @@ import {
   ChevronRight,
   CircleHelp,
   Clock,
+  Copy,
   DoorOpen,
   Download,
   Edit2,
   FileText,
   Home,
   LayoutDashboard,
+  Link2,
   Loader2,
   LogOut,
   Menu,
@@ -64,12 +71,14 @@ import {
   Plus,
   Printer,
   Receipt,
+  RefreshCw,
   RotateCcw,
   RotateCw,
   Search,
   Settings,
   Share2,
   ShieldAlert,
+  ShieldBan,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -424,6 +433,20 @@ export default function DashboardPage() {
   const [showLogoutModal, setShowLogoutModal] = useState(false)
   const [selectedReceipt, setSelectedReceipt] = useState<PaymentRecord | null>(null)
 
+  // Tenant Self-Service Portal Modal State
+  const [portalTenant, setPortalTenant] = useState<Tenant | null>(null)
+  const [portalLinkData, setPortalLinkData] = useState<{
+    status: string
+    url?: string
+    tokenPreview?: string
+    expiresAt?: string
+    lastAccessedAt?: string | null
+    accessCount?: number
+  } | null>(null)
+  const [isLoadingPortalStatus, setIsLoadingPortalStatus] = useState(false)
+  const [isGeneratingPortalLink, setIsGeneratingPortalLink] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
+
   // High-Impact Confirmation Modal
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean
@@ -500,7 +523,7 @@ export default function DashboardPage() {
       const options = {
         key: data.keyId,
         subscription_id: data.subscriptionId,
-        name: 'StayBook',
+        name: 'BaseraBook',
         description: `Growth Pro (${dashboardBillingCycle === 'yearly' ? 'Yearly' : 'Monthly'})`,
         image: '/favicon.ico',
         prefill: {
@@ -1803,6 +1826,61 @@ export default function DashboardPage() {
     })
   }
 
+  // Tenant Self-Service Portal Handlers
+  async function handleOpenPortalModal(t: Tenant) {
+    setPortalTenant(t)
+    setPortalLinkData(null)
+    setIsLoadingPortalStatus(true)
+    try {
+      const res = await getTenantLinkStatusAction(t.id)
+      if (res.success) {
+        setPortalLinkData(res as any)
+      }
+    } finally {
+      setIsLoadingPortalStatus(false)
+    }
+  }
+
+  async function handleGeneratePortalLink(tenantId: string) {
+    setIsGeneratingPortalLink(true)
+    try {
+      const res = await generateTenantLinkAction(tenantId)
+      if (res.success && res.url) {
+        setPortalLinkData({
+          status: 'active',
+          url: res.url,
+          tokenPreview: res.tokenPreview,
+          expiresAt: res.expiresAt,
+          accessCount: 0,
+        })
+        flash('Private portal link generated.')
+      } else {
+        flash(res.error || 'Failed to generate link.')
+      }
+    } finally {
+      setIsGeneratingPortalLink(false)
+    }
+  }
+
+  async function handleRegeneratePortalLink(tenantId: string) {
+    await handleGeneratePortalLink(tenantId)
+  }
+
+  async function handleRevokePortalLink(tenantId: string) {
+    setIsGeneratingPortalLink(true)
+    try {
+      const res = await revokeTenantLinkAction(tenantId)
+      if (res.success) {
+        setPortalLinkData({ status: 'revoked' })
+        flash('Access link revoked.')
+      } else {
+        flash(res.error || 'Failed to revoke link.')
+      }
+    } finally {
+      setIsGeneratingPortalLink(false)
+    }
+  }
+
   // Restore Record from Trash
   async function handleRestoreTrashRecord(record: TrashRecord) {
     if (isRestoringTrashId) return
@@ -2631,7 +2709,7 @@ export default function DashboardPage() {
         }`}
       >
         <div className="flex h-[76px] items-center justify-between border-b border-[#ebe4da] px-5 sm:px-6 bg-white">
-          <StayBookLogo iconSize={36} />
+          <BaseraBookLogo iconSize={36} />
           <button className="lg:hidden p-1.5 rounded-lg hover:bg-[#faf7f2] text-[#6c635a]" onClick={() => setMobileOpen(false)} aria-label="Close menu">
             <X className="size-5" />
           </button>
@@ -2801,7 +2879,7 @@ export default function DashboardPage() {
             {isSuperAdminUser && (
               <a
                 href="/admin"
-                title="Open StayBook Super Admin Console"
+                title="Open BaseraBook Super Admin Console"
                 className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
               >
                 <ShieldCheck className="size-3.5 text-[#8b5a2b]" />
@@ -3007,6 +3085,7 @@ export default function DashboardPage() {
               onEditTenant={(t: Tenant) => setEditingTenant(t)}
               onVacateTenant={handleVacateTenant}
               onDeleteTenant={handleDeleteTenant}
+              onSharePortalLink={handleOpenPortalModal}
               onRecordPayment={(t: Tenant) => {
                 setPaymentFormTenantId(t.id)
                 setPaymentFormAmount(t.rent)
@@ -4099,7 +4178,7 @@ export default function DashboardPage() {
           <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-6 text-sm" id="printable-receipt">
             <div className="flex items-start justify-between border-b border-[#e4d9cc] pb-4">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#8b5a2b]">StayBook Official Receipt</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#8b5a2b]">BaseraBook Official Receipt</span>
                 <h4 className="mt-1 text-base font-bold text-[#3d3934]">{property.name || 'Rental Property'}</h4>
                 <p className="text-xs text-[#85899a]">{property.address || 'Address on file'}</p>
               </div>
@@ -4152,7 +4231,7 @@ export default function DashboardPage() {
                 </button>
                 <a
                   href={`https://wa.me/?text=${encodeURIComponent(
-                    `*StayBook Official Rent Receipt*\nReceipt: REC-${selectedReceipt.id.slice(0, 8).toUpperCase()}\nProperty: ${property.name || 'StayBook'}\nResident: ${selectedReceipt.tenant_name} (Room ${selectedReceipt.room_number})\nAmount: ${currency(selectedReceipt.amount)}\nType: ${selectedReceipt.payment_type.toUpperCase()}\nMethod: ${selectedReceipt.payment_method.toUpperCase()}\nPaid At: ${formatPaymentTimestamp(selectedReceipt.paid_at, 'Asia/Kolkata', locale)}\n${selectedReceipt.month_covered ? `Period: ${selectedReceipt.month_covered}\n` : ''}Status: CONFIRMED & PAID`
+                    `*BaseraBook Official Rent Receipt*\nReceipt: REC-${selectedReceipt.id.slice(0, 8).toUpperCase()}\nProperty: ${property.name || 'BaseraBook'}\nResident: ${selectedReceipt.tenant_name} (Room ${selectedReceipt.room_number})\nAmount: ${currency(selectedReceipt.amount)}\nType: ${selectedReceipt.payment_type.toUpperCase()}\nMethod: ${selectedReceipt.payment_method.toUpperCase()}\nPaid At: ${formatPaymentTimestamp(selectedReceipt.paid_at, 'Asia/Kolkata', locale)}\n${selectedReceipt.month_covered ? `Period: ${selectedReceipt.month_covered}\n` : ''}Status: CONFIRMED & PAID`
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
@@ -4169,6 +4248,129 @@ export default function DashboardPage() {
                 Close
               </button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* 16. Tenant Self-Service Portal Modal */}
+      {portalTenant && (
+        <Modal
+          title="Resident Self-Service Portal Link"
+          onClose={() => {
+            setPortalTenant(null)
+            setPortalLinkData(null)
+          }}
+        >
+          <div className="flex flex-col gap-4 text-xs">
+            <div className="rounded-2xl border border-[#ebe4da] bg-[#faf7f2] p-4">
+              <p className="text-[11px] font-semibold text-[#85899a]">Resident Profile</p>
+              <p className="mt-0.5 text-base font-bold text-[#2c221e]">{portalTenant.name}</p>
+              <p className="text-[#676b7d]">Room: {portalTenant.room} • Contact: {portalTenant.phone || 'N/A'}</p>
+            </div>
+
+            <p className="text-xs text-[#676b7d] leading-relaxed">
+              Private links allow your resident to view their outstanding dues, electricity calculations, and download verified receipts securely without needing an account or password.
+            </p>
+
+            {/* Link Status Box */}
+            {isLoadingPortalStatus ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="size-5 animate-spin text-[#8b5a2b]" />
+              </div>
+            ) : portalLinkData?.url ? (
+              <div className="flex flex-col gap-3 rounded-2xl border border-[#ebe4da] bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-2.5 py-0.5 text-[10px] font-bold text-[#236b4e]">
+                    <Check className="size-3" /> Active Link
+                  </span>
+                  {portalLinkData.expiresAt && (
+                    <span className="text-[10px] text-[#85899a]">
+                      Expires: {new Date(portalLinkData.expiresAt).toLocaleDateString('en-IN')}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={`${typeof window !== 'undefined' ? window.location.origin : ''}${portalLinkData.url}`}
+                    className="flex-1 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] px-3 py-2 text-xs font-mono text-[#3d3934] select-all outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      const fullUrl = `${window.location.origin}${portalLinkData.url}`
+                      navigator.clipboard.writeText(fullUrl)
+                      setCopiedLink(true)
+                      setTimeout(() => setCopiedLink(false), 2000)
+                    }}
+                    className="flex items-center gap-1 rounded-xl bg-[#8b5a2b] px-3 py-2 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
+                  >
+                    {copiedLink ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                    {copiedLink ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+
+                {/* Action Row */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#f0ebe3] pt-3">
+                  <a
+                    href={`https://wa.me/${(portalTenant.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                      `Hello ${portalTenant.name}, here is your private link to view your rent status, payment receipts, and electricity usage for Room ${portalTenant.room}: ${typeof window !== 'undefined' ? window.location.origin : ''}${portalLinkData.url}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#25D366]/40 bg-[#25D366]/10 px-3 py-1.5 text-xs font-semibold text-[#1e7e34] hover:bg-[#25D366]/20 transition-colors"
+                  >
+                    <MessageCircle className="size-3.5 text-[#25D366]" /> Share on WhatsApp
+                  </a>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleRegeneratePortalLink(portalTenant.id)}
+                      disabled={isGeneratingPortalLink}
+                      className="inline-flex items-center gap-1 rounded-xl border border-[#e8dfd4] px-2.5 py-1.5 text-[11px] font-semibold text-[#676b7d] hover:bg-[#faf7f2] hover:text-[#2c221e] transition-colors"
+                      title="Invalidate current link and issue a fresh one"
+                    >
+                      <RefreshCw className="size-3" /> Regenerate
+                    </button>
+                    <button
+                      onClick={() => handleRevokePortalLink(portalTenant.id)}
+                      disabled={isGeneratingPortalLink}
+                      className="inline-flex items-center gap-1 rounded-xl border border-[#feb2b2] bg-[#fff5f5] px-2.5 py-1.5 text-[11px] font-semibold text-[#c53030] hover:bg-[#fed7d7] transition-colors"
+                      title="Immediately block access to this link"
+                    >
+                      <ShieldBan className="size-3" /> Revoke
+                    </button>
+                  </div>
+                </div>
+
+                {/* Access Metrics */}
+                {portalLinkData.accessCount !== undefined && (
+                  <p className="text-[10px] text-[#999daa]">
+                    Opened {portalLinkData.accessCount} time(s)
+                    {portalLinkData.lastAccessedAt && ` • Last accessed ${new Date(portalLinkData.lastAccessedAt).toLocaleDateString('en-IN')}`}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[#d5cfc7] bg-[#faf7f2] p-6 text-center">
+                <p className="text-xs text-[#676b7d]">
+                  {portalLinkData?.status === 'revoked'
+                    ? 'The previous link for this resident was revoked.'
+                    : portalLinkData?.status === 'expired'
+                    ? 'The previous link for this resident has expired.'
+                    : 'No active self-service link exists for this resident.'}
+                </p>
+                <button
+                  onClick={() => handleGeneratePortalLink(portalTenant.id)}
+                  disabled={isGeneratingPortalLink}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
+                >
+                  {isGeneratingPortalLink ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+                  {isGeneratingPortalLink ? 'Generating Secure Token...' : 'Generate Private Link'}
+                </button>
+              </div>
+            )}
           </div>
         </Modal>
       )}
@@ -4265,7 +4467,7 @@ export default function DashboardPage() {
 
       {/* 16. Subscription / Pricing Modal */}
       {showPricingModal && (
-        <Modal title="StayBook Subscription Plans" onClose={() => setShowPricingModal(false)}>
+        <Modal title="BaseraBook Subscription Plans" onClose={() => setShowPricingModal(false)}>
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <p className="text-xs text-[#74798a]">
@@ -4349,7 +4551,15 @@ export default function DashboardPage() {
                   <li>✓ Full Owner Ledger & Soft Deletes</li>
                   <li>✓ 1-Click WhatsApp & SMS Reminders</li>
                   <li>✓ Real-Time Overdue Status Badges</li>
-                  <li>✓ Priority Support: {SUPPORT_EMAIL}</li>
+                  <li>
+                    ✓ Priority Support:{' '}
+                    <a
+                      href="mailto:baserabook.team@gmail.com"
+                      className="font-medium text-[#8b5a2b] hover:underline"
+                    >
+                      {SUPPORT_EMAIL}
+                    </a>
+                  </li>
                 </ul>
               </div>
             </div>
@@ -5304,6 +5514,7 @@ function TenantsTab({
   onVacateTenant,
   onDeleteTenant,
   onRecordPayment,
+  onSharePortalLink,
   searchQuery,
   onClearSearch,
 }: any) {
@@ -5425,7 +5636,7 @@ function TenantsTab({
                     phone: t.phone,
                     amount: t.rent,
                     dueDay: t.rent_due_day || 5,
-                    propertyName: property?.name || 'StayBook Property',
+                    propertyName: property?.name || 'BaseraBook Property',
                     locale,
                   })
 
@@ -5492,6 +5703,14 @@ function TenantsTab({
                               <UserMinus className="size-3.5" />
                             </button>
                           )}
+
+                          <button
+                            onClick={() => onSharePortalLink?.(t)}
+                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                            title="Share Self-Service Portal Link"
+                          >
+                            <Link2 className="size-3.5" />
+                          </button>
 
                           <button
                             onClick={() => onDeleteTenant(t.id, t.name)}
@@ -6361,10 +6580,15 @@ function SettingsTab({
         <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-4 text-xs">
           <div>
             <p className="font-semibold text-[#44485a]">Official Support Email</p>
-            <p className="font-mono text-[#8b5a2b]">{SUPPORT_EMAIL}</p>
+            <a
+              href="mailto:baserabook.team@gmail.com"
+              className="font-mono text-[#8b5a2b] hover:underline"
+            >
+              baserabook.team@gmail.com
+            </a>
           </div>
           <a
-            href={getMailtoSupport('StayBook Owner Support Request')}
+            href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Owner%20Support%20Request"
             className="inline-flex items-center justify-center rounded-lg bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
           >
             Email Support
@@ -6377,7 +6601,7 @@ function SettingsTab({
         <div className="rounded-2xl border border-[#8b5a2b]/30 bg-[#faf7f2] p-6 shadow-sm">
           <div className="flex items-center gap-2.5 text-[#8b5a2b]">
             <ShieldCheck className="size-5" />
-            <h3 className="text-base font-bold text-[#3d3934]">StayBook Super Admin Console</h3>
+            <h3 className="text-base font-bold text-[#3d3934]">BaseraBook Super Admin Console</h3>
           </div>
           <p className="mt-1 text-xs text-[#85899a]">
             Your email (<strong className="text-[#3d3934]">{userEmail}</strong>) is verified as a platform administrator.
@@ -6404,7 +6628,7 @@ function SettingsTab({
           onClick={onSignOut}
           className="mt-4 rounded-xl border border-[#b95c3c] bg-white px-4 py-2 text-xs font-semibold text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
         >
-          Sign Out of StayBook
+          Sign Out of BaseraBook
         </button>
       </div>
     </div>

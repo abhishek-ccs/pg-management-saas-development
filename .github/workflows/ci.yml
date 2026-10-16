@@ -1,4 +1,4 @@
-name: StayBook Enterprise CI/CD Quality Gate
+name: BaseraBook Enterprise CI/CD Quality Gate
 
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://mock.supabase.co' }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'mock-anon-key' }}
-      NEXT_PUBLIC_APP_URL: 'https://staybook.in'
+      NEXT_PUBLIC_APP_URL: 'https://baserabook.in'
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'mock-service-role-key' }}
     steps:
       - name: Checkout Code

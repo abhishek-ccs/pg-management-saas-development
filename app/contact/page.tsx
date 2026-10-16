@@ -7,15 +7,15 @@ import { PublicFooter } from '@/components/public/PublicFooter'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 
 export const metadata: Metadata = constructMetadata({
-  title: 'Contact Support | StayBook Property Management Software',
+  title: 'Contact Support | BaseraBook Property Management Software',
   description:
-    'Get in touch with the StayBook support and grievance team for assistance with property setup, billing inquiries, account onboarding, or platform feedback.',
+    'Get in touch with the BaseraBook support and grievance team for assistance with property setup, billing inquiries, account onboarding, or platform feedback.',
   path: '/contact',
   keywords: [
-    'StayBook contact',
+    'BaseraBook contact',
     'Property Management Software support',
     'PG software customer care',
-    'StayBook help email',
+    'BaseraBook help email',
     'rental property software inquiry',
     'Hostel software support',
   ],
@@ -57,10 +57,10 @@ export default function ContactPage() {
             <div className="mt-5 rounded-xl border border-[#eee4d7] bg-[#fbf8f3] p-3.5">
               <p className="text-[11px] font-semibold text-[#a08d79] uppercase tracking-wider">Email Address</p>
               <a
-                href={getMailtoSupport('StayBook Support Inquiry')}
+                href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Support%20Inquiry"
                 className="mt-1 block text-sm sm:text-base font-bold text-[#9a7651] hover:underline"
               >
-                {SUPPORT_EMAIL}
+                baserabook.team@gmail.com
               </a>
             </div>
             <p className="mt-3 text-[11px] text-[#85899a] flex items-center gap-1.5">
@@ -82,10 +82,10 @@ export default function ContactPage() {
               <p className="text-[11px] font-semibold text-[#a08d79] uppercase tracking-wider">Designated Officer</p>
               <p className="text-sm font-bold text-[#2c2926]">Grievance Redressal Officer</p>
               <a
-                href={getMailtoSupport('StayBook Grievance Redressal')}
+                href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Grievance%20Redressal"
                 className="mt-0.5 block text-xs sm:text-sm font-semibold text-[#9a7651] hover:underline"
               >
-                {SUPPORT_EMAIL}
+                baserabook.team@gmail.com
               </a>
             </div>
             <p className="mt-3 text-[11px] text-[#85899a] flex items-center gap-1.5">

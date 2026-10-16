@@ -243,7 +243,8 @@ BEGIN
       AND status = 'active'
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE
+SET search_path = public, pg_temp;
 
 -- ==============================================================================
 -- 14. ROW LEVEL SECURITY (RLS) POLICIES
@@ -446,7 +447,8 @@ BEGIN
 
   RETURN new;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp;
 
 -- Attach trigger to Supabase auth.users
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
@@ -465,7 +467,8 @@ BEGIN
   END IF;
   RETURN new;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS trg_protect_profile_role ON public.profiles;
 CREATE TRIGGER trg_protect_profile_role

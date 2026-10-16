@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { StayBookLogo } from '@/components/ui/StayBookLogo'
+import { BaseraBookLogo } from '@/components/ui/BaseraBookLogo'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { useI18n } from '@/lib/i18n'
 
@@ -15,13 +15,16 @@ export function PublicFooter() {
           {/* Brand Info */}
           <div>
             <div className="inline-flex items-center rounded-lg bg-[#F8F2E8] px-3 py-2">
-              <StayBookLogo iconSize={36} subtitleText="PROPERTY MANAGEMENT" />
+              <BaseraBookLogo iconSize={36} subtitleText="PROPERTY MANAGEMENT" />
             </div>
-            <p className="mt-4 max-w-xs text-xs leading-6 text-[#cbbfaf]">
+            <p className="mt-2 text-xs font-semibold text-[#d6c4b2] tracking-wide">
+              Your Property. Smartly Managed.
+            </p>
+            <p className="mt-3 max-w-xs text-xs leading-6 text-[#cbbfaf]">
               {t.landing.footerDesc}
             </p>
             <p className="mt-4 text-[11px] text-[#9a9187]">
-              &copy; {new Date().getFullYear()} StayBook Technologies. Built for property owners & managers.
+              &copy; {new Date().getFullYear()} BaseraBook Technologies. Built for property owners & managers.
             </p>
           </div>
 
@@ -91,7 +94,7 @@ export function PublicFooter() {
             <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
               <li>
                 <a
-                  href={getMailtoSupport('StayBook Support Inquiry')}
+                  href="mailto:baserabook.team@gmail.com"
                   className="transition-colors hover:text-white hover:underline"
                 >
                   {SUPPORT_EMAIL}
@@ -102,7 +105,7 @@ export function PublicFooter() {
                   {locale === 'hi' ? 'शिकायत निवारण अधिकारी:' : 'Grievance Officer:'}
                 </span>
                 <a
-                  href={getMailtoSupport('StayBook Grievance Redressal')}
+                  href={getMailtoSupport('BaseraBook Grievance Redressal')}
                   className="transition-colors hover:text-white hover:underline"
                 >
                   {SUPPORT_EMAIL}

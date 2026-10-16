@@ -8,16 +8,16 @@ import { PRICING_CONFIG, formatINR } from '@/lib/pricing'
 import { SUPPORT_EMAIL } from '@/lib/constants'
 
 export const metadata: Metadata = constructMetadata({
-  title: 'FAQ | StayBook PG & Hostel Management Software Questions',
+  title: 'FAQ | BaseraBook PG & Hostel Management Software Questions',
   description:
-    'Answers to frequently asked questions about StayBook: free trial details, pricing tiers, automated rent receipts, tenant onboarding, data security, and device support.',
+    'Answers to frequently asked questions about BaseraBook: free trial details, pricing tiers, automated rent receipts, tenant onboarding, data security, and device support.',
   path: '/faq',
   keywords: [
     'PG Management Software FAQ',
     'Hostel Management Software FAQ',
     'Rental Property Software questions',
     'Property Management Software guide',
-    'StayBook FAQ',
+    'BaseraBook FAQ',
     'PG billing software',
     'tenant management questions',
   ],
@@ -26,13 +26,13 @@ export const metadata: Metadata = constructMetadata({
 const FAQ_ITEMS = [
   {
     category: 'Product Overview',
-    q: 'What is StayBook and how does it work?',
-    a: 'StayBook is a modern cloud property and rental management software designed specifically for owners and operators of PGs (paying guests), hostels, apartments, rental houses, and societies. It eliminates paper registers and messy spreadsheets by centralizing unit configurations, resident onboarding, rent collection, utility calculations, and financial ledgers into an intuitive, calm workspace.',
+    q: 'What is BaseraBook and how does it work?',
+    a: 'BaseraBook is a modern cloud property and rental management software designed specifically for owners and operators of PGs (paying guests), hostels, apartments, rental houses, and societies. It eliminates paper registers and messy spreadsheets by centralizing unit configurations, resident onboarding, rent collection, utility calculations, and financial ledgers into an intuitive, calm workspace.',
   },
   {
     category: 'Product Overview',
-    q: 'Who should use StayBook?',
-    a: 'StayBook is built for single-building PG owners, multi-property hostel operators, residential landlords, and property managers who want accurate occupancy tracking, automated rent receipt generation, clear financial history, and peace of mind.',
+    q: 'Who should use BaseraBook?',
+    a: 'BaseraBook is built for single-building PG owners, multi-property hostel operators, residential landlords, and property managers who want accurate occupancy tracking, automated rent receipt generation, clear financial history, and peace of mind.',
   },
   {
     category: 'Pricing & Trial',
@@ -52,22 +52,22 @@ const FAQ_ITEMS = [
   {
     category: 'Operations & Receipts',
     q: 'Can I send payment receipts to residents via WhatsApp?',
-    a: 'Yes. Every time you log a rent or utility payment, StayBook generates a formal digital receipt containing resident details, date, payment method, and breakdown. You can share it directly with the resident over WhatsApp or download it as a PDF.',
+    a: 'Yes. Every time you log a rent or utility payment, BaseraBook generates a formal digital receipt containing resident details, date, payment method, and breakdown. You can share it directly with the resident over WhatsApp or download it as a PDF.',
   },
   {
     category: 'Operations & Receipts',
     q: 'How does electricity sub-meter calculation work?',
-    a: 'StayBook includes a dedicated utility module where you enter initial and final meter readings along with your per-unit tariff. The system computes exact consumption charges and adds them cleanly to the tenant ledger.',
+    a: 'BaseraBook includes a dedicated utility module where you enter initial and final meter readings along with your per-unit tariff. The system computes exact consumption charges and adds them cleanly to the tenant ledger.',
   },
   {
     category: 'Data & Security',
     q: 'What happens if I accidentally delete a resident or payment record?',
-    a: 'StayBook features a protective soft-delete and Trash recovery system. Deleted records are safely stored in your Deleted Records bin for 30 days, where you can restore them and their related links with a single click.',
+    a: 'BaseraBook features a protective soft-delete and Trash recovery system. Deleted records are safely stored in your Deleted Records bin for 30 days, where you can restore them and their related links with a single click.',
   },
   {
     category: 'Data & Security',
     q: 'Is my property and financial data secure?',
-    a: 'Yes. StayBook isolates each property owner using PostgreSQL Row Level Security (RLS) policies at the database layer. All data in transit is encrypted using modern TLS 1.3, and all data at rest is encrypted with AES-256 standards.',
+    a: 'Yes. BaseraBook isolates each property owner using PostgreSQL Row Level Security (RLS) policies at the database layer. All data in transit is encrypted using modern TLS 1.3, and all data at rest is encrypted with AES-256 standards.',
   },
 ]
 
@@ -110,7 +110,7 @@ export default function FAQPage() {
         </h1>
 
         <p className="mt-4 max-w-xl mx-auto text-base text-[#776d62] leading-7">
-          Everything you need to know about StayBook property management software, billing, rent collection, and data security.
+          Everything you need to know about BaseraBook property management software, billing, rent collection, and data security.
         </p>
       </section>
 
@@ -160,6 +160,14 @@ export default function FAQPage() {
             >
               Start Free Trial
             </Link>
+          </div>
+          <div className="mt-4">
+            <a
+              href="mailto:baserabook.team@gmail.com"
+              className="text-xs font-semibold text-[#9a7651] hover:underline"
+            >
+              Or email us directly at {SUPPORT_EMAIL}
+            </a>
           </div>
         </div>
       </section>

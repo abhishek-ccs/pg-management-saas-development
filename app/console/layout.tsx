@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Platform Console | StayBook',
+  title: 'Platform Console | BaseraBook',
   description: 'Internal platform administration console.',
   robots: {
     index: false,

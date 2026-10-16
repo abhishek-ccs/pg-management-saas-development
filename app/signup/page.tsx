@@ -144,10 +144,8 @@ export default function SignupPage() {
             <Building2 className="size-5" />
           </div>
           <div>
-            <p className="font-bold">StayBook</p>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[#9296a5]">
-              {step === 'otp' ? 'Email verification' : 'Create your owner account'}
-            </p>
+            <p className="font-bold">BaseraBook</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-[#9a7651] font-semibold">Your Property. Smartly Managed.</p>
           </div>
         </div>
 
@@ -234,8 +232,15 @@ export default function SignupPage() {
 
             <p className="mt-4 text-center text-xs text-[#a08d79]">
               <Link href="/" className="hover:underline">
-                Back to StayBook
+                Back to BaseraBook
               </Link>
+            </p>
+
+            <p className="mt-2 text-center text-xs text-[#a08d79]">
+              Need help?{' '}
+              <a href="mailto:baserabook.team@gmail.com" className="font-semibold text-[#9a7651] hover:underline">
+                baserabook.team@gmail.com
+              </a>
             </p>
           </>
         ) : (

@@ -73,6 +73,7 @@ CREATE OR REPLACE FUNCTION public.soft_delete_payment(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_owner_id UUID := auth.uid();
@@ -138,6 +139,7 @@ CREATE OR REPLACE FUNCTION public.restore_payment(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_owner_id UUID := auth.uid();
@@ -199,6 +201,7 @@ CREATE OR REPLACE FUNCTION public.soft_delete_tenant(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_owner_id UUID := auth.uid();
@@ -267,6 +270,7 @@ CREATE OR REPLACE FUNCTION public.restore_tenant(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_owner_id UUID := auth.uid();

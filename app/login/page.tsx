@@ -64,8 +64,8 @@ export default function LoginPage() {
             <Building2 className="size-5" />
           </div>
           <div>
-            <p className="font-bold">StayBook</p>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[#9296a5]">Secure sign in</p>
+            <p className="font-bold">BaseraBook</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-[#9a7651] font-semibold">Your Property. Smartly Managed.</p>
           </div>
         </div>
 
@@ -139,8 +139,15 @@ export default function LoginPage() {
 
         <p className="mt-3 text-center text-xs text-[#a08d79]">
           <Link href="/" className="hover:underline">
-            Back to StayBook
+            Back to BaseraBook
           </Link>
+        </p>
+
+        <p className="mt-2 text-center text-xs text-[#a08d79]">
+          Need help?{' '}
+          <a href="mailto:baserabook.team@gmail.com" className="font-semibold text-[#9a7651] hover:underline">
+            baserabook.team@gmail.com
+          </a>
         </p>
 
         <div className="mt-6 flex items-start gap-2 rounded-xl bg-[#f6f5ff] p-3 text-[11px] leading-4 text-[#696c9b]">

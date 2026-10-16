@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Start 7-Day Free Trial | StayBook',
-  description: 'Create your StayBook property management account with a 7-day full access free trial.',
+  title: 'Start 7-Day Free Trial | BaseraBook',
+  description: 'Create your BaseraBook property management account with a 7-day full access free trial.',
   robots: {
     index: false,
     follow: false,

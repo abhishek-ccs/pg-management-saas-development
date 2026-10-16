@@ -7,12 +7,12 @@ import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { constructMetadata } from '@/lib/site'
 
 export const metadata: Metadata = constructMetadata({
-  title: 'Security Architecture & Data Protection | StayBook Property SaaS',
+  title: 'Security Architecture & Data Protection | BaseraBook Property SaaS',
   description:
     'Enterprise security standards, PostgreSQL Row Level Security (RLS) isolation, AES-256 database encryption, and sub-processor disclosures.',
   path: '/security',
   keywords: [
-    'StayBook security',
+    'BaseraBook security',
     'property management software security',
     'Row Level Security SaaS',
     'database encryption tenant isolation',
@@ -29,7 +29,7 @@ export default function SecurityPage() {
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
               <Building2 className="size-5" />
             </span>
-            <span className="text-base font-bold tracking-tight">StayBook</span>
+            <span className="text-base font-bold tracking-tight">BaseraBook</span>
           </Link>
           <Link
             href="/"
@@ -48,7 +48,7 @@ export default function SecurityPage() {
             <ShieldCheck className="size-6" />
             <span className="text-xs font-bold uppercase tracking-wider">Enterprise Security Posture</span>
           </div>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">StayBook Security Architecture</h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-[#2c2926]">BaseraBook Security Architecture</h1>
           <p className="mt-2 text-xs text-[#85899a]">
             Last Updated: September 28, 2026 · SOC 2 & ISO 27001 Aligned Controls
           </p>
@@ -57,7 +57,7 @@ export default function SecurityPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">1. Multi-Tenant Cryptographic Isolation</h2>
               <p className="mt-2">
-                StayBook implements defense-in-depth security principles. Multi-tenant customer data is isolated at the database engine level
+                BaseraBook implements defense-in-depth security principles. Multi-tenant customer data is isolated at the database engine level
                 utilizing PostgreSQL Row Level Security (RLS) policies. Every incoming query is bound to the verified cryptographic JWT identity of the
                 authenticated user, preventing cross-tenant data leakage even in the event of client-side code compromise.
               </p>
@@ -115,7 +115,7 @@ export default function SecurityPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">3. Incident Response & Breach Notification</h2>
               <p className="mt-2">
-                StayBook maintains a documented incident response runbook. In the unlikely event of a verified data breach impacting personal resident
+                BaseraBook maintains a documented incident response runbook. In the unlikely event of a verified data breach impacting personal resident
                 or property records, affected customers and relevant supervisory authorities will be formally notified within 72 hours of verification
                 pursuant to GDPR and Section 8(6) of the India DPDP Act 2023.
               </p>
@@ -126,10 +126,10 @@ export default function SecurityPage() {
               <p className="mt-2">
                 If you discover a security vulnerability or suspect an incident, please report it immediately to our security response team at:{' '}
                 <a
-                  href={getMailtoSupport('Security Vulnerability Disclosure')}
+                  href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Security%20Vulnerability%20Disclosure"
                   className="font-semibold text-[#9a7651] underline"
                 >
-                  {SUPPORT_EMAIL}
+                  baserabook.team@gmail.com
                 </a>
                 . We investigate all actionable reports promptly.
               </p>

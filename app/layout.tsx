@@ -11,15 +11,15 @@ const baseUrl = getSiteUrl()
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: {
-    default: 'StayBook | Property Management Software & Rental Property Management',
-    template: '%s | StayBook',
+    default: 'BaseraBook | Property Management Software & Rental Property Management',
+    template: '%s | BaseraBook',
   },
   description:
-    'Modern cloud property management software and rental property management SaaS for PGs, hostels, apartments, and rental houses. Track occupancy, manage residents, log utilities, automate rent receipts, and reconcile ledgers.',
+    'BaseraBook — Your Property. Smartly Managed. Modern cloud property management software and rental property management SaaS for PGs, hostels, apartments, and rental houses. Track occupancy, manage residents, log utilities, automate rent receipts, and reconcile ledgers.',
   keywords: TARGET_KEYWORDS,
-  authors: [{ name: 'StayBook Technologies' }],
-  creator: 'StayBook Technologies',
-  publisher: 'StayBook Technologies',
+  authors: [{ name: 'BaseraBook Technologies' }],
+  creator: 'BaseraBook Technologies',
+  publisher: 'BaseraBook Technologies',
   formatDetection: {
     email: false,
     address: false,
@@ -32,24 +32,24 @@ export const metadata: Metadata = {
     type: 'website',
     locale: 'en_IN',
     url: baseUrl,
-    siteName: 'StayBook Property Management SaaS',
-    title: 'StayBook | Property Management Software & Rental Property Management',
+    siteName: 'BaseraBook Property Management SaaS',
+    title: 'BaseraBook | Property Management Software & Rental Property Management',
     description:
-      'Replace spreadsheets with a calm, accurate rental property management system for PGs, hostels, apartments, and rental houses.',
+      'Your Property. Smartly Managed. Replace spreadsheets with a calm, accurate rental property management system for PGs, hostels, apartments, and rental houses.',
     images: [
       {
         url: '/icon.svg',
         width: 512,
         height: 512,
-        alt: 'StayBook - Property Management Software & Rental Property Management',
+        alt: 'BaseraBook - Property Management Software & Rental Property Management',
       },
     ],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'StayBook | Property Management Software & Rental Property Management',
+    title: 'BaseraBook | Property Management Software & Rental Property Management',
     description:
-      'Modern cloud property and rental management software for PGs, hostels, apartments, and houses.',
+      'BaseraBook — Your Property. Smartly Managed. Modern cloud property and rental management software for PGs, hostels, apartments, and houses.',
     images: ['/icon.svg'],
   },
   robots: {

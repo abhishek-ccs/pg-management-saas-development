@@ -11,7 +11,7 @@ export default function NotFound() {
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
               <Building2 className="size-5" />
             </span>
-            <span className="text-base font-bold tracking-tight">StayBook</span>
+            <span className="text-base font-bold tracking-tight">BaseraBook</span>
           </Link>
         </div>
       </header>
@@ -45,16 +45,16 @@ export default function NotFound() {
         <p className="mt-6 text-xs text-[#85899a]">
           Need help? Reach out to{' '}
           <a
-            href={getMailtoSupport('StayBook 404 Page Assistance')}
+            href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20404%20Page%20Assistance"
             className="font-semibold text-[#9a7651] underline"
           >
-            {SUPPORT_EMAIL}
+            baserabook.team@gmail.com
           </a>
         </p>
       </div>
 
       <footer className="border-t border-[#eee4d7] bg-[#fbf8f3] py-6 text-center text-xs text-[#776d62]">
-        <p>&copy; {new Date().getFullYear()} StayBook. All rights reserved.</p>
+        <p>&copy; {new Date().getFullYear()} BaseraBook. All rights reserved.</p>
       </footer>
     </main>
   )

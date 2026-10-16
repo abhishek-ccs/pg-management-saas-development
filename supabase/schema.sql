@@ -968,3 +968,40 @@ BEFORE DELETE ON public.profiles
 FOR EACH ROW
 EXECUTE FUNCTION public.protect_super_admin_deletion();
 
+-- ------------------------------------------------------------------------------
+-- 22. Tenant Self-Service Access Tokens (Secure Link Architecture)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.tenant_access_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  token_preview TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ DEFAULT NULL,
+  last_accessed_at TIMESTAMPTZ DEFAULT NULL,
+  access_count INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_access_tokens_hash ON public.tenant_access_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_tenant_access_tokens_tenant ON public.tenant_access_tokens(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_access_tokens_owner ON public.tenant_access_tokens(owner_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_access_tokens_expires ON public.tenant_access_tokens(expires_at);
+
+ALTER TABLE public.tenant_access_tokens ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "tenant_access_tokens_owner_select" ON public.tenant_access_tokens
+  FOR SELECT USING (owner_id = auth.uid() OR public.is_super_admin());
+
+CREATE POLICY "tenant_access_tokens_owner_insert" ON public.tenant_access_tokens
+  FOR INSERT WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY "tenant_access_tokens_owner_update" ON public.tenant_access_tokens
+  FOR UPDATE USING (owner_id = auth.uid()) WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY "tenant_access_tokens_owner_delete" ON public.tenant_access_tokens
+  FOR DELETE USING (owner_id = auth.uid());
+
+

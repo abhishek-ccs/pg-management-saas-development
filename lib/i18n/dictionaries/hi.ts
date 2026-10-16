@@ -2,8 +2,8 @@ import type { Dictionary } from '../types'
 
 export const hiDictionary: Dictionary = {
   common: {
-    appName: 'StayBook',
-    tagline: 'पीजी, हॉस्टल, फ्लैट एवं रेंटल प्रॉपर्टी प्रबंधन साफ्टवेयर',
+    appName: 'BaseraBook',
+    tagline: 'Your Property. Smartly Managed.',
     save: 'सहेजें',
     cancel: 'रद्द करें',
     delete: 'हटाएं',
@@ -62,7 +62,7 @@ export const hiDictionary: Dictionary = {
     badge: 'आधुनिक प्रॉपर्टी एवं रेंटल प्रबंधन साफ्टवेयर',
     heroTitle: 'अपनी रेंटल प्रॉपर्टी का संचालन करें सटीकता और सरलता से।',
     heroTitleHighlight: 'बिना किसी बहीखाता रजिस्टर के।',
-    heroSubtitle: 'StayBook पीजी, हॉस्टल, अपार्टमेंट, रेंटल हाउस और सोसाइटी प्रबंधकों को कमरों, फ्लैट्स, किरायेदार रिकॉर्ड, देय तिथियों और किराया संग्रह का पूर्ण नियंत्रण एक शांत डैशबोर्ड में प्रदान करता है।',
+    heroSubtitle: 'BaseraBook पीजी, हॉस्टल, अपार्टमेंट, रेंटल हाउस और सोसाइटी प्रबंधकों को कमरों, फ्लैट्स, किरायेदार रिकॉर्ड, देय तिथियों और किराया संग्रह का पूर्ण नियंत्रण एक शांत डैशबोर्ड में प्रदान करता है।',
     startFreeTrial: '7 दिनों का निःशुल्क ट्रायल शुरू करें',
     goToDashboard: 'डैशबोर्ड पर जाएं',
     viewLiveDemo: 'लाइव डेमो देखें',
@@ -79,9 +79,9 @@ export const hiDictionary: Dictionary = {
     perYear: '/ वर्ष',
     sevenDays: '/ 7 दिन',
     faqTitle: 'अक्सर पूछे जाने वाले प्रश्न',
-    faqSubtitle: 'StayBook शुरू करने के बारे में महत्वपूर्ण जानकारी।',
+    faqSubtitle: 'BaseraBook शुरू करने के बारे में महत्वपूर्ण जानकारी।',
     ctaTitle: 'क्या आप अपने रेंटल प्रबंधन को व्यवस्थित करने के लिए तैयार हैं?',
-    ctaSubtitle: 'आज ही उन प्रॉपर्टी स्वामियों से जुड़ें जो StayBook के साथ समय और धन की बचत कर रहे हैं।',
+    ctaSubtitle: 'आज ही उन प्रॉपर्टी स्वामियों से जुड़ें जो BaseraBook के साथ समय और धन की बचत कर रहे हैं।',
     footerDesc: 'आधुनिक क्लाउड प्रॉपर्टी एवं रेंटल प्रबंधन समाधान। पीजी, हॉस्टल, मकान और अपार्टमेंट के लिए निर्मित।',
     footerSupport: 'सहायता एवं प्रशासन',
     footerLegal: 'कानूनी व नीतियां',

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { StayBookLogo } from '@/components/ui/StayBookLogo'
+import { BaseraBookLogo } from '@/components/ui/BaseraBookLogo'
 import { createClient } from '@/lib/supabase/client'
 import { useI18n } from '@/lib/i18n'
 
@@ -26,7 +26,7 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
     <header className="sticky top-0 z-30 border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
         <Link href="/" className="flex items-center gap-2.5">
-          <StayBookLogo iconSize={38} subtitleText="PROPERTY MANAGEMENT" />
+          <BaseraBookLogo iconSize={38} subtitleText="PROPERTY MANAGEMENT" />
         </Link>
 
         <nav aria-label="Main Navigation" className="hidden items-center gap-7 text-sm font-medium text-[#776d62] md:flex">

@@ -38,10 +38,10 @@ export default function GlobalError({
           <p className="mt-6 text-xs text-[#85899a]">
             Need help? Contact{' '}
             <a
-              href={getMailtoSupport('StayBook Critical Application Error')}
+              href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Critical%20Application%20Error"
               className="font-semibold text-[#9a7651] underline"
             >
-              {SUPPORT_EMAIL}
+              baserabook.team@gmail.com
             </a>
           </p>
         </main>

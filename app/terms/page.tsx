@@ -7,12 +7,12 @@ import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { constructMetadata } from '@/lib/site'
 
 export const metadata: Metadata = constructMetadata({
-  title: 'Terms of Service | StayBook Property Management Software',
+  title: 'Terms of Service | BaseraBook Property Management Software',
   description:
-    'Terms and conditions governing the use of StayBook property and rental management software, subscription lifecycle, data rights, and governing law.',
+    'Terms and conditions governing the use of BaseraBook property and rental management software, subscription lifecycle, data rights, and governing law.',
   path: '/terms',
   keywords: [
-    'StayBook terms',
+    'BaseraBook terms',
     'property management software terms of service',
     'rental property SaaS agreement',
   ],
@@ -28,7 +28,7 @@ export default function TermsPage() {
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
               <Building2 className="size-5" />
             </span>
-            <span className="text-base font-bold tracking-tight">StayBook</span>
+            <span className="text-base font-bold tracking-tight">BaseraBook</span>
           </Link>
           <Link
             href="/"
@@ -43,7 +43,7 @@ export default function TermsPage() {
         <LegalNoticeHeader />
 
         <div className="rounded-3xl border border-[#e8dfd4] bg-white p-8 sm:p-12 shadow-sm">
-          <h1 className="text-3xl font-bold tracking-tight text-[#2c2926]">StayBook Terms of Service</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-[#2c2926]">BaseraBook Terms of Service</h1>
           <p className="mt-2 text-xs text-[#85899a]">
             Effective Date: September 28, 2026 · Version: 1.0.0 (Global B2B SaaS Edition)
           </p>
@@ -52,7 +52,7 @@ export default function TermsPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">1. Agreement to Terms</h2>
               <p className="mt-2">
-                By accessing or subscribing to StayBook (&quot;Service&quot;, &quot;Platform&quot;), operated by StayBook Technologies (&quot;Company&quot;, &quot;we&quot;, &quot;us&quot;),
+                By accessing or subscribing to BaseraBook (&quot;Service&quot;, &quot;Platform&quot;), operated by BaseraBook Technologies (&quot;Company&quot;, &quot;we&quot;, &quot;us&quot;),
                 you (&quot;Customer&quot;, &quot;PG Owner&quot;, &quot;Operator&quot;) agree to be legally bound by these Terms of Service. If you are entering into this agreement on behalf of
                 a company or property management organization, you represent that you hold necessary authority.
               </p>
@@ -61,7 +61,7 @@ export default function TermsPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">2. Description of Service</h2>
               <p className="mt-2">
-                StayBook is a cloud-based multi-tenant property management platform enabling property managers to administer real estate properties,
+                BaseraBook is a cloud-based multi-tenant property management platform enabling property managers to administer real estate properties,
                 rooms, bed inventories, resident tenancy agreements, rent invoicing, utility meter readings, operating expenses, and maintenance ticketing.
               </p>
             </section>
@@ -79,7 +79,7 @@ export default function TermsPage() {
               <h2 className="text-base font-bold text-[#2c2926]">4. Customer Responsibilities & Resident Data</h2>
               <p className="mt-2">
                 The Customer acts as the primary Data Fiduciary (under India DPDP Act 2023) or Data Controller (under GDPR) regarding all resident
-                personal information uploaded to StayBook. The Customer represents that they have obtained valid, documented consent from tenants before
+                personal information uploaded to BaseraBook. The Customer represents that they have obtained valid, documented consent from tenants before
                 uploading their government ID numbers, phone numbers, or emergency contact records.
               </p>
             </section>
@@ -96,7 +96,7 @@ export default function TermsPage() {
             <section>
               <h2 className="text-base font-bold text-[#2c2926]">6. Limitation of Liability</h2>
               <p className="mt-2">
-                To the maximum extent permitted by applicable law, StayBook shall not be liable for any indirect, incidental, special, or consequential damages,
+                To the maximum extent permitted by applicable law, BaseraBook shall not be liable for any indirect, incidental, special, or consequential damages,
                 including loss of rental income, tenant dispute outcomes, or utility billing discrepancies resulting from manual input error.
               </p>
             </section>
@@ -114,10 +114,10 @@ export default function TermsPage() {
               <p className="mt-2">
                 For questions regarding these Terms or formal legal notices, contact our administration team at:{' '}
                 <a
-                  href={getMailtoSupport('StayBook Terms of Service Inquiry')}
+                  href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Terms%20of%20Service%20Inquiry"
                   className="font-semibold text-[#9a7651] underline"
                 >
-                  {SUPPORT_EMAIL}
+                  baserabook.team@gmail.com
                 </a>
               </p>
             </section>

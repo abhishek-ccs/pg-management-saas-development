@@ -5,9 +5,9 @@ import { PublicFooter } from '@/components/public/PublicFooter'
 import { PricingContent } from '@/components/public/PricingContent'
 
 export const metadata: Metadata = constructMetadata({
-  title: 'Pricing Plans | StayBook Rental Property & PG Management Software',
+  title: 'Pricing Plans | BaseraBook Rental Property & PG Management Software',
   description:
-    'Transparent pricing for StayBook property management software. 7-day full access free trial, flexible monthly subscription at ₹1,699/mo, and 26% discounted annual billing at ₹14,999/yr for PG and hostel owners.',
+    'Transparent pricing for BaseraBook property management software. 7-day full access free trial, flexible monthly subscription at ₹1,699/mo, and 26% discounted annual billing at ₹14,999/yr for PG and hostel owners.',
   path: '/pricing',
   keywords: [
     'Rental Property Software',
