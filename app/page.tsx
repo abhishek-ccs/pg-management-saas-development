@@ -114,9 +114,13 @@ export default function LandingPage() {
     <main id="main-content" className="min-h-screen bg-[#fbf8f3] text-[#403a34]">
       {/* Header */}
       <header className="sticky top-0 z-20 border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4 sm:px-8">
-          <Link href="/" className="flex items-center gap-2.5">
-            <BaseraBookLogo iconSize={38} subtitleText="PROPERTY MANAGEMENT" />
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-8 sm:py-3.5">
+          <Link
+            href="/"
+            className="flex items-center gap-2.5 group rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b]"
+            aria-label="BaseraBook — Your Property. Smartly Managed."
+          >
+            <BaseraBookLogo iconSize={38} subtitleText="Your Property. Smartly Managed." />
           </Link>
           <nav className="hidden items-center gap-7 text-sm text-[#776d62] md:flex">
             <Link href="#features">{t.nav.property}</Link>

@@ -15,11 +15,8 @@ export function PublicFooter() {
           {/* Brand Info */}
           <div>
             <div className="inline-flex items-center rounded-lg bg-[#F8F2E8] px-3 py-2">
-              <BaseraBookLogo iconSize={36} subtitleText="PROPERTY MANAGEMENT" />
+              <BaseraBookLogo iconSize={36} subtitleText="Your Property. Smartly Managed." />
             </div>
-            <p className="mt-2 text-xs font-semibold text-[#d6c4b2] tracking-wide">
-              Your Property. Smartly Managed.
-            </p>
             <p className="mt-3 max-w-xs text-xs leading-6 text-[#cbbfaf]">
               {t.landing.footerDesc}
             </p>

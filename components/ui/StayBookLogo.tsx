@@ -122,19 +122,19 @@ export function StayBookLogo({
   className = '',
   iconSize = 38,
   showSubtitle = true,
-  subtitleText = 'PROPERTY MANAGEMENT',
+  subtitleText = 'Your Property. Smartly Managed.',
   layout = 'horizontal',
 }: StayBookLogoProps) {
   if (layout === 'vertical') {
     return (
       <div className={`flex flex-col items-center text-center ${className}`}>
         <StayBookIcon size={iconSize} />
-        <div className="mt-2.5">
-          <span className="block font-serif text-xl font-bold tracking-tight text-[#2C221E]">
+        <div className="mt-2.5 flex flex-col items-center justify-center">
+          <span className="block font-serif text-xl sm:text-2xl font-bold tracking-tight text-[#2C221E] leading-tight">
             BaseraBook
           </span>
           {showSubtitle && (
-            <span className="block font-sans text-[8.5px] font-semibold uppercase tracking-[0.22em] text-[#8C6847]">
+            <span className="mt-1 block font-sans text-[10.5px] sm:text-[12px] font-medium text-[#8C6847] leading-tight tracking-normal">
               {subtitleText}
             </span>
           )}
@@ -144,14 +144,14 @@ export function StayBookLogo({
   }
 
   return (
-    <div className={`flex items-center gap-2.5 ${className}`}>
+    <div className={`flex items-center gap-2.5 sm:gap-3 ${className}`}>
       <StayBookIcon size={iconSize} />
-      <div className="flex flex-col leading-none">
-        <span className="font-serif text-[17px] font-bold tracking-tight text-[#2C221E]">
+      <div className="flex flex-col text-left leading-tight">
+        <span className="font-serif text-[17px] sm:text-[19px] font-bold tracking-tight text-[#2C221E] leading-none">
           BaseraBook
         </span>
         {showSubtitle && (
-          <span className="mt-1 font-sans text-[8px] font-semibold uppercase tracking-[0.22em] text-[#8C6847]">
+          <span className="mt-1 font-sans text-[9.5px] sm:text-[11px] font-medium text-[#8C6847] tracking-normal leading-none whitespace-nowrap">
             {subtitleText}
           </span>
         )}
