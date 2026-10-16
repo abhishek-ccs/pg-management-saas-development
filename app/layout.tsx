@@ -11,11 +11,11 @@ const baseUrl = getSiteUrl()
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: {
-    default: 'BaseraBook | Property Management Software & Rental Property Management',
+    default: 'BaseraBook | PG Management Software & Rental Property Management',
     template: '%s | BaseraBook',
   },
   description:
-    'BaseraBook — Your Property. Smartly Managed. Modern cloud property management software and rental property management SaaS for PGs, hostels, apartments, and rental houses. Track occupancy, manage residents, log utilities, automate rent receipts, and reconcile ledgers.',
+    'BaseraBook — Your Property. Smartly Managed. Modern PG management software, rental property management software, and rent tracking platform for PGs, hostels, apartments, and rental houses. Track rooms, tenants, rent dues, and receipts all in one place.',
   keywords: TARGET_KEYWORDS,
   authors: [{ name: 'BaseraBook Technologies' }],
   creator: 'BaseraBook Technologies',

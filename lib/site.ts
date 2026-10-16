@@ -26,6 +26,7 @@ export const TARGET_KEYWORDS = [
   'PG Management Software',
   'Hostel Management Software',
   'Rental Property Software',
+  'Rent Tracking Software',
   'PG Software',
   'Hostel Management System',
   'Tenant Management Software',
