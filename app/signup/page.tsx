@@ -197,8 +197,8 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[#faf7f2] px-4 py-8 sm:py-12">
-      <div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+    <main className="grid min-h-screen place-items-center bg-[#faf7f2] px-3.5 py-8 sm:px-4 sm:py-12">
+      <div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-5 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
         {/* Brand Header */}
         <div className="mb-6 flex items-center gap-3">
           <div className="grid size-11 place-items-center rounded-2xl bg-[#8b5a2b] text-white shadow-sm">
@@ -298,7 +298,7 @@ export default function SignupPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] active:scale-[0.99] disabled:opacity-60 transition-all cursor-pointer"
+                className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] active:scale-[0.99] disabled:opacity-60 transition-all cursor-pointer min-h-[44px]"
               >
                 {loading && <Loader2 className="size-4 animate-spin text-white" />}
                 {loading ? 'Creating your workspace...' : 'Start 7-Day Free Trial'}
@@ -333,8 +333,8 @@ export default function SignupPage() {
             </div>
 
             <h1 className="text-2xl font-bold tracking-tight text-[#2c221e]">Enter verification code</h1>
-            <p className="mt-1 text-xs text-[#676b7d]">
-              We sent a 6-digit confirmation code to <strong className="text-[#2c221e]">{email}</strong>. Enter it below to activate your account.
+            <p className="mt-1 text-xs text-[#676b7d] leading-relaxed">
+              We sent a 6-digit confirmation code to <strong className="text-[#2c221e] break-all">{email}</strong>. Enter it below to activate your account.
             </p>
 
             <form onSubmit={handleVerifyOtp} className="mt-6 flex flex-col gap-4">
@@ -354,7 +354,7 @@ export default function SignupPage() {
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
                   required
                   placeholder="123456"
-                  className="rounded-xl border border-[#e4e6ec] bg-white px-4 py-3 text-center text-2xl font-mono font-bold tracking-[0.3em] text-[#2c221e] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
+                  className="rounded-xl border border-[#e4e6ec] bg-white px-3 sm:px-4 py-3 text-center text-xl sm:text-2xl font-mono font-bold tracking-[0.2em] sm:tracking-[0.3em] text-[#2c221e] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
                 />
               </label>
 
@@ -375,7 +375,7 @@ export default function SignupPage() {
               <button
                 type="submit"
                 disabled={verifying}
-                className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] active:scale-[0.99] disabled:opacity-60 transition-all cursor-pointer"
+                className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] active:scale-[0.99] disabled:opacity-60 transition-all cursor-pointer min-h-[44px]"
               >
                 {verifying && <Loader2 className="size-4 animate-spin text-white" />}
                 {verifying ? 'Verifying & Activating...' : 'Verify & Launch Workspace'}

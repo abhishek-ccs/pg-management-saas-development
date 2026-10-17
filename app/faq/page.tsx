@@ -164,7 +164,7 @@ export default function FAQPage() {
           <div className="mt-4">
             <a
               href="mailto:baserabook.team@gmail.com"
-              className="text-xs font-semibold text-[#9a7651] hover:underline"
+              className="text-xs font-semibold text-[#9a7651] hover:underline break-all"
             >
               Or email us directly at {SUPPORT_EMAIL}
             </a>

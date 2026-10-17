@@ -92,7 +92,7 @@ export function PublicFooter() {
               <li>
                 <a
                   href="mailto:baserabook.team@gmail.com"
-                  className="transition-colors hover:text-white hover:underline"
+                  className="transition-colors hover:text-white hover:underline break-all"
                 >
                   {SUPPORT_EMAIL}
                 </a>
@@ -103,7 +103,7 @@ export function PublicFooter() {
                 </span>
                 <a
                   href={getMailtoSupport('BaseraBook Grievance Redressal')}
-                  className="transition-colors hover:text-white hover:underline"
+                  className="transition-colors hover:text-white hover:underline break-all"
                 >
                   {SUPPORT_EMAIL}
                 </a>

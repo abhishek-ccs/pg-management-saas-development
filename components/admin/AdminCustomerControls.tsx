@@ -171,7 +171,7 @@ export function AdminCustomerControls({
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-[#e9ebf0] bg-white">
-          <table className="w-full text-left text-xs">
+          <table className="w-full min-w-[850px] text-left text-xs">
             <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#74798a]">
               <tr>
                 <th className="px-5 py-3.5">Customer / Contact</th>

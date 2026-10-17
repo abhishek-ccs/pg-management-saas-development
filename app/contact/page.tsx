@@ -46,7 +46,7 @@ export default function ContactPage() {
       <section className="mx-auto max-w-4xl px-5 pb-20 sm:px-8">
         <div className="grid gap-6 sm:grid-cols-2">
           {/* Support Email Card */}
-          <div className="rounded-3xl border border-[#eee4d7] bg-white p-7 shadow-xs">
+          <div className="rounded-3xl border border-[#eee4d7] bg-white p-5 sm:p-7 shadow-xs">
             <span className="grid size-12 place-items-center rounded-2xl bg-[#f4ede3] text-[#9a7651]">
               <Mail className="size-6" />
             </span>
@@ -58,7 +58,7 @@ export default function ContactPage() {
               <p className="text-[11px] font-semibold text-[#a08d79] uppercase tracking-wider">Email Address</p>
               <a
                 href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Support%20Inquiry"
-                className="mt-1 block text-sm sm:text-base font-bold text-[#9a7651] hover:underline"
+                className="mt-1 block text-sm sm:text-base font-bold text-[#9a7651] hover:underline break-all"
               >
                 baserabook.team@gmail.com
               </a>
@@ -70,7 +70,7 @@ export default function ContactPage() {
           </div>
 
           {/* Grievance & Compliance Card */}
-          <div className="rounded-3xl border border-[#eee4d7] bg-white p-7 shadow-xs">
+          <div className="rounded-3xl border border-[#eee4d7] bg-white p-5 sm:p-7 shadow-xs">
             <span className="grid size-12 place-items-center rounded-2xl bg-[#f4ede3] text-[#9a7651]">
               <ShieldCheck className="size-6" />
             </span>
@@ -83,7 +83,7 @@ export default function ContactPage() {
               <p className="text-sm font-bold text-[#2c2926]">Grievance Redressal Officer</p>
               <a
                 href="mailto:baserabook.team@gmail.com?subject=BaseraBook%20Grievance%20Redressal"
-                className="mt-0.5 block text-xs sm:text-sm font-semibold text-[#9a7651] hover:underline"
+                className="mt-0.5 block text-xs sm:text-sm font-semibold text-[#9a7651] hover:underline break-all"
               >
                 baserabook.team@gmail.com
               </a>

@@ -492,6 +492,18 @@ export default function DashboardPage() {
   }>({})
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState<string>('')
 
+  // Prevent background scrolling when mobile navigation drawer is active
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [mobileOpen])
+
   // Sync payment options with selected property if configured specifically for this property
   useEffect(() => {
     if (!property?.id) return
@@ -3219,135 +3231,160 @@ export default function DashboardPage() {
       {/* Main Content Area */}
       <main className="lg:pl-[248px]">
         {/* Top Header */}
-        <header className="sticky top-0 z-20 flex min-h-[74px] flex-wrap items-center justify-between border-b border-[#ebe4da] bg-white/95 backdrop-blur px-3 sm:px-8 py-2.5 gap-3">
-          <div className="flex items-center gap-3">
-            <button className="lg:hidden p-1.5 rounded-lg hover:bg-[#faf7f2] text-[#6c635a]" onClick={() => setMobileOpen(true)} aria-label="Open menu">
-              <Menu className="size-5" />
-            </button>
-            <div className="hidden items-center gap-2 text-xs text-[#9c8e80] sm:flex">
-              <span>Workspace</span>
-              <span>/</span>
-              <span className="font-semibold text-[#2c221e]">
-                {active === 'Overview' ? 'Dashboard' : active}
-              </span>
-            </div>
-            <h1 className="text-base font-semibold text-[#2c221e] lg:hidden">
-              {active === 'Overview' ? 'Dashboard' : active}
-            </h1>
-
-            {/* Multiple Properties Switcher Dropdown in Header */}
-            {properties.length > 0 && (
-              <div className="flex items-center gap-1.5 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 py-1 text-xs shadow-2xs hover:border-[#d9cbbe] transition-colors">
-                <Building2 className="size-3.5 text-[#8b5a2b] shrink-0" />
-                <select
-                  value={selectedPropertyId || property.id}
-                  onChange={(e) => {
-                    if (e.target.value === '__add_new__') {
-                      setEditingPropertyId(null)
-                      setShowPropertyModal(true)
-                    } else {
-                      setSelectedPropertyId(e.target.value)
-                    }
-                  }}
-                  className="bg-transparent font-semibold text-[#2c221e] outline-none cursor-pointer text-xs max-w-[130px] sm:max-w-[180px] truncate"
-                >
-                  {properties.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                  <option value="__add_new__">+ Add Property...</option>
-                </select>
+        <header className="sticky top-0 z-20 border-b border-[#ebe4da] bg-white/95 backdrop-blur px-3 sm:px-8 py-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <button className="lg:hidden p-1.5 rounded-lg hover:bg-[#faf7f2] text-[#6c635a] shrink-0" onClick={() => setMobileOpen(true)} aria-label="Open menu">
+                <Menu className="size-5" />
+              </button>
+              <div className="hidden items-center gap-2 text-xs text-[#9c8e80] sm:flex shrink-0">
+                <span>Workspace</span>
+                <span>/</span>
+                <span className="font-semibold text-[#2c221e]">
+                  {active === 'Overview' ? 'Dashboard' : active}
+                </span>
               </div>
-            )}
+              <h1 className="text-sm sm:text-base font-semibold text-[#2c221e] lg:hidden truncate">
+                {active === 'Overview' ? 'Dashboard' : active}
+              </h1>
+
+              {/* Multiple Properties Switcher Dropdown in Header */}
+              {properties.length > 0 && (
+                <div className="flex items-center gap-1 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2 py-1 text-xs shadow-2xs hover:border-[#d9cbbe] transition-colors shrink-0">
+                  <Building2 className="size-3.5 text-[#8b5a2b] shrink-0" />
+                  <select
+                    value={selectedPropertyId || property.id}
+                    onChange={(e) => {
+                      if (e.target.value === '__add_new__') {
+                        setEditingPropertyId(null)
+                        setShowPropertyModal(true)
+                      } else {
+                        setSelectedPropertyId(e.target.value)
+                      }
+                    }}
+                    className="bg-transparent font-semibold text-[#2c221e] outline-none cursor-pointer text-xs max-w-[100px] xs:max-w-[140px] sm:max-w-[180px] truncate"
+                  >
+                    {properties.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                    <option value="__add_new__">+ Add Property...</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+              {/* Header Trial Pill (Matches Reference Image) */}
+              <div className="hidden md:flex items-center gap-2 rounded-full border border-[#e5dcd0] bg-[#faf6f1] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
+                <span
+                  className={`size-2 rounded-full ${
+                    isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#8b5a2b]'
+                  }`}
+                />
+                <span>
+                  {isTrialExpired
+                    ? 'Trial Ended'
+                    : hoursRemaining !== null && hoursRemaining < 48
+                    ? `Trial: ${hoursRemaining}h remaining`
+                    : `Trial: ${daysRemaining ?? 7}d remaining`}
+                </span>
+              </div>
+
+              {/* Discreet Admin Console Button for Verified Super Admins */}
+              {isSuperAdminUser && (
+                <a
+                  href="/admin"
+                  title="Open BaseraBook Super Admin Console"
+                  className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
+                >
+                  <ShieldCheck className="size-3.5 text-[#8b5a2b]" />
+                  <span>Staff Admin</span>
+                </a>
+              )}
+
+              {/* Dynamic Multi-Module Search Input (Desktop/Tablet) */}
+              <div className="hidden sm:flex relative items-center gap-2 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a] focus-within:border-[#8b5a2b] transition-colors">
+                <Search className="size-3.5 text-[#8b5a2b] shrink-0" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={`Search ${active === 'Overview' ? 'Dashboard' : active}...`}
+                  className="w-28 sm:w-36 md:w-44 bg-transparent outline-none placeholder:text-[#a09488] text-xs text-[#2c221e]"
+                />
+                {search && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="rounded bg-[#f4ebe1] px-1.5 py-0.5 text-[10px] font-bold text-[#8b5a2b]">
+                      {currentSearchCount}
+                    </span>
+                    <button onClick={() => setSearch('')} title="Clear search" className="hover:text-[#2c221e]">
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Notification Bell */}
+              <button
+                onClick={() => setActive('Complaints')}
+                title="Tickets & Notifications"
+                className="relative grid size-9 place-items-center rounded-full text-[#766e65] hover:bg-[#faf7f2] hover:text-[#2c221e] transition-colors"
+                aria-label="View notifications"
+              >
+                <Bell className="size-4" />
+                {complaints.filter((c) => c.status !== 'Resolved').length > 0 && (
+                  <span className="absolute top-2 right-2 size-2 rounded-full bg-[#b95c3c] ring-2 ring-white" />
+                )}
+              </button>
+
+              {/* Owner Profile & Sign Out Icon (Matches Reference Image) */}
+              <div className="flex items-center gap-1.5 sm:gap-2.5 border-l border-[#ebe4da] pl-2 sm:pl-3">
+                <div className="grid size-9 place-items-center rounded-full bg-[#8b5a2b] text-white text-xs font-bold shadow-2xs ring-2 ring-[#f4ebe1] shrink-0">
+                  {userName ? userName.slice(0, 1).toUpperCase() : 'O'}
+                </div>
+                <div className="hidden sm:block leading-tight">
+                  <div className="flex items-center gap-1">
+                    <p className="max-w-[110px] sm:max-w-[130px] truncate text-xs font-bold text-[#2c221e]">
+                      {userName || 'Owner'}
+                    </p>
+                    <ChevronDown className="size-3 text-[#9c8e80]" />
+                  </div>
+                  <p className="text-[10px] font-medium text-[#8c7e72] truncate max-w-[110px] sm:max-w-[130px]">
+                    Property Owner
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowLogoutModal(true)}
+                  title="Sign out"
+                  className="rounded-xl p-2 text-[#9296a5] hover:bg-[#faf7f2] hover:text-[#b95c3c] transition-colors shrink-0"
+                >
+                  <LogOut className="size-4" />
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-            {/* Header Trial Pill (Matches Reference Image) */}
-            <div className="hidden md:flex items-center gap-2 rounded-full border border-[#e5dcd0] bg-[#faf6f1] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
-              <span
-                className={`size-2 rounded-full ${
-                  isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#8b5a2b]'
-                }`}
-              />
-              <span>
-                {isTrialExpired
-                  ? 'Trial Ended'
-                  : hoursRemaining !== null && hoursRemaining < 48
-                  ? `Trial: ${hoursRemaining}h remaining`
-                  : `Trial: ${daysRemaining ?? 7}d remaining`}
-              </span>
-            </div>
-
-            {/* Discreet Admin Console Button for Verified Super Admins */}
-            {isSuperAdminUser && (
-              <a
-                href="/admin"
-                title="Open BaseraBook Super Admin Console"
-                className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
-              >
-                <ShieldCheck className="size-3.5 text-[#8b5a2b]" />
-                <span>Staff Admin</span>
-              </a>
-            )}
-
-            {/* Dynamic Multi-Module Search Input */}
-            <div className="relative flex items-center gap-2 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a] focus-within:border-[#8b5a2b] transition-colors">
+          {/* Full-width Search Bar on Mobile */}
+          <div className="mt-2 sm:hidden">
+            <div className="relative flex items-center gap-2 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-3 py-1.5 text-xs text-[#74798a] focus-within:border-[#8b5a2b] transition-colors w-full">
               <Search className="size-3.5 text-[#8b5a2b] shrink-0" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={`Search ${active === 'Overview' ? 'Dashboard' : active}...`}
-                className="w-24 sm:w-36 md:w-44 bg-transparent outline-none placeholder:text-[#a09488] text-xs text-[#2c221e]"
+                className="flex-1 bg-transparent outline-none placeholder:text-[#a09488] text-xs text-[#2c221e]"
               />
               {search && (
                 <div className="flex items-center gap-1.5">
                   <span className="rounded bg-[#f4ebe1] px-1.5 py-0.5 text-[10px] font-bold text-[#8b5a2b]">
                     {currentSearchCount}
                   </span>
-                  <button onClick={() => setSearch('')} title="Clear search" className="hover:text-[#2c221e]">
+                  <button onClick={() => setSearch('')} title="Clear search" className="hover:text-[#2c221e] p-1">
                     <X className="size-3.5" />
                   </button>
                 </div>
               )}
-            </div>
-
-            {/* Notification Bell */}
-            <button
-              onClick={() => setActive('Complaints')}
-              title="Tickets & Notifications"
-              className="relative grid size-9 place-items-center rounded-full text-[#766e65] hover:bg-[#faf7f2] hover:text-[#2c221e] transition-colors"
-              aria-label="View notifications"
-            >
-              <Bell className="size-4" />
-              {complaints.filter((c) => c.status !== 'Resolved').length > 0 && (
-                <span className="absolute top-2 right-2 size-2 rounded-full bg-[#b95c3c] ring-2 ring-white" />
-              )}
-            </button>
-
-            {/* Owner Profile & Sign Out Icon (Matches Reference Image) */}
-            <div className="flex items-center gap-2.5 border-l border-[#ebe4da] pl-2 sm:pl-3">
-              <div className="grid size-9 place-items-center rounded-full bg-[#8b5a2b] text-white text-xs font-bold shadow-2xs ring-2 ring-[#f4ebe1]">
-                {userName ? userName.slice(0, 1).toUpperCase() : 'O'}
-              </div>
-              <div className="hidden sm:block leading-tight">
-                <div className="flex items-center gap-1">
-                  <p className="max-w-[110px] sm:max-w-[130px] truncate text-xs font-bold text-[#2c221e]">
-                    {userName || 'Owner'}
-                  </p>
-                  <ChevronDown className="size-3 text-[#9c8e80]" />
-                </div>
-                <p className="text-[10px] font-medium text-[#8c7e72] truncate max-w-[110px] sm:max-w-[130px]">
-                  Property Owner
-                </p>
-              </div>
-              <button
-                onClick={() => setShowLogoutModal(true)}
-                title="Sign out"
-                className="rounded-xl p-2 text-[#9296a5] hover:bg-[#faf7f2] hover:text-[#b95c3c] transition-colors"
-              >
-                <LogOut className="size-4" />
-              </button>
             </div>
           </div>
         </header>
@@ -3689,7 +3726,7 @@ export default function DashboardPage() {
                 placeholder="Street, Locality, Area"
                 required
               />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field
                   label="City"
                   name="city"
@@ -3778,7 +3815,7 @@ export default function DashboardPage() {
               placeholder={isPgHostel ? 'e.g. 101, A-2' : 'e.g. Flat 301, Unit 4B, Room 12'}
               required
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Floor Number" name="floor" type="number" defaultValue="1" required />
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 {isPgHostel ? 'Room Type' : 'Unit Type'}
@@ -3802,7 +3839,7 @@ export default function DashboardPage() {
                 </select>
               </label>
             </div>
-            <div className={isPgHostel ? 'grid grid-cols-2 gap-3' : 'block'}>
+            <div className={isPgHostel ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'block'}>
               {isPgHostel ? (
                 <Field label="Initial Bed Count" name="beds_count" type="number" defaultValue="2" min="1" required />
               ) : (
@@ -3838,7 +3875,7 @@ export default function DashboardPage() {
               defaultValue={editingRoom.room_number}
               required
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Floor Number" name="floor" type="number" defaultValue={editingRoom.floor} required />
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 {isPgHostel ? 'Room Type' : 'Unit Type'}
@@ -3960,7 +3997,7 @@ export default function DashboardPage() {
             <Field label="Full Name" name="name" placeholder="Resident full name" required />
             <Field label="Contact Phone" name="phone" placeholder="10-15 digit mobile number" required />
 
-            <div className={isPgHostel ? 'grid grid-cols-2 gap-3' : 'block'}>
+            <div className={isPgHostel ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'block'}>
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 {isPgHostel ? 'Assign Room' : 'Assign Unit / Flat / Room'}
                 <select
@@ -4074,7 +4111,7 @@ export default function DashboardPage() {
             <Field label="Full Name" name="name" defaultValue={editingTenant.name} required />
             <Field label="Contact Phone" name="phone" defaultValue={editingTenant.phone} required />
 
-            <div className={isPgHostel ? 'grid grid-cols-2 gap-3' : 'block'}>
+            <div className={isPgHostel ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'block'}>
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 {isPgHostel ? 'Room Assignment' : 'Unit Assignment'}
                 <select
@@ -4141,7 +4178,7 @@ export default function DashboardPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Joining Date" name="joining_date" type="date" defaultValue={editingTenant.joiningDate} required />
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Status
@@ -4202,7 +4239,7 @@ export default function DashboardPage() {
               </select>
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field
                 label="Amount Paid (₹)"
                 name="amount"
@@ -4222,7 +4259,7 @@ export default function DashboardPage() {
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Payment Type
                 <select
@@ -4269,7 +4306,7 @@ export default function DashboardPage() {
         <Modal title="Log Operating Expense" onClose={() => !isSavingExpense && setShowExpenseModal(false)}>
           <form onSubmit={handleAddExpense} className="flex flex-col gap-4">
             <Field label="Description" name="title" placeholder="e.g. Water Tanker Refill, Wi-Fi Bill" required />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Category
                 <select name="category" className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
@@ -4304,7 +4341,7 @@ export default function DashboardPage() {
         <Modal title="Edit Expense" onClose={() => !isSavingExpense && setEditingExpense(null)}>
           <form onSubmit={handleUpdateExpense} className="flex flex-col gap-4">
             <Field label="Description" name="title" defaultValue={editingExpense.title} required />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Category
                 <select name="category" defaultValue={editingExpense.category} className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
@@ -4361,7 +4398,7 @@ export default function DashboardPage() {
               </select>
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field
                 label="Previous Reading (kWh)"
                 name="previous_reading"
@@ -4373,7 +4410,7 @@ export default function DashboardPage() {
               <Field label="Current Reading (kWh)" name="current_reading" type="number" placeholder="150" required />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Rate per Unit (₹)" name="rate_per_unit" type="number" defaultValue="10" required />
               <Field label="Reading Date" name="reading_date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required />
             </div>
@@ -4395,7 +4432,7 @@ export default function DashboardPage() {
         <Modal title="Log Maintenance Ticket / Complaint" onClose={() => !isSavingComplaint && setShowComplaintModal(false)}>
           <form onSubmit={handleAddComplaint} className="flex flex-col gap-4">
             <Field label="Issue Summary" name="title" placeholder="e.g. Geyser not heating in Room 201" required />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Reported by Resident
                 <select name="tenant" className="rounded-xl border border-[#e8dfd4] bg-white px-3 py-2.5 text-sm font-normal outline-none focus:border-[#8b5a2b]">
@@ -4451,7 +4488,7 @@ export default function DashboardPage() {
               </select>
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field
                 label="Previous Reading (kWh)"
                 name="previous_reading"
@@ -4468,7 +4505,7 @@ export default function DashboardPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field
                 label="Rate per Unit (₹)"
                 name="rate_per_unit"
@@ -4605,7 +4642,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
                 <p className="text-[#999daa]">Resident</p>
                 <p className="font-semibold text-[#44485a]">{selectedReceipt.tenant_name}</p>
@@ -6673,126 +6710,243 @@ function TenantsTab({
           />
         )
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-[#e9ebf0] bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left text-xs">
-              <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
-                <tr>
-                  <th className="px-5 py-3.5">Resident</th>
-                  <th className="px-5 py-3.5">Contact</th>
-                  <th className="px-5 py-3.5">Room & Bed</th>
-                  <th className="px-5 py-3.5">Monthly Rent</th>
-                  <th className="px-5 py-3.5">Due Schedule</th>
-                  <th className="px-5 py-3.5">Rent Status</th>
-                  <th className="px-5 py-3.5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#eee6dc]">
-                {displayedTenants.map(({ tenant: t, dueInfo }: any) => {
-                  const whatsappUrl = generateWhatsAppReminder({
-                    tenantName: t.name,
-                    phone: t.phone,
-                    amount: t.rent,
-                    dueDay: t.rent_due_day || 5,
-                    propertyName: property?.name || 'BaseraBook Property',
-                    locale,
-                    paymentDetails: ownerPaymentDetails,
-                  })
+        <>
+          {/* Mobile Card Layout (md:hidden) */}
+          <div className="grid grid-cols-1 gap-3 md:hidden">
+            {displayedTenants.map(({ tenant: t, dueInfo }: any) => {
+              const whatsappUrl = generateWhatsAppReminder({
+                tenantName: t.name,
+                phone: t.phone,
+                amount: t.rent,
+                dueDay: t.rent_due_day || 5,
+                propertyName: property?.name || 'BaseraBook Property',
+                locale,
+                paymentDetails: ownerPaymentDetails,
+              })
 
-                  return (
-                    <tr key={t.id} className="hover:bg-[#fbf8f3]">
-                      <td className="px-5 py-4 font-bold text-[#3d3934]">{t.name}</td>
-                      <td className="px-5 py-4 text-[#676b7d]">{t.phone || '—'}</td>
-                      <td className="px-5 py-4 text-[#676b7d]">
-                        Room {t.room} {t.bed_number ? `· Bed ${t.bed_number}` : ''}
-                      </td>
-                      <td className="px-5 py-4 font-semibold text-[#784b20]">{currency(t.rent)}</td>
-                      <td className="px-5 py-4 text-[#74798a]">
-                        <span className="font-medium text-[#44485a]">
-                          {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold ${dueInfo.badgeColor}`}
+              return (
+                <div key={t.id} className="rounded-2xl border border-[#e8dfd4] bg-white p-4 shadow-2xs space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-bold text-sm text-[#3d3934]">{t.name}</p>
+                      <p className="text-xs text-[#74798a]">{t.phone || '—'}</p>
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${dueInfo.badgeColor}`}
+                    >
+                      {dueInfo.status === 'overdue' && <AlertTriangle className="size-3" />}
+                      {dueInfo.status === 'paid' && <Check className="size-3" />}
+                      {dueInfo.status === 'due_soon' && <Clock className="size-3" />}
+                      {locale === 'hi' ? dueInfo.labelHi : dueInfo.labelEn}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#faf7f2] p-2.5 text-xs">
+                    <div>
+                      <p className="text-[10px] text-[#8c827a]">Room / Bed</p>
+                      <p className="font-semibold text-[#3d3934]">Room {t.room} {t.bed_number ? `· Bed ${t.bed_number}` : ''}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-[#8c827a]">Monthly Rent</p>
+                      <p className="font-bold text-[#784b20]">{currency(t.rent)}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-[10px] text-[#8c827a]">Due Schedule</p>
+                      <p className="font-medium text-[#44485a]">
+                        {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#f0ebe3]">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <a
+                        href={whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#25D366]/40 bg-[#25D366]/10 px-2.5 py-1.5 text-xs font-semibold text-[#1e7e34] hover:bg-[#25D366]/20 transition-colors"
+                        title={
+                          ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid
+                            ? `Send WhatsApp reminder (Includes UPI: ${ownerPaymentDetails.upiId})`
+                            : ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid
+                            ? 'Send WhatsApp reminder (Includes online payment link)'
+                            : 'Send WhatsApp reminder (No payment details configured)'
+                        }
+                      >
+                        <MessageCircle className="size-3.5 text-[#25D366]" />
+                        <span>Remind</span>
+                      </a>
+
+                      {t.status !== 'Paid' && t.status !== 'Vacated' && (
+                        <button
+                          onClick={() => onRecordPayment(t)}
+                          className="rounded-lg bg-[#8b5a2b] px-3 py-1.5 text-xs font-semibold text-white shadow-2xs hover:bg-[#784b20] transition-colors"
                         >
-                          {dueInfo.status === 'overdue' && <AlertTriangle className="size-3" />}
-                          {dueInfo.status === 'paid' && <Check className="size-3" />}
-                          {dueInfo.status === 'due_soon' && <Clock className="size-3" />}
-                          {locale === 'hi' ? dueInfo.labelHi : dueInfo.labelEn}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* 1-Click WhatsApp Reminder */}
-                          <a
-                            href={whatsappUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 rounded-lg border border-[#25D366]/40 bg-[#25D366]/10 px-2 py-1 text-[11px] font-semibold text-[#1e7e34] hover:bg-[#25D366]/20 transition-colors"
-                            title={
-                              ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid
-                                ? `Send WhatsApp reminder (Includes UPI: ${ownerPaymentDetails.upiId})`
-                                : ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid
-                                ? 'Send WhatsApp reminder (Includes online payment link)'
-                                : 'Send WhatsApp reminder (No payment details configured)'
-                            }
-                          >
-                            <MessageCircle className="size-3.5 text-[#25D366]" />
-                            <span className="hidden md:inline">Remind</span>
-                          </a>
+                          Collect
+                        </button>
+                      )}
+                    </div>
 
-                          {t.status !== 'Paid' && t.status !== 'Vacated' && (
-                            <button
-                              onClick={() => onRecordPayment(t)}
-                              className="rounded-lg bg-[#8b5a2b]/10 px-2.5 py-1 text-[11px] font-semibold text-[#8b5a2b] hover:bg-[#8b5a2b]/20 transition-colors"
-                            >
-                              Collect
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => onEditTenant(t)}
-                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
-                            title="Edit resident details"
-                          >
-                            <Pencil className="size-3.5" />
-                          </button>
-
-                          {t.status !== 'Vacated' && (
-                            <button
-                              onClick={() => onVacateTenant(t.id, t.name)}
-                              className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b46b1a] hover:bg-[#faf7f2] transition-colors"
-                              title="Mark as vacated"
-                            >
-                              <UserMinus className="size-3.5" />
-                            </button>
-                          )}
-
-                          <button
-                            onClick={() => onSharePortalLink?.(t)}
-                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
-                            title="Share Self-Service Portal Link"
-                          >
-                            <Link2 className="size-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => onDeleteTenant(t.id, t.name)}
-                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
-                            title="Delete resident (Soft-delete with 5s undo)"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => onEditTenant(t)}
+                        className="rounded-lg p-2 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                        title="Edit resident details"
+                      >
+                        <Pencil className="size-4" />
+                      </button>
+                      {t.status !== 'Vacated' && (
+                        <button
+                          onClick={() => onVacateTenant(t.id, t.name)}
+                          className="rounded-lg p-2 text-[#a0a3af] hover:text-[#b46b1a] hover:bg-[#faf7f2] transition-colors"
+                          title="Mark as vacated"
+                        >
+                          <UserMinus className="size-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => onSharePortalLink?.(t)}
+                        className="rounded-lg p-2 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                        title="Share Self-Service Portal Link"
+                      >
+                        <Link2 className="size-4" />
+                      </button>
+                      <button
+                        onClick={() => onDeleteTenant(t.id, t.name)}
+                        className="rounded-lg p-2 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
+                        title="Delete resident"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </div>
+
+          {/* Desktop Table View (hidden md:block) */}
+          <div className="hidden md:block overflow-hidden rounded-2xl border border-[#e9ebf0] bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[860px] text-left text-xs">
+                <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                  <tr>
+                    <th className="px-5 py-3.5">Resident</th>
+                    <th className="px-5 py-3.5">Contact</th>
+                    <th className="px-5 py-3.5">Room & Bed</th>
+                    <th className="px-5 py-3.5">Monthly Rent</th>
+                    <th className="px-5 py-3.5">Due Schedule</th>
+                    <th className="px-5 py-3.5">Rent Status</th>
+                    <th className="px-5 py-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#eee6dc]">
+                  {displayedTenants.map(({ tenant: t, dueInfo }: any) => {
+                    const whatsappUrl = generateWhatsAppReminder({
+                      tenantName: t.name,
+                      phone: t.phone,
+                      amount: t.rent,
+                      dueDay: t.rent_due_day || 5,
+                      propertyName: property?.name || 'BaseraBook Property',
+                      locale,
+                      paymentDetails: ownerPaymentDetails,
+                    })
+
+                    return (
+                      <tr key={t.id} className="hover:bg-[#fbf8f3]">
+                        <td className="px-5 py-4 font-bold text-[#3d3934]">{t.name}</td>
+                        <td className="px-5 py-4 text-[#676b7d]">{t.phone || '—'}</td>
+                        <td className="px-5 py-4 text-[#676b7d]">
+                          Room {t.room} {t.bed_number ? `· Bed ${t.bed_number}` : ''}
+                        </td>
+                        <td className="px-5 py-4 font-semibold text-[#784b20]">{currency(t.rent)}</td>
+                        <td className="px-5 py-4 text-[#74798a]">
+                          <span className="font-medium text-[#44485a]">
+                            {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-bold ${dueInfo.badgeColor}`}
+                          >
+                            {dueInfo.status === 'overdue' && <AlertTriangle className="size-3" />}
+                            {dueInfo.status === 'paid' && <Check className="size-3" />}
+                            {dueInfo.status === 'due_soon' && <Clock className="size-3" />}
+                            {locale === 'hi' ? dueInfo.labelHi : dueInfo.labelEn}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* 1-Click WhatsApp Reminder */}
+                            <a
+                              href={whatsappUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 rounded-lg border border-[#25D366]/40 bg-[#25D366]/10 px-2 py-1 text-[11px] font-semibold text-[#1e7e34] hover:bg-[#25D366]/20 transition-colors"
+                              title={
+                                ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid
+                                  ? `Send WhatsApp reminder (Includes UPI: ${ownerPaymentDetails.upiId})`
+                                  : ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid
+                                  ? 'Send WhatsApp reminder (Includes online payment link)'
+                                  : 'Send WhatsApp reminder (No payment details configured)'
+                              }
+                            >
+                              <MessageCircle className="size-3.5 text-[#25D366]" />
+                              <span className="hidden md:inline">Remind</span>
+                            </a>
+
+                            {t.status !== 'Paid' && t.status !== 'Vacated' && (
+                              <button
+                                onClick={() => onRecordPayment(t)}
+                                className="rounded-lg bg-[#8b5a2b]/10 px-2.5 py-1 text-[11px] font-semibold text-[#8b5a2b] hover:bg-[#8b5a2b]/20 transition-colors"
+                              >
+                                Collect
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => onEditTenant(t)}
+                              className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                              title="Edit resident details"
+                            >
+                              <Pencil className="size-3.5" />
+                            </button>
+
+                            {t.status !== 'Vacated' && (
+                              <button
+                                onClick={() => onVacateTenant(t.id, t.name)}
+                                className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b46b1a] hover:bg-[#faf7f2] transition-colors"
+                                title="Mark as vacated"
+                              >
+                                <UserMinus className="size-3.5" />
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => onSharePortalLink?.(t)}
+                              className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                              title="Share Self-Service Portal Link"
+                            >
+                              <Link2 className="size-3.5" />
+                            </button>
+
+                            <button
+                              onClick={() => onDeleteTenant(t.id, t.name)}
+                              className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
+                              title="Delete resident (Soft-delete with 5s undo)"
+                            >
+                              <Trash2 className="size-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
@@ -6836,73 +6990,136 @@ function PaymentsTab({
           />
         )
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-[#ebe4da] bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left text-xs">
-              <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
-                <tr>
-                  <th className="px-5 py-3.5">Receipt #</th>
-                  <th className="px-5 py-3.5">Resident</th>
-                  <th className="px-5 py-3.5">Type & Period</th>
-                  <th className="px-5 py-3.5">Method</th>
-                  <th className="px-5 py-3.5">Payment Date & Exact Time (IST)</th>
-                  <th className="px-5 py-3.5">Amount</th>
-                  <th className="px-5 py-3.5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#eee6dc]">
-                {payments.map((p: PaymentRecord) => (
-                  <tr key={p.id} className="hover:bg-[#fbf8f3] transition-colors">
-                    <td className="px-5 py-4 font-mono font-bold text-[#676b7d]">
+        <>
+          {/* Mobile Card Layout (md:hidden) */}
+          <div className="grid grid-cols-1 gap-3 md:hidden">
+            {payments.map((p: PaymentRecord) => (
+              <div key={p.id} className="rounded-2xl border border-[#ebe4da] bg-white p-4 shadow-2xs space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-mono text-xs font-bold text-[#676b7d]">
                       REC-{p.id.slice(0, 8).toUpperCase()}
-                    </td>
-                    <td className="px-5 py-4">
-                      <p className="font-semibold text-[#3d3934]">{p.tenant_name}</p>
-                      <p className="text-[11px] text-[#85899a]">Room {p.room_number}</p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="uppercase text-[10px] font-bold text-[#85899a] bg-[#faf7f2] px-2 py-0.5 rounded border border-[#e8dfd4]">
-                        {p.payment_type}
-                      </span>
-                      {p.month_covered && (
-                        <p className="mt-1 text-[11px] font-medium text-[#8b5a2b]">{p.month_covered}</p>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 uppercase text-[10px] text-[#85899a]">{p.payment_method}</td>
-                    <td className="px-5 py-4 text-[#555a6c] font-medium">
-                      {formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}
-                    </td>
-                    <td className="px-5 py-4 font-bold text-[#328d68] text-sm">{currency(p.amount)}</td>
-                    <td className="px-5 py-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => onViewReceipt(p)}
-                          className="rounded-lg border border-[#e8dfd4] px-2.5 py-1 text-xs font-semibold text-[#8b5a2b] hover:bg-[#faf7f2] hover:border-[#8b5a2b] transition-colors"
-                        >
-                          Receipt
-                        </button>
-                        <button
-                          onClick={() => onEditPayment(p)}
-                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
-                          title="Edit payment entry"
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
-                        <button
-                          onClick={() => onDeletePayment(p.id, p.amount, p.tenant_name)}
-                          className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
-                          title="Delete payment (Soft-delete with 5s undo)"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </span>
+                    <p className="font-bold text-sm text-[#3d3934] mt-0.5">{p.tenant_name}</p>
+                    <p className="text-xs text-[#85899a]">Room {p.room_number}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-base font-bold text-[#328d68]">{currency(p.amount)}</p>
+                    <span className="uppercase text-[10px] font-bold text-[#85899a] bg-[#faf7f2] px-2 py-0.5 rounded border border-[#e8dfd4] mt-1 inline-block">
+                      {p.payment_type}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-[#74798a] border-t border-[#f0ebe3] pt-2">
+                  <div>
+                    <span className="uppercase text-[10px] font-semibold text-[#8c827a] block">Method / Date</span>
+                    <span className="font-medium text-[#44485a]">
+                      {p.payment_method.toUpperCase()} · {formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}
+                    </span>
+                    {p.month_covered && (
+                      <p className="text-[11px] font-medium text-[#8b5a2b]">{p.month_covered}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#f0ebe3]">
+                  <button
+                    onClick={() => onViewReceipt(p)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#e8dfd4] px-3 py-1.5 text-xs font-semibold text-[#8b5a2b] hover:bg-[#faf7f2] hover:border-[#8b5a2b] transition-colors"
+                  >
+                    View Receipt
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => onEditPayment(p)}
+                      className="rounded-lg p-2 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                      title="Edit payment entry"
+                    >
+                      <Pencil className="size-4" />
+                    </button>
+                    <button
+                      onClick={() => onDeletePayment(p.id, p.amount, p.tenant_name)}
+                      className="rounded-lg p-2 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
+                      title="Delete payment"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+
+          {/* Desktop Table View (hidden md:block) */}
+          <div className="hidden md:block overflow-hidden rounded-2xl border border-[#ebe4da] bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-xs">
+                <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                  <tr>
+                    <th className="px-5 py-3.5">Receipt #</th>
+                    <th className="px-5 py-3.5">Resident</th>
+                    <th className="px-5 py-3.5">Type & Period</th>
+                    <th className="px-5 py-3.5">Method</th>
+                    <th className="px-5 py-3.5">Payment Date & Exact Time (IST)</th>
+                    <th className="px-5 py-3.5">Amount</th>
+                    <th className="px-5 py-3.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#eee6dc]">
+                  {payments.map((p: PaymentRecord) => (
+                    <tr key={p.id} className="hover:bg-[#fbf8f3] transition-colors">
+                      <td className="px-5 py-4 font-mono font-bold text-[#676b7d]">
+                        REC-{p.id.slice(0, 8).toUpperCase()}
+                      </td>
+                      <td className="px-5 py-4">
+                        <p className="font-semibold text-[#3d3934]">{p.tenant_name}</p>
+                        <p className="text-[11px] text-[#85899a]">Room {p.room_number}</p>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="uppercase text-[10px] font-bold text-[#85899a] bg-[#faf7f2] px-2 py-0.5 rounded border border-[#e8dfd4]">
+                          {p.payment_type}
+                        </span>
+                        {p.month_covered && (
+                          <p className="mt-1 text-[11px] font-medium text-[#8b5a2b]">{p.month_covered}</p>
+                        )}
+                      </td>
+                      <td className="px-5 py-4 uppercase text-[10px] text-[#85899a]">{p.payment_method}</td>
+                      <td className="px-5 py-4 text-[#555a6c] font-medium">
+                        {formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}
+                      </td>
+                      <td className="px-5 py-4 font-bold text-[#328d68] text-sm">{currency(p.amount)}</td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => onViewReceipt(p)}
+                            className="rounded-lg border border-[#e8dfd4] px-2.5 py-1 text-xs font-semibold text-[#8b5a2b] hover:bg-[#faf7f2] hover:border-[#8b5a2b] transition-colors"
+                          >
+                            Receipt
+                          </button>
+                          <button
+                            onClick={() => onEditPayment(p)}
+                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                            title="Edit payment entry"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            onClick={() => onDeletePayment(p.id, p.amount, p.tenant_name)}
+                            className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#b95c3c] hover:bg-[#fff5f5] transition-colors"
+                            title="Delete payment (Soft-delete with 5s undo)"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
@@ -7569,7 +7786,7 @@ function SettingsTab({
           </div>
           <div>
             <p className="text-[#999daa]">Email</p>
-            <p className="font-semibold text-[#44485a]">{userEmail}</p>
+            <p className="font-semibold text-[#44485a] break-all">{userEmail}</p>
           </div>
         </div>
       </div>
@@ -8015,8 +8232,8 @@ function Field({ label, name, placeholder, type = 'text', defaultValue, value, o
 
 function Modal({ title, onClose, children }: any) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="w-full max-w-lg max-h-[92vh] flex flex-col rounded-3xl border border-[#e8dfd4] bg-white p-5 sm:p-7 shadow-2xl animate-in fade-in zoom-in-95 my-auto overflow-hidden">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-2.5 sm:p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="w-full max-w-lg max-h-[92vh] flex flex-col rounded-2xl sm:rounded-3xl border border-[#e8dfd4] bg-white p-4 sm:p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto overflow-hidden">
         <div className="mb-4 flex items-center justify-between border-b border-[#f0f1f4] pb-3 shrink-0">
           <h3 className="text-base font-bold text-[#3d3934]">{title}</h3>
           <button onClick={onClose} aria-label="Close modal" className="rounded-xl p-2 text-[#8b8fa0] hover:bg-[#f7f3ed] hover:text-[#3d3934] transition-colors">

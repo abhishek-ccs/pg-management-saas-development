@@ -1,9 +1,6 @@
 import type { MetadataRoute } from 'next'
-import { getSiteUrl } from '@/lib/site'
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = getSiteUrl()
-
   return {
     rules: [
       {
@@ -35,6 +32,6 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap: `${baseUrl}/sitemap.xml`,
+    sitemap: 'https://baserabook.in/sitemap.xml',
   }
 }

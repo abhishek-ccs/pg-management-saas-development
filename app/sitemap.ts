@@ -1,8 +1,7 @@
 import type { MetadataRoute } from 'next'
-import { getSiteUrl } from '@/lib/site'
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = getSiteUrl()
+  const baseUrl = 'https://baserabook.in'
   const currentDate = new Date().toISOString()
 
   return [

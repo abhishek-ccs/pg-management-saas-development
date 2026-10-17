@@ -45,9 +45,9 @@ export function DashboardHeroPreview() {
         </div>
       </div>
 
-      <div className="p-4 sm:p-5 space-y-4 sm:space-y-5 bg-[#fcfbfa]">
+      <div className="p-3 sm:p-5 space-y-3.5 sm:space-y-5 bg-[#fcfbfa]">
         {/* Metric Cards Grid (4 items) */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+        <div className="grid grid-cols-1 min-[340px]:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
           {/* 1. Monthly Rent Collected */}
           <div className="rounded-xl border border-[#eee4d7] bg-white p-3 sm:p-3.5 shadow-2xs">
             <div className="flex items-center justify-between text-[#857668]">
@@ -139,7 +139,7 @@ export function DashboardHeroPreview() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs mt-1" role="table" aria-label="Sample Rent Overview">
+              <table className="w-full min-w-[320px] text-left text-xs mt-1" role="table" aria-label="Sample Rent Overview">
                 <thead>
                   <tr className="text-[10.5px] font-medium text-[#8c7b6c] border-b border-[#f4ede3]">
                     <th className="py-2 pr-2">Tenant / Room</th>

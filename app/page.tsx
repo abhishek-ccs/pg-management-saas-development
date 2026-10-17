@@ -10,6 +10,8 @@ import {
   Receipt,
   BedDouble,
   FileSpreadsheet,
+  Menu,
+  X,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { BaseraBookLogo } from '@/components/ui/BaseraBookLogo'
@@ -20,6 +22,7 @@ import { useI18n } from '@/lib/i18n'
 
 export default function LandingPage() {
   const [hasSession, setHasSession] = useState<boolean | null>(null)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const { locale } = useI18n()
 
   useEffect(() => {
@@ -64,15 +67,15 @@ export default function LandingPage() {
 
   return (
     <main id="main-content" className="min-h-screen bg-[#fbf8f3] text-[#403a34]">
-      {/* 1. Compact Navbar */}
+      {/* 1. Compact Responsive Navbar */}
       <header className="sticky top-0 z-20 border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-8 sm:py-3.5">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-3.5 py-3 sm:px-8 sm:py-3.5">
           <Link
             href="/"
-            className="flex items-center gap-2.5 group rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b]"
+            className="flex items-center gap-2 group rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b] shrink-0"
             aria-label="BaseraBook — Your Property. Smartly Managed."
           >
-            <BaseraBookLogo iconSize={38} subtitleText="Your Property. Smartly Managed." />
+            <BaseraBookLogo iconSize={36} subtitleText="Your Property. Smartly Managed." />
           </Link>
 
           <nav aria-label="Main Navigation" className="hidden items-center gap-7 text-sm font-medium text-[#776d62] md:flex">
@@ -85,16 +88,21 @@ export default function LandingPage() {
             <Link href="/faq" className="transition-colors hover:text-[#2c2926]">
               FAQ
             </Link>
+            <Link href="/contact" className="transition-colors hover:text-[#2c2926]">
+              Support
+            </Link>
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <LocaleSwitcher />
             {hasSession ? (
               <Link
                 href="/dashboard"
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
               >
-                Go to Dashboard <ArrowRight className="size-3.5 sm:size-4" />
+                <span className="hidden xs:inline">Go to Dashboard</span>
+                <span className="xs:hidden">Dashboard</span>
+                <ArrowRight className="size-3.5 sm:size-4" />
               </Link>
             ) : (
               <>
@@ -106,54 +114,156 @@ export default function LandingPage() {
                 </Link>
                 <Link
                   href="/signup"
-                  className="rounded-full bg-[#8b5a2b] px-4 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors whitespace-nowrap"
+                  className="rounded-full bg-[#8b5a2b] px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors whitespace-nowrap"
                 >
-                  Start Free 7-Day Trial →
+                  <span className="hidden xs:inline">Start Free Trial →</span>
+                  <span className="xs:hidden">Free Trial →</span>
                 </Link>
               </>
             )}
+
+            {/* Mobile Hamburger Button */}
+            <button
+              type="button"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open navigation menu"
+              aria-expanded={mobileOpen}
+              className="grid size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#776d62] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors md:hidden cursor-pointer shrink-0"
+            >
+              <Menu className="size-5" />
+            </button>
           </div>
         </div>
       </header>
 
+      {/* Mobile Navigation Drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex justify-end">
+          <div
+            className="fixed inset-0 bg-[#202536]/40 backdrop-blur-xs animate-in fade-in duration-200"
+            onClick={() => setMobileOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="relative z-10 w-[84%] max-w-xs h-full bg-[#fbf8f3] border-l border-[#ebe4da] shadow-2xl flex flex-col justify-between p-5 animate-in slide-in-from-right duration-300">
+            <div>
+              <div className="flex items-center justify-between border-b border-[#eee4d7] pb-4">
+                <BaseraBookLogo iconSize={32} showSubtitle={false} />
+                <button
+                  type="button"
+                  onClick={() => setMobileOpen(false)}
+                  aria-label="Close navigation menu"
+                  className="grid size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#776d62] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors cursor-pointer"
+                >
+                  <X className="size-5" />
+                </button>
+              </div>
+
+              <nav aria-label="Mobile Navigation" className="mt-6 flex flex-col gap-1.5">
+                <Link
+                  href="#features"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
+                >
+                  <span>Features</span>
+                  <ArrowRight className="size-4 text-[#a08d79]" />
+                </Link>
+                <Link
+                  href="/pricing"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
+                >
+                  <span>Pricing</span>
+                  <ArrowRight className="size-4 text-[#a08d79]" />
+                </Link>
+                <Link
+                  href="/faq"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
+                >
+                  <span>FAQ</span>
+                  <ArrowRight className="size-4 text-[#a08d79]" />
+                </Link>
+                <Link
+                  href="/contact"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
+                >
+                  <span>Support & Grievance</span>
+                  <ArrowRight className="size-4 text-[#a08d79]" />
+                </Link>
+              </nav>
+            </div>
+
+            <div className="border-t border-[#eee4d7] pt-5 space-y-3">
+              {hasSession ? (
+                <Link
+                  href="/dashboard"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                >
+                  Go to Dashboard <ArrowRight className="size-4" />
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex w-full items-center justify-center rounded-xl border border-[#dfd1c0] bg-white py-2.5 text-sm font-semibold text-[#403a34] hover:bg-[#faf7f2] transition-colors"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    href="/signup"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                  >
+                    Start Free Trial →
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 2. Hero Section: Minimal Text (Left) + Large Dashboard Visual (Right) */}
-      <section className="mx-auto max-w-7xl px-5 pt-8 pb-14 sm:px-8 sm:pt-12 sm:pb-18 lg:pt-14 lg:pb-20">
+      <section className="mx-auto max-w-7xl px-4 pt-8 pb-14 sm:px-8 sm:pt-12 sm:pb-18 lg:pt-14 lg:pb-20 overflow-x-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-8 items-center">
           {/* Left: Minimal Copy & CTAs */}
           <div className="lg:col-span-5 flex flex-col justify-center">
-            <h1 className="text-3xl sm:text-4xl lg:text-[44px] font-semibold tracking-[-0.035em] text-[#2C221E] leading-[1.16]">
+            <h1 className="text-[26px] xs:text-3xl sm:text-4xl lg:text-[44px] font-semibold tracking-[-0.035em] text-[#2C221E] leading-[1.18]">
               Manage your rentals.
               <span className="block font-serif italic font-normal text-[#9a7651] mt-1 sm:mt-1.5">
                 Without the daily chaos.
               </span>
             </h1>
 
-            <p className="mt-4 text-base sm:text-lg text-[#776d62] leading-relaxed max-w-lg">
+            <p className="mt-3 sm:mt-4 text-sm sm:text-base lg:text-lg text-[#776d62] leading-relaxed max-w-lg">
               Track rooms, tenants, rent dues and receipts — all in one place.
             </p>
 
             {/* Three Compact Icon Labels */}
-            <div className="mt-5 flex flex-wrap items-center gap-2 sm:gap-2.5" aria-label="Key features">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-3 py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
+            <div className="mt-4 sm:mt-5 flex flex-wrap items-center gap-2 sm:gap-2.5" aria-label="Key features">
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
                 <Wallet className="size-3.5 text-[#9a7651]" />
                 <span>Rent Tracking</span>
               </div>
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-3 py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
                 <Users className="size-3.5 text-[#9a7651]" />
                 <span>Tenant Records</span>
               </div>
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-3 py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
                 <Bell className="size-3.5 text-[#9a7651]" />
                 <span>Payment Reminders</span>
               </div>
             </div>
 
             {/* Two Action Buttons */}
-            <div className="mt-7 flex flex-wrap items-center gap-3">
+            <div className="mt-6 sm:mt-7 flex flex-col xs:flex-row items-stretch xs:items-center gap-3">
               {hasSession ? (
                 <Link
                   href="/dashboard"
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-6 py-3.5 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-6 py-3.5 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors min-h-[44px]"
                 >
                   Go to Dashboard <ArrowRight className="size-4" />
                 </Link>
@@ -161,13 +271,13 @@ export default function LandingPage() {
                 <>
                   <Link
                     href="/signup"
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-6 py-3.5 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-6 py-3.5 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors min-h-[44px]"
                   >
                     Start Free 7-Day Trial <ArrowRight className="size-4" />
                   </Link>
                   <Link
                     href="#features"
-                    className="rounded-xl border border-[#dfd1c0] bg-white px-5 py-3.5 text-sm font-semibold text-[#776d62] hover:bg-[#faf7f2] transition-colors"
+                    className="inline-flex items-center justify-center rounded-xl border border-[#dfd1c0] bg-white px-5 py-3.5 text-sm font-semibold text-[#776d62] hover:bg-[#faf7f2] transition-colors min-h-[44px]"
                   >
                     Explore Features
                   </Link>

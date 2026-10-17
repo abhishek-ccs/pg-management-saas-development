@@ -85,8 +85,8 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[#faf7f2] px-4 py-8 sm:py-12">
-      <div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+    <main className="grid min-h-screen place-items-center bg-[#faf7f2] px-3.5 py-8 sm:px-4 sm:py-12">
+      <div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-5 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
         {/* Brand Header */}
         <div className="mb-6 flex items-center gap-3">
           <div className="grid size-11 place-items-center rounded-2xl bg-[#8b5a2b] text-white shadow-sm">
@@ -171,7 +171,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] active:scale-[0.99] disabled:opacity-60 transition-all cursor-pointer"
+            className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] active:scale-[0.99] disabled:opacity-60 transition-all cursor-pointer min-h-[44px]"
           >
             {loading && <Loader2 className="size-4 animate-spin text-white" />}
             {loading ? 'Signing in...' : 'Sign in'}

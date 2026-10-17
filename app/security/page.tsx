@@ -23,7 +23,7 @@ export default function SecurityPage() {
   return (
     <main id="main-content" className="min-h-screen bg-[#fbf8f3] text-[#403a34]">
       {/* Header */}
-      <header className="border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 px-6 py-4 sticky top-0 z-20 backdrop-blur">
+      <header className="border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 px-4 sm:px-6 py-4 sticky top-0 z-20 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
             <span className="grid size-9 place-items-center rounded-xl bg-[#9a7651] text-white">
@@ -40,10 +40,10 @@ export default function SecurityPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-4xl px-6 py-12">
+      <div className="mx-auto max-w-4xl px-4 sm:px-6 py-8 sm:py-12">
         <LegalNoticeHeader />
 
-        <div className="rounded-3xl border border-[#e8dfd4] bg-white p-8 sm:p-12 shadow-sm">
+        <div className="rounded-3xl border border-[#e8dfd4] bg-white p-5 sm:p-10 shadow-sm">
           <div className="flex items-center gap-2.5 text-[#9a7651]">
             <ShieldCheck className="size-6" />
             <span className="text-xs font-bold uppercase tracking-wider">Enterprise Security Posture</span>

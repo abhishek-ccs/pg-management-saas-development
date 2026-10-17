@@ -181,7 +181,7 @@ export function PricingContent() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16">
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-8 sm:py-16">
       {/* Header & Toggle */}
       <div className="mx-auto max-w-3xl text-center">
         <p className="inline-flex items-center gap-2 rounded-full border border-[#e8d9c7] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#9a7651] shadow-2xs">
@@ -189,25 +189,25 @@ export function PricingContent() {
           {locale === 'hi' ? 'पारदर्शी रेंटल प्रॉपर्टी सॉफ्टवेयर मूल्य निर्धारण' : 'Transparent Rental Property Software Pricing'}
         </p>
 
-        <h1 className="mt-4 text-3xl sm:text-5xl font-semibold tracking-[-0.04em] text-[#403a34]">
+        <h1 className="mt-4 text-2xl xs:text-3xl sm:text-5xl font-semibold tracking-[-0.04em] text-[#403a34]">
           {locale === 'hi' ? 'सरल, अनुमानित मूल्य निर्धारण।' : 'Simple, predictable plans.'}{' '}
           <span className="font-serif italic font-normal text-[#9a7651]">
             {locale === 'hi' ? 'बिना किसी छिपे शुल्क के।' : 'No hidden fees.'}
           </span>
         </h1>
 
-        <p className="mt-4 text-sm sm:text-base text-[#776d62] max-w-2xl mx-auto">
+        <p className="mt-4 text-xs sm:text-base text-[#776d62] max-w-2xl mx-auto leading-relaxed">
           {locale === 'hi'
             ? 'प्रत्येक नया खाता 7 दिनों के निःशुल्क पूर्ण उपयोग के साथ शुरू होता है। कोई क्रेडिट कार्ड आवश्यक नहीं। अपनी सुविधानुसार मासिक या वार्षिक प्लान चुनें।'
             : 'Every new account starts with a 7-day full access free trial. No credit card required upfront. Switch between flexible monthly and high-savings annual billing anytime.'}
         </p>
 
-        {/* Toggle */}
-        <div className="mt-8 inline-flex items-center rounded-2xl border border-[#e8dfd4] bg-white p-1.5 shadow-xs">
+        {/* Responsive Toggle */}
+        <div className="mt-7 inline-flex max-w-full items-center rounded-2xl border border-[#e8dfd4] bg-white p-1 sm:p-1.5 shadow-xs">
           <button
             type="button"
             onClick={() => setBillingCycle('yearly')}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
+            className={`flex items-center gap-1.5 sm:gap-2 rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-semibold transition-all ${
               billingCycle === 'yearly'
                 ? 'bg-[#9a7651] text-white shadow-xs'
                 : 'text-[#676b7d] hover:text-[#2c2926]'
@@ -215,7 +215,7 @@ export function PricingContent() {
           >
             <span>{t.landing.yearlyBilling}</span>
             <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+              className={`rounded-full px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-bold ${
                 billingCycle === 'yearly' ? 'bg-[#f4ede3] text-[#866342]' : 'bg-[#eaf5ea] text-[#2e7d32]'
               }`}
             >
@@ -225,7 +225,7 @@ export function PricingContent() {
           <button
             type="button"
             onClick={() => setBillingCycle('monthly')}
-            className={`rounded-xl px-4 py-2 text-xs font-semibold transition-all ${
+            className={`rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-semibold transition-all ${
               billingCycle === 'monthly'
                 ? 'bg-[#9a7651] text-white shadow-xs'
                 : 'text-[#676b7d] hover:text-[#2c2926]'

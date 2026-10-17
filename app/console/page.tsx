@@ -104,8 +104,8 @@ function SuperAdminConsoleContent() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[#36302a] px-5 py-10 selection:bg-[#c39d72] selection:text-white">
-      <div className="w-full max-w-md rounded-3xl border border-[#6b5847] bg-[#4a4138] p-7 text-[#f8f0e5] shadow-2xl backdrop-blur-md">
+    <main className="grid min-h-screen place-items-center bg-[#36302a] px-4 sm:px-5 py-8 sm:py-10 selection:bg-[#c39d72] selection:text-white">
+      <div className="w-full max-w-md rounded-2xl sm:rounded-3xl border border-[#6b5847] bg-[#4a4138] p-5 sm:p-7 text-[#f8f0e5] shadow-2xl backdrop-blur-md">
         <div className="mb-8 flex items-center gap-3">
           <div className="grid size-11 place-items-center rounded-2xl bg-[#c39d72] text-[#36302a] shadow-inner font-bold">
             <ShieldCheck className="size-6" />
@@ -173,7 +173,7 @@ function SuperAdminConsoleContent() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#c39d72] py-3.5 text-sm font-semibold text-[#36302a] disabled:opacity-60 hover:bg-[#b08b62] active:scale-[0.99] transition-all shadow-md"
+            className="mt-2 flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-[#c39d72] py-3.5 text-sm font-semibold text-[#36302a] disabled:opacity-60 hover:bg-[#b08b62] active:scale-[0.99] transition-all shadow-md"
           >
             {loading && <Loader2 className="size-4 animate-spin text-[#36302a]" />}
             Authenticate Console

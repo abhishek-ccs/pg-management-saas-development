@@ -151,7 +151,7 @@ export function StayBookLogo({
           BaseraBook
         </span>
         {showSubtitle && (
-          <span className="mt-1 font-sans text-[9.5px] sm:text-[11px] font-medium text-[#8C6847] tracking-normal leading-none whitespace-nowrap">
+          <span className="mt-1 hidden min-[360px]:block font-sans text-[9.5px] sm:text-[11px] font-medium text-[#8C6847] tracking-normal leading-none whitespace-nowrap truncate max-w-[140px] sm:max-w-none">
             {subtitleText}
           </span>
         )}
