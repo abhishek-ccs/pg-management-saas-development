@@ -51,6 +51,7 @@ import {
   Activity,
   AlertCircle,
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   BedDouble,
   Bell,
@@ -60,7 +61,9 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CircleHelp,
   Clock,
   Copy,
@@ -212,7 +215,7 @@ type ElectricityRecord = {
 const navigation = [
   { label: 'Overview', icon: LayoutDashboard },
   { label: 'Property', icon: Building2 },
-  { label: 'Rooms & Beds', icon: DoorOpen },
+  { label: 'Rooms & Beds', icon: BedDouble },
   { label: 'Tenants', icon: Users },
   { label: 'Rent & Payments', icon: Wallet },
   { label: 'Electricity', icon: Zap },
@@ -2292,10 +2295,11 @@ export default function DashboardPage() {
     const target = payments.find((p) => p.id === paymentId)
     if (!target) return
 
+    const tenantDisplayName = tenantName?.trim() ? tenantName : 'Unknown Resident'
     setConfirmDialog({
       open: true,
       title: `Reverse Payment #${paymentId.slice(0, 8).toUpperCase()}?`,
-      description: `For accounting compliance, historical payment records are not silently deleted. This payment of ${currency(amount)} for ${tenantName} will be reversed and moved to Deleted Records.`,
+      description: `For accounting compliance, historical payment records are not silently deleted. This payment of ${currency(amount)} for ${tenantDisplayName} will be reversed and moved to Deleted Records.`,
       actionLabel: 'Reverse Payment',
       isDestructive: true,
       onConfirm: async () => {
@@ -2303,7 +2307,7 @@ export default function DashboardPage() {
           entityType: 'payment',
           entityId: paymentId,
           entityName: `Payment Receipt REC-${paymentId.slice(0, 8).toUpperCase()}`,
-          details: `₹${amount} for ${tenantName} (Reversed)`,
+          details: `₹${amount} for ${tenantDisplayName} (Reversed)`,
         })
         if (!res.success) {
           flash(res.error || 'Could not reverse payment.')
@@ -2337,7 +2341,7 @@ export default function DashboardPage() {
           }
         }
 
-        flash('Payment moved to Deleted Records.')
+        flash(`Payment #${paymentId.slice(0, 8).toUpperCase()} reversed and moved to Deleted Records.`)
         void loadTrashRecords()
       },
     })
@@ -2351,7 +2355,7 @@ export default function DashboardPage() {
 
     const { error } = await supabase
       .from('payments')
-      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .update({ deleted_at: null })
       .eq('id', paymentId)
       .eq('owner_id', userId)
 
@@ -2580,16 +2584,27 @@ export default function DashboardPage() {
 
   // Delete Electricity Reading
   async function handleDeleteElectricity(id: string, room: string) {
+    const target = electricity.find((el) => el.id === id)
     setConfirmDialog({
       open: true,
       title: `Delete Reading for Room ${room}?`,
-      description: 'Remove this electricity consumption record?',
+      description: 'Remove this electricity consumption record? It will be moved to Deleted Records and can be restored anytime.',
       actionLabel: 'Delete Reading',
       isDestructive: true,
       onConfirm: async () => {
-        await supabase.from('electricity_readings').delete().eq('id', id).eq('owner_id', userId)
+        const res = await moveToTrashAction({
+          entityType: 'electricity',
+          entityId: id,
+          entityName: `Meter Reading for Room ${room}`,
+          details: `Date: ${target?.reading_date || 'N/A'} · Rate: ₹${target?.rate_per_unit || 10}/unit`,
+        })
+        if (!res.success) {
+          flash(res.error || 'Could not delete meter reading.')
+          return
+        }
         setElectricity((prev) => prev.filter((el) => el.id !== id))
-        flash('Meter reading deleted.')
+        flash('Meter reading moved to Deleted Records.')
+        void loadTrashRecords()
       },
     })
   }
@@ -2623,7 +2638,6 @@ export default function DashboardPage() {
           current_reading: currReading,
           rate_per_unit: rate,
           reading_date: date,
-          updated_at: new Date().toISOString(),
         })
         .eq('id', editingElectricity.id)
         .eq('owner_id', userId)
@@ -4996,13 +5010,36 @@ export default function DashboardPage() {
           onClose={() => !isConfirming && setConfirmDialog((prev) => ({ ...prev, open: false }))}
         >
           <div className="space-y-4">
-            <p className="text-sm text-[#676b7d] leading-relaxed">{confirmDialog.description}</p>
-            <div className="flex justify-end gap-2.5 pt-2">
+            {confirmDialog.actionLabel === 'Reverse Payment' ? (
+              <div className="rounded-2xl border border-[#ffcfc7] bg-[#fff5f2] p-4 text-xs text-[#8c351e]">
+                <div className="flex items-center gap-2 font-bold text-[#b95c3c] mb-1">
+                  <RotateCcw className="size-4 shrink-0 text-[#b95c3c]" />
+                  <span>Accounting Compliance Guard</span>
+                </div>
+                <p className="text-[#6d2f1f] leading-relaxed">
+                  {confirmDialog.description}
+                </p>
+              </div>
+            ) : confirmDialog.isDestructive ? (
+              <div className="rounded-2xl border border-[#ffcfc7] bg-[#fff5f2] p-4 text-xs text-[#8c351e]">
+                <div className="flex items-center gap-2 font-bold text-[#b95c3c] mb-1">
+                  <AlertTriangle className="size-4 shrink-0 text-[#b95c3c]" />
+                  <span>Safe Deletion to Deleted Records</span>
+                </div>
+                <p className="text-[#6d2f1f] leading-relaxed">
+                  {confirmDialog.description}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-[#555a6c] leading-relaxed">{confirmDialog.description}</p>
+            )}
+
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2.5 pt-3 border-t border-[#f0ebe3]">
               <button
                 type="button"
                 disabled={isConfirming}
                 onClick={() => setConfirmDialog((prev) => ({ ...prev, open: false }))}
-                className="rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] disabled:opacity-50"
+                className="w-full sm:w-auto rounded-xl border border-[#d6d9e0] bg-white px-5 py-2.5 text-xs font-semibold text-[#555a6c] hover:bg-[#faf7f2] hover:text-[#2c221e] active:scale-[0.98] transition-all disabled:opacity-40 cursor-pointer shadow-2xs"
               >
                 Cancel
               </button>
@@ -5021,14 +5058,26 @@ export default function DashboardPage() {
                     setIsConfirming(false)
                   }
                 }}
-                className={`flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 transition-colors ${
+                className={`w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-xs font-bold text-white shadow-sm active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer ${
                   confirmDialog.isDestructive
-                    ? 'bg-[#b95c3c] hover:bg-[#9e4a2e]'
-                    : 'bg-[#8b5a2b] hover:bg-[#784b20]'
+                    ? 'bg-[#b95c3c] hover:bg-[#a14a2c] shadow-[0_2px_8px_rgba(185,92,60,0.25)]'
+                    : 'bg-[#8b5a2b] hover:bg-[#784b20] shadow-[0_2px_8px_rgba(139,90,43,0.25)]'
                 }`}
               >
-                {isConfirming && <Loader2 className="size-3.5 animate-spin" />}
-                {isConfirming ? 'Processing...' : confirmDialog.actionLabel}
+                {isConfirming ? (
+                  <Loader2 className="size-4 animate-spin text-white" />
+                ) : confirmDialog.actionLabel === 'Reverse Payment' ? (
+                  <RotateCcw className="size-4" />
+                ) : confirmDialog.isDestructive ? (
+                  <Trash2 className="size-4" />
+                ) : null}
+                <span>
+                  {isConfirming
+                    ? confirmDialog.actionLabel === 'Reverse Payment'
+                      ? 'Reversing Payment...'
+                      : 'Processing...'
+                    : confirmDialog.actionLabel}
+                </span>
               </button>
             </div>
           </div>
@@ -5511,6 +5560,273 @@ function formatRelativeTime(dateStr?: string | null): string {
   return `${diffMonth}mo ago`
 }
 
+function GuidedSetupWizard({
+  property,
+  rooms = [],
+  beds = [],
+  tenants = [],
+  onAddProperty,
+  onAddRoom,
+  onAddTenant,
+}: {
+  property: any
+  rooms: any[]
+  beds: any[]
+  tenants: any[]
+  onAddProperty: () => void
+  onAddRoom: () => void
+  onAddTenant: () => void
+}) {
+  const isStep1Done = Boolean(property?.name && property.name.trim().length > 0)
+  const isStep2Done = rooms.length > 0
+  const isStep3Done = tenants.length > 0
+
+  const completedCount = (isStep1Done ? 1 : 0) + (isStep2Done ? 1 : 0) + (isStep3Done ? 1 : 0)
+  const allCompleted = completedCount === 3
+  const progressPercent = Math.round((completedCount / 3) * 100)
+
+  // Default active step to the first incomplete step, or 1 if all complete
+  const defaultStep = !isStep1Done ? 1 : !isStep2Done ? 2 : !isStep3Done ? 3 : 1
+  const [activeStep, setActiveStep] = useState<number>(defaultStep)
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(allCompleted)
+
+  const steps = [
+    {
+      number: 1,
+      title: 'Set up property',
+      subtitle: 'Property Profile & Rules',
+      icon: Building2,
+      isDone: isStep1Done,
+      explanation:
+        'Set up your property profile with your PG or hostel name, physical address, contact telephone, warden details, and building house rules to create the operational foundation.',
+      currentStatusText: isStep1Done
+        ? `Configured: ${property.name}${property.address ? ` (${property.address})` : ''}`
+        : 'No property profile configured yet. Create your property details to get started.',
+      actionLabel: isStep1Done ? 'Edit Property Profile' : 'Set Up Property',
+      onAction: onAddProperty,
+    },
+    {
+      number: 2,
+      title: 'Add rooms and beds',
+      subtitle: 'Rooms, Floors & Bed Inventory',
+      icon: BedDouble,
+      isDone: isStep2Done,
+      explanation:
+        'Configure your accommodation rooms and inventory beds. Specify room types (Single, Double, Triple, or Four-sharing), bed numbers, and base monthly rent per bed.',
+      currentStatusText: isStep2Done
+        ? `${rooms.length} room${rooms.length !== 1 ? 's' : ''} configured · ${beds.length} inventory bed${beds.length !== 1 ? 's' : ''} ready`
+        : 'No rooms or beds added yet. Add your rooms to enable bed assignment for incoming residents.',
+      actionLabel: isStep2Done ? '+ Add / Manage Rooms' : '+ Add Rooms & Beds',
+      onAction: onAddRoom,
+    },
+    {
+      number: 3,
+      title: 'Add tenants',
+      subtitle: 'Resident Onboarding & Rent Dues',
+      icon: Users,
+      isDone: isStep3Done,
+      explanation:
+        'Onboard your residents by capturing their details, assigning each resident to an available room and bed, setting up monthly rent due dates, and recording security deposits.',
+      currentStatusText: isStep3Done
+        ? `${tenants.length} resident${tenants.length !== 1 ? 's' : ''} onboarded (${tenants.filter((t: any) => t.status !== 'Vacated').length} active)`
+        : 'No residents onboarded yet. Onboard your first resident once rooms and beds are created.',
+      actionLabel: isStep3Done ? '+ Onboard More Tenants' : '+ Add Tenants',
+      onAction: onAddTenant,
+    },
+  ]
+
+  const currentStep = steps[activeStep - 1]
+
+  return (
+    <div className="mb-8 rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)] transition-all">
+      {/* Wizard Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#eee6dc] pb-4 mb-5">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-bold text-[#2c221e]">Guided Setup Wizard</h3>
+            {allCompleted && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-2.5 py-0.5 text-[11px] font-bold text-[#236b4e]">
+                <CheckCircle2 className="size-3.5" /> All Steps Complete
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-[#7d756d] mt-0.5">
+            Follow this 3-step sequence to get your PG or hostel fully operational.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end">
+            <span className="text-xs font-bold text-[#8b5a2b]">
+              Step {activeStep} of 3 · {completedCount}/3 completed ({progressPercent}%)
+            </span>
+            <div className="mt-1.5 h-2 w-32 sm:w-44 overflow-hidden rounded-full bg-[#f0ebe3]">
+              <div
+                className="h-full bg-gradient-to-r from-[#8b5a2b] to-[#b46b1a] transition-all duration-500 rounded-full"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+
+          {allCompleted && (
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="flex items-center gap-1 rounded-xl border border-[#ebe4da] bg-[#faf7f2] px-3 py-1.5 text-xs font-semibold text-[#6c635a] hover:bg-[#f2ebdf] transition-colors"
+            >
+              <span>{isCollapsed ? 'Review Steps' : 'Collapse'}</span>
+              {isCollapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!isCollapsed && (
+        <div className="space-y-5 animate-in fade-in duration-300">
+          {/* Stepper Tabs Bar (1. Set up property -> 2. Add rooms and beds -> 3. Add tenants) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {steps.map((st) => {
+              const isActive = activeStep === st.number
+              return (
+                <button
+                  key={st.number}
+                  type="button"
+                  onClick={() => setActiveStep(st.number)}
+                  className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-all cursor-pointer ${
+                    isActive
+                      ? 'border-[#8b5a2b] bg-[#faf3ea] shadow-xs ring-1 ring-[#8b5a2b]'
+                      : st.isDone
+                      ? 'border-[#cce9db] bg-[#f4faf7] hover:border-[#a3e4be]'
+                      : 'border-[#ebe4da] bg-white hover:bg-[#faf7f2]'
+                  }`}
+                >
+                  <div
+                    className={`grid size-9 shrink-0 place-items-center rounded-xl font-bold text-xs ${
+                      isActive
+                        ? 'bg-[#8b5a2b] text-white shadow-2xs'
+                        : st.isDone
+                        ? 'bg-[#328d68] text-white'
+                        : 'bg-[#f0ebe3] text-[#7d756d]'
+                    }`}
+                  >
+                    {st.isDone ? <Check className="size-4" /> : st.number}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#9c8e80]">
+                        Step {st.number}
+                      </span>
+                      {st.isDone ? (
+                        <span className="text-[10px] font-bold text-[#328d68]">Done ✓</span>
+                      ) : isActive ? (
+                        <span className="text-[10px] font-bold text-[#8b5a2b]">Current</span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-[#b46b1a]">Pending</span>
+                      )}
+                    </div>
+                    <p className="text-xs font-bold text-[#2c221e] truncate">{st.title}</p>
+                    <p className="text-[11px] text-[#7d756d] truncate">{st.subtitle}</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Active Step Detailed Card */}
+          <div className="rounded-2xl border border-[#ebe4da] bg-[#faf8f5] p-5">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#faf3ea] text-[#8b5a2b] border border-[#ede3d7] shadow-2xs">
+                  <currentStep.icon className="size-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#8b5a2b]">
+                      Step {currentStep.number} of 3
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
+                        currentStep.isDone
+                          ? 'border-[#cce9db] bg-[#f4faf7] text-[#328d68]'
+                          : 'border-[#efe5d9] bg-[#fbf5ee] text-[#b46b1a]'
+                      }`}
+                    >
+                      {currentStep.isDone ? <CheckCircle2 className="size-3" /> : <Clock className="size-3" />}
+                      {currentStep.isDone ? 'Completed' : 'Action Required'}
+                    </span>
+                  </div>
+                  <h4 className="text-base font-bold text-[#2c221e] mt-0.5">{currentStep.title}</h4>
+                  <p className="mt-1 text-xs text-[#5c544c] leading-relaxed max-w-2xl">
+                    {currentStep.explanation}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Current State Callout Box */}
+            <div className="mt-4 rounded-xl border border-[#ebe4da] bg-white p-3.5 text-xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[#9c8e80] block mb-1">
+                Current Setup State:
+              </span>
+              <p className="font-medium text-[#2c221e] flex items-center gap-2">
+                <span
+                  className={`size-2 rounded-full shrink-0 ${
+                    currentStep.isDone ? 'bg-[#328d68]' : 'bg-[#d97706]'
+                  }`}
+                />
+                {currentStep.currentStatusText}
+              </p>
+            </div>
+
+            {/* Stepper Navigation and Action Controls */}
+            <div className="mt-5 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 border-t border-[#ede3d7] pt-4">
+              <div>
+                <button
+                  type="button"
+                  disabled={activeStep === 1}
+                  onClick={() => setActiveStep((prev) => Math.max(1, prev - 1))}
+                  className="flex items-center gap-1.5 rounded-xl border border-[#ebe4da] bg-white px-3.5 py-2 text-xs font-semibold text-[#5c544c] hover:bg-[#faf7f2] hover:text-[#2c221e] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  <span>Previous Step</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={currentStep.onAction}
+                  className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#784b20] active:scale-[0.99] transition-all cursor-pointer"
+                >
+                  <currentStep.icon className="size-3.5" />
+                  <span>{currentStep.actionLabel}</span>
+                </button>
+
+                {activeStep < 3 ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep((prev) => Math.min(3, prev + 1))}
+                    className="flex items-center gap-1.5 rounded-xl border border-[#8b5a2b] bg-[#faf3ea] px-3.5 py-2 text-xs font-semibold text-[#8b5a2b] hover:bg-[#f4ebe1] transition-colors"
+                  >
+                    <span>Next Step</span>
+                    <ArrowRight className="size-3.5" />
+                  </button>
+                ) : allCompleted ? (
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-[#236b4e] bg-[#f0fbf5] border border-[#a3e4be] px-3 py-1.5 rounded-xl">
+                    <CheckCircle2 className="size-3.5" />
+                    <span>Setup Ready</span>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function OverviewTab({
   property,
   properties = [],
@@ -5832,103 +6148,17 @@ function OverviewTab({
         </section>
       </div>
 
-      {/* 3-Step Guided Setup Checklist for Property Owners (When new/unconfigured) */}
-      {(!property.name || rooms.length === 0 || tenants.length === 0) && (
-        <div className="mb-8 rounded-2xl border border-[#ebe4da] bg-white p-5 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-[#eee6dc] pb-3 mb-4">
-            <div>
-              <h3 className="text-sm font-bold text-[#2c221e]">Setup & Onboarding Checklist</h3>
-              <p className="text-xs text-[#7d756d]">Complete these simple steps to get your rental property operational.</p>
-            </div>
-            <span className="self-start sm:self-auto rounded-full bg-[#faf7f2] px-3 py-1 text-xs font-semibold text-[#8b5a2b] border border-[#ebe4da]">
-              {(!property.name ? 0 : rooms.length === 0 ? 1 : tenants.length === 0 ? 2 : 3)} / 3 Completed
-            </span>
-          </div>
+      {/* 3-Step Guided Setup Wizard for Property Owners */}
+      <GuidedSetupWizard
+        property={property}
+        rooms={rooms}
+        beds={beds}
+        tenants={tenants}
+        onAddProperty={onAddProperty}
+        onAddRoom={onAddRoom}
+        onAddTenant={onAddTenant}
+      />
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            {/* Step 1: Property */}
-            <div className={`rounded-xl border p-3.5 transition-colors ${property.name ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#ebe4da] bg-[#faf7f2]'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#7d756d]">Step 1</span>
-                {property.name ? (
-                  <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
-                    <CheckCircle2 className="size-3.5" /> Done
-                  </span>
-                ) : (
-                  <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
-                )}
-              </div>
-              <p className="text-xs font-bold text-[#2c221e]">Property Profile</p>
-              <p className="mt-0.5 text-[11px] text-[#7d756d] truncate">
-                {property.name ? property.name : 'Create your property profile'}
-              </p>
-              {!property.name ? (
-                <button
-                  onClick={onAddProperty}
-                  className="mt-3 w-full rounded-lg bg-[#8b5a2b] py-1.5 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
-                >
-                  Set Up Property
-                </button>
-              ) : (
-                <button
-                  onClick={onAddProperty}
-                  className="mt-3 w-full rounded-lg border border-[#cce9db] bg-white py-1.5 text-xs font-semibold text-[#328d68] hover:bg-[#f4faf7]"
-                >
-                  Edit Profile
-                </button>
-              )}
-            </div>
-
-            {/* Step 2: Rooms & Units */}
-            <div className={`rounded-xl border p-3.5 transition-colors ${rooms.length > 0 ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#ebe4da] bg-[#faf7f2]'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#7d756d]">Step 2</span>
-                {rooms.length > 0 ? (
-                  <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
-                    <CheckCircle2 className="size-3.5" /> Done ({rooms.length})
-                  </span>
-                ) : (
-                  <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
-                )}
-              </div>
-              <p className="text-xs font-bold text-[#2c221e]">Rooms & Units</p>
-              <p className="mt-0.5 text-[11px] text-[#7d756d]">
-                {rooms.length > 0 ? `${rooms.length} configured` : 'Add your first room or unit'}
-              </p>
-              <button
-                onClick={onAddRoom}
-                className={`mt-3 w-full rounded-lg py-1.5 text-xs font-semibold ${rooms.length > 0 ? 'border border-[#cce9db] bg-white text-[#328d68] hover:bg-[#f4faf7]' : 'bg-[#8b5a2b] text-white hover:bg-[#784b20] transition-colors'}`}
-              >
-                {rooms.length > 0 ? '+ Add More Units' : '+ Add First Unit'}
-              </button>
-            </div>
-
-            {/* Step 3: Residents */}
-            <div className={`rounded-xl border p-3.5 transition-colors ${tenants.length > 0 ? 'border-[#cce9db] bg-[#f4faf7]' : 'border-[#ebe4da] bg-[#faf7f2]'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-[#7d756d]">Step 3</span>
-                {tenants.length > 0 ? (
-                  <span className="flex items-center gap-1 text-[11px] font-bold text-[#328d68]">
-                    <CheckCircle2 className="size-3.5" /> Done ({tenants.length})
-                  </span>
-                ) : (
-                  <span className="text-[11px] font-bold text-[#b46b1a]">Pending</span>
-                )}
-              </div>
-              <p className="text-xs font-bold text-[#2c221e]">Residents / Tenants</p>
-              <p className="mt-0.5 text-[11px] text-[#7d756d]">
-                {tenants.length > 0 ? `${tenants.length} onboarded` : 'Onboard your first resident'}
-              </p>
-              <button
-                onClick={onAddTenant}
-                className={`mt-3 w-full rounded-lg py-1.5 text-xs font-semibold ${tenants.length > 0 ? 'border border-[#cce9db] bg-white text-[#328d68] hover:bg-[#f4faf7]' : 'bg-[#8b5a2b] text-white hover:bg-[#784b20] transition-colors'}`}
-              >
-                {tenants.length > 0 ? '+ Onboard More' : '+ Onboard Resident'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Financial Collection Ledger & Quick Operations */}
       <div className="grid gap-5 xl:grid-cols-[1.35fr_1fr]">

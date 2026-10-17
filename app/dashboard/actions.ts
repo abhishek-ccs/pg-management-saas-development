@@ -379,7 +379,7 @@ export async function updateTenantAction(
   }
 }
 
-export type TrashEntityType = 'property' | 'room' | 'bed' | 'tenant' | 'expense' | 'complaint' | 'payment'
+export type TrashEntityType = 'property' | 'room' | 'bed' | 'tenant' | 'expense' | 'complaint' | 'payment' | 'electricity'
 
 export interface TrashRecord {
   id: string
@@ -594,6 +594,32 @@ export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashA
       if (delErr) {
         return { success: false, error: delErr.message || 'Could not move complaint to trash.' }
       }
+    } else if (entityType === 'electricity') {
+      const { data: reading, error: fetchErr } = await supabase
+        .from('electricity_readings')
+        .select('*')
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+
+      if (fetchErr || !reading) {
+        return { success: false, error: 'Meter reading not found or unauthorized.' }
+      }
+
+      snapshot = reading
+      entityName = entityName || `Meter Reading on ${reading.reading_date || 'Date'}`
+      const units = Math.max(0, Number(reading.current_reading || 0) - Number(reading.previous_reading || 0))
+      details = details || `${units} units @ ₹${reading.rate_per_unit || 10}/unit`
+
+      const { error: delErr } = await supabase
+        .from('electricity_readings')
+        .delete()
+        .eq('id', entityId)
+        .eq('owner_id', user.id)
+
+      if (delErr) {
+        return { success: false, error: delErr.message || 'Could not move meter reading to trash.' }
+      }
     } else if (entityType === 'payment') {
       // Reversal approach for financial compliance: do not silently delete accounting history
       const { data: payment, error: fetchErr } = await supabase
@@ -612,15 +638,19 @@ export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashA
       details = details || `₹${payment.amount} via ${payment.payment_method || 'UPI'} (Reversed)`
 
       const reversedNote = `[REVERSED on ${new Date().toISOString()}] ${payment.notes || ''}`.trim()
-      await supabase
+      const { error: updateErr } = await supabase
         .from('payments')
         .update({
           notes: reversedNote,
           deleted_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         })
         .eq('id', entityId)
         .eq('owner_id', user.id)
+
+      if (updateErr) {
+        console.error('Failed to reverse payment in database:', updateErr)
+        return { success: false, error: `Could not reverse payment: ${updateErr.message}` }
+      }
     }
 
     // Save snapshot into platform_audit_logs with status: 'in_trash'
@@ -650,6 +680,7 @@ export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashA
       bed: 'Bed',
       tenant: 'Resident',
       expense: 'Expense',
+      electricity: 'Meter reading',
       complaint: 'Complaint',
       payment: 'Payment record',
     }
@@ -831,17 +862,29 @@ export async function restoreTrashRecordAction(trashId: string): Promise<TrashAc
       if (insertErr) {
         return { success: false, error: `Could not restore complaint: ${insertErr.message}` }
       }
+    } else if (entityType === 'electricity') {
+      const { error: insertErr } = await supabase.from('electricity_readings').upsert({
+        ...snapshot,
+        owner_id: user.id,
+      }, { onConflict: 'id' })
+
+      if (insertErr) {
+        return { success: false, error: `Could not restore meter reading: ${insertErr.message}` }
+      }
     } else if (entityType === 'payment') {
       const cleanNotes = (snapshot.notes || '').replace(/\[REVERSED[^\]]*\]/g, '').trim()
-      await supabase
+      const { error: restoreErr } = await supabase
         .from('payments')
         .update({
           notes: cleanNotes,
           deleted_at: null,
-          updated_at: new Date().toISOString(),
         })
         .eq('id', snapshot.id)
         .eq('owner_id', user.id)
+
+      if (restoreErr) {
+        return { success: false, error: `Could not restore payment: ${restoreErr.message}` }
+      }
     }
 
     await admin.from('platform_audit_logs').update({
@@ -869,6 +912,7 @@ export async function restoreTrashRecordAction(trashId: string): Promise<TrashAc
       bed: 'Bed',
       tenant: 'Tenant',
       expense: 'Expense',
+      electricity: 'Meter reading',
       complaint: 'Complaint',
       payment: 'Payment',
     }
