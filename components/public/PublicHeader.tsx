@@ -44,14 +44,18 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-30 border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-3.5 py-3 sm:px-8 sm:py-3.5">
+      <header className="sticky top-0 z-30 w-full border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-1.5 px-2.5 py-2.5 sm:gap-4 sm:px-6 md:px-8 sm:py-3.5">
           <Link
             href="/"
-            className="flex items-center gap-2 group rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b] shrink-0"
+            className="flex items-center gap-1.5 sm:gap-2 group rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b] shrink-0"
             aria-label="BaseraBook — Your Property. Smartly Managed."
           >
-            <BaseraBookLogo iconSize={36} subtitleText="Your Property. Smartly Managed." />
+            <BaseraBookLogo
+              iconSize={36}
+              subtitleText="Your Property. Smartly Managed."
+              subtitleClassName="hidden sm:block"
+            />
           </Link>
 
           {/* Desktop Navigation */}
@@ -70,15 +74,15 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
           </nav>
 
           {/* Right Header Actions */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 md:gap-3 shrink-0">
             {hasSession ? (
               <Link
                 href="/dashboard"
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-2.5 py-1.5 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors shrink-0 min-h-[34px]"
               >
-                <span className="hidden xs:inline">{t.landing.goToDashboard}</span>
-                <span className="xs:hidden">Dashboard</span>
-                <ArrowRight className="size-3.5 sm:size-4" />
+                <span className="hidden sm:inline">{t.landing.goToDashboard}</span>
+                <span className="sm:hidden">Dashboard</span>
+                <ArrowRight className="size-3.5 sm:size-4 shrink-0" />
               </Link>
             ) : (
               <>
@@ -90,10 +94,11 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
                 </Link>
                 <Link
                   href="/signup"
-                  className="rounded-full bg-[#8b5a2b] px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors whitespace-nowrap"
+                  className="inline-flex items-center justify-center rounded-full bg-[#8b5a2b] px-2 py-1.5 min-[360px]:px-2.5 sm:px-4 md:px-5 sm:py-2.5 text-[11px] min-[360px]:text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors whitespace-nowrap shrink-0 min-h-[34px]"
                 >
-                  <span className="hidden xs:inline">{t.landing.startFreeTrial} →</span>
-                  <span className="xs:hidden">Free Trial →</span>
+                  <span className="hidden sm:inline">{t.landing.startFreeTrial} →</span>
+                  <span className="hidden min-[360px]:inline sm:hidden">Free Trial</span>
+                  <span className="min-[360px]:hidden">Trial</span>
                 </Link>
               </>
             )}
@@ -104,9 +109,9 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
               onClick={() => setMobileOpen(true)}
               aria-label="Open navigation menu"
               aria-expanded={mobileOpen}
-              className="grid size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#776d62] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors md:hidden cursor-pointer"
+              className="grid size-8.5 sm:size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#776d62] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors md:hidden cursor-pointer shrink-0"
             >
-              <Menu className="size-5" />
+              <Menu className="size-4.5 sm:size-5" />
             </button>
           </div>
         </div>
@@ -114,7 +119,7 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
 
       {/* Mobile Navigation Drawer & Backdrop */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex justify-end">
+        <div className="fixed inset-0 z-50 md:hidden flex justify-end" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
           {/* Backdrop */}
           <div
             className="fixed inset-0 bg-[#202536]/40 backdrop-blur-xs animate-in fade-in duration-200"

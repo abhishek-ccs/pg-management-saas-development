@@ -32,6 +32,18 @@ export default function LandingPage() {
     })
   }, [])
 
+  // Lock body scroll when mobile menu is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [mobileOpen])
+
   const compactFeatures = [
     {
       title: 'Rent Tracking',
@@ -68,14 +80,18 @@ export default function LandingPage() {
   return (
     <main id="main-content" className="min-h-screen bg-[#fbf8f3] text-[#403a34]">
       {/* 1. Compact Responsive Navbar */}
-      <header className="sticky top-0 z-20 border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-3.5 py-3 sm:px-8 sm:py-3.5">
+      <header className="sticky top-0 z-20 w-full border-b border-[#eee4d7]/90 bg-[#fbf8f3]/95 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-1.5 px-2.5 py-2.5 sm:gap-4 sm:px-6 md:px-8 sm:py-3.5">
           <Link
             href="/"
-            className="flex items-center gap-2 group rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b] shrink-0"
+            className="flex items-center gap-1.5 sm:gap-2 group rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b] shrink-0"
             aria-label="BaseraBook — Your Property. Smartly Managed."
           >
-            <BaseraBookLogo iconSize={36} subtitleText="Your Property. Smartly Managed." />
+            <BaseraBookLogo
+              iconSize={36}
+              subtitleText="Your Property. Smartly Managed."
+              subtitleClassName="hidden sm:block"
+            />
           </Link>
 
           <nav aria-label="Main Navigation" className="hidden items-center gap-7 text-sm font-medium text-[#776d62] md:flex">
@@ -93,16 +109,16 @@ export default function LandingPage() {
             </Link>
           </nav>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 md:gap-3 shrink-0">
             <LocaleSwitcher />
             {hasSession ? (
               <Link
                 href="/dashboard"
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-2.5 py-1.5 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors shrink-0 min-h-[34px]"
               >
-                <span className="hidden xs:inline">Go to Dashboard</span>
-                <span className="xs:hidden">Dashboard</span>
-                <ArrowRight className="size-3.5 sm:size-4" />
+                <span className="hidden sm:inline">Go to Dashboard</span>
+                <span className="sm:hidden">Dashboard</span>
+                <ArrowRight className="size-3.5 sm:size-4 shrink-0" />
               </Link>
             ) : (
               <>
@@ -114,10 +130,11 @@ export default function LandingPage() {
                 </Link>
                 <Link
                   href="/signup"
-                  className="rounded-full bg-[#8b5a2b] px-3.5 py-2 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors whitespace-nowrap"
+                  className="inline-flex items-center justify-center rounded-full bg-[#8b5a2b] px-2 py-1.5 min-[360px]:px-2.5 sm:px-4 md:px-5 sm:py-2.5 text-[11px] min-[360px]:text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors whitespace-nowrap shrink-0 min-h-[34px]"
                 >
-                  <span className="hidden xs:inline">Start Free Trial →</span>
-                  <span className="xs:hidden">Free Trial →</span>
+                  <span className="hidden sm:inline">Start Free Trial →</span>
+                  <span className="hidden min-[360px]:inline sm:hidden">Free Trial</span>
+                  <span className="min-[360px]:hidden">Trial</span>
                 </Link>
               </>
             )}
@@ -128,9 +145,9 @@ export default function LandingPage() {
               onClick={() => setMobileOpen(true)}
               aria-label="Open navigation menu"
               aria-expanded={mobileOpen}
-              className="grid size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#776d62] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors md:hidden cursor-pointer shrink-0"
+              className="grid size-8.5 sm:size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#776d62] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors md:hidden cursor-pointer shrink-0"
             >
-              <Menu className="size-5" />
+              <Menu className="size-4.5 sm:size-5" />
             </button>
           </div>
         </div>
@@ -138,7 +155,7 @@ export default function LandingPage() {
 
       {/* Mobile Navigation Drawer */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden flex justify-end">
+        <div className="fixed inset-0 z-50 md:hidden flex justify-end" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
           <div
             className="fixed inset-0 bg-[#202536]/40 backdrop-blur-xs animate-in fade-in duration-200"
             onClick={() => setMobileOpen(false)}

@@ -5,6 +5,7 @@ export interface StayBookLogoProps {
   iconSize?: number
   showSubtitle?: boolean
   subtitleText?: string
+  subtitleClassName?: string
   layout?: 'horizontal' | 'vertical'
   theme?: 'dark' | 'light' | 'inherit'
 }
@@ -123,6 +124,7 @@ export function StayBookLogo({
   iconSize = 38,
   showSubtitle = true,
   subtitleText = 'Your Property. Smartly Managed.',
+  subtitleClassName = 'hidden sm:block',
   layout = 'horizontal',
 }: StayBookLogoProps) {
   if (layout === 'vertical') {
@@ -134,7 +136,7 @@ export function StayBookLogo({
             BaseraBook
           </span>
           {showSubtitle && (
-            <span className="mt-1 block font-sans text-[10.5px] sm:text-[12px] font-medium text-[#8C6847] leading-tight tracking-normal">
+            <span className={`mt-1 block font-sans text-[10.5px] sm:text-[12px] font-medium text-[#8C6847] leading-tight tracking-normal ${subtitleClassName}`}>
               {subtitleText}
             </span>
           )}
@@ -144,14 +146,14 @@ export function StayBookLogo({
   }
 
   return (
-    <div className={`flex items-center gap-2.5 sm:gap-3 ${className}`}>
-      <StayBookIcon size={iconSize} />
-      <div className="flex flex-col text-left leading-tight">
-        <span className="font-serif text-[17px] sm:text-[19px] font-bold tracking-tight text-[#2C221E] leading-none">
+    <div className={`flex items-center gap-2 sm:gap-2.5 ${className}`}>
+      <StayBookIcon size={iconSize} className="w-7 h-7 sm:w-auto sm:h-auto shrink-0 max-w-full" />
+      <div className="flex flex-col text-left leading-tight min-w-0">
+        <span className="font-serif text-[16px] sm:text-[18px] md:text-[19px] font-bold tracking-tight text-[#2C221E] leading-none">
           BaseraBook
         </span>
         {showSubtitle && (
-          <span className="mt-1 hidden min-[360px]:block font-sans text-[9.5px] sm:text-[11px] font-medium text-[#8C6847] tracking-normal leading-none whitespace-nowrap truncate max-w-[140px] sm:max-w-none">
+          <span className={`mt-1 font-sans text-[9.5px] sm:text-[11px] font-medium text-[#8C6847] tracking-normal leading-none whitespace-nowrap truncate max-w-[140px] sm:max-w-none ${subtitleClassName}`}>
             {subtitleText}
           </span>
         )}
