@@ -132,8 +132,19 @@ export async function POST(request: Request) {
     })
 
     if (!emailResult.success) {
-      logger.warn('Email dispatch warning:', { error: emailResult.error || 'Delivery warning' })
-      // Even if Resend encounters delivery warning in local mode, fallback emulator logs it safely
+      logger.error('Signup OTP email dispatch failed via Resend:', {
+        to: cleanEmail,
+        error: emailResult.error,
+      })
+      return NextResponse.json(
+        {
+          success: false,
+          error: emailResult.error
+            ? `Unable to send verification email: ${emailResult.error}`
+            : 'Failed to send verification email. Please try again.',
+        },
+        { status: 502 }
+      )
     }
 
     return NextResponse.json({

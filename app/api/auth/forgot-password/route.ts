@@ -94,12 +94,18 @@ export async function POST(request: Request) {
 
     // 8. Dispatch Branded Email via Resend
     const fullName = user.user_metadata?.full_name || cleanEmail.split('@')[0]
-    await sendOtpEmail({
+    const emailResult = await sendOtpEmail({
       to: cleanEmail,
       otp,
       purpose: 'password_reset',
       name: fullName,
     })
+    if (!emailResult.success) {
+      logger.error('Password reset email dispatch failed via Resend:', {
+        to: cleanEmail,
+        error: emailResult.error,
+      })
+    }
 
     // 9. Record Audit Log
     try {

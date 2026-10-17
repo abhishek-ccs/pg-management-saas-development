@@ -5,6 +5,8 @@ export interface SendEmailOptions {
   subject: string
   html: string
   text?: string
+  from?: string
+  replyTo?: string
 }
 
 export interface SendEmailResult {
@@ -13,16 +15,50 @@ export interface SendEmailResult {
   error?: string
 }
 
-import { SUPPORT_EMAIL } from '../constants'
+export const DEFAULT_SENDER_EMAIL = 'support@baserabook.in'
+export const DEFAULT_EMAIL_FROM = 'BaseraBook Support <support@baserabook.in>'
+export const DEFAULT_EMAIL_REPLY_TO = 'support@baserabook.in'
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY
-const EMAIL_FROM = process.env.EMAIL_FROM || `BaseraBook Support <${SUPPORT_EMAIL}>`
+
+/**
+ * Resolves the authorized sender address for Resend.
+ * Rejects unverified domains like gmail.com to prevent Resend 403 API errors.
+ */
+export function resolveSender(customFrom?: string): string {
+  if (customFrom && !customFrom.includes('@gmail.com')) {
+    return customFrom
+  }
+  const envFrom = process.env.EMAIL_FROM
+  if (envFrom && !envFrom.includes('@gmail.com')) {
+    return envFrom
+  }
+  return DEFAULT_EMAIL_FROM
+}
+
+/**
+ * Resolves the reply-to address for emails.
+ */
+export function resolveReplyTo(customReplyTo?: string): string {
+  if (customReplyTo) return customReplyTo
+  return process.env.EMAIL_REPLY_TO || DEFAULT_EMAIL_REPLY_TO
+}
 
 /**
  * Universal Transactional Email Sender
  * Sends via Resend if RESEND_API_KEY is configured, or logs safely in development/staging.
  */
-export async function sendEmail({ to, subject, html, text }: SendEmailOptions): Promise<SendEmailResult> {
+export async function sendEmail({
+  to,
+  subject,
+  html,
+  text,
+  from,
+  replyTo,
+}: SendEmailOptions): Promise<SendEmailResult> {
+  const sender = resolveSender(from)
+  const reply = resolveReplyTo(replyTo)
+
   if (RESEND_API_KEY) {
     try {
       const response = await fetch('https://api.resend.com/emails', {
@@ -32,9 +68,9 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions): 
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: EMAIL_FROM,
+          from: sender,
           to,
-          reply_to: SUPPORT_EMAIL,
+          reply_to: reply,
           subject,
           html,
           text,
@@ -44,21 +80,22 @@ export async function sendEmail({ to, subject, html, text }: SendEmailOptions): 
       const data = await response.json()
       if (!response.ok) {
         logger.error('Resend API delivery error:', data)
-        return { success: false, error: data?.message || 'Email delivery failed' }
+        return { success: false, error: data?.message || `Resend delivery failed (${response.status})` }
       }
 
-      logger.info('Transactional email dispatched via Resend:', { to, subject, id: data.id })
+      logger.info('Transactional email dispatched via Resend:', { to, subject, id: data.id, from: sender })
       return { success: true, messageId: data.id }
     } catch (err: any) {
       logger.error('Failed to dispatch email via Resend:', err)
-      return { success: false, error: err?.message || 'Network error' }
+      return { success: false, error: err?.message || 'Network error dispatching email' }
     }
   }
 
   // Development & fallback simulated delivery
   logger.info('[DEV EMAIL EMULATOR] Simulated transactional email:', {
-    from: EMAIL_FROM,
+    from: sender,
     to,
+    reply_to: reply,
     subject,
   })
   return {
@@ -90,7 +127,13 @@ export async function sendWelcomeEmail(to: string, ownerName: string) {
       </div>
     </div>
   `
-  return sendEmail({ to, subject: 'Welcome to BaseraBook — Your 7-Day Trial is Ready', html })
+  return sendEmail({
+    to,
+    from: DEFAULT_EMAIL_FROM,
+    replyTo: DEFAULT_EMAIL_REPLY_TO,
+    subject: 'Welcome to BaseraBook — Your 7-Day Trial is Ready',
+    html,
+  })
 }
 
 export async function sendReceiptEmail(
@@ -123,7 +166,13 @@ export async function sendReceiptEmail(
       </div>
     </div>
   `
-  return sendEmail({ to, subject: `Payment Receipt: REC-${receiptId.slice(0, 8).toUpperCase()} from ${propertyName}`, html })
+  return sendEmail({
+    to,
+    from: DEFAULT_EMAIL_FROM,
+    replyTo: DEFAULT_EMAIL_REPLY_TO,
+    subject: `Payment Receipt: REC-${receiptId.slice(0, 8).toUpperCase()} from ${propertyName}`,
+    html,
+  })
 }
 
 export interface SendOtpEmailOptions {
@@ -131,12 +180,16 @@ export interface SendOtpEmailOptions {
   otp: string
   purpose: 'signup' | 'password_reset'
   name?: string
+  from?: string
+  replyTo?: string
 }
 
-export async function sendOtpEmail({ to, otp, purpose, name }: SendOtpEmailOptions) {
+export async function sendOtpEmail({ to, otp, purpose, name, from, replyTo }: SendOtpEmailOptions) {
   const isReset = purpose === 'password_reset'
   const title = isReset ? 'Reset Your BaseraBook Password' : 'Verify Your BaseraBook Email'
   const greeting = name ? `Hello ${name},` : 'Hello,'
+  const sender = from || DEFAULT_EMAIL_FROM
+  const supportContact = replyTo || DEFAULT_EMAIL_REPLY_TO
 
   const html = `
     <!DOCTYPE html>
@@ -192,7 +245,7 @@ export async function sendOtpEmail({ to, otp, purpose, name }: SendOtpEmailOptio
                   </div>
 
                   <p style="font-size: 13px; line-height: 20px; color: #7d756d; margin: 0;">
-                    Need help? Reach out to our support team at <a href="mailto:${SUPPORT_EMAIL}" style="color: #8b5a2b; text-decoration: underline;">${SUPPORT_EMAIL}</a>.
+                    Need help? Reach out to our support team at <a href="mailto:${supportContact}" style="color: #8b5a2b; text-decoration: underline;">${supportContact}</a>.
                   </p>
                 </td>
               </tr>
@@ -222,6 +275,8 @@ export async function sendOtpEmail({ to, otp, purpose, name }: SendOtpEmailOptio
 
   return sendEmail({
     to,
+    from: sender,
+    replyTo: supportContact,
     subject,
     html,
     text: `${title}\n\nYour 6-digit verification code is: ${otp}\n\nThis code expires in 5 minutes.\n\nSecurity Notice: If you did not make this request, please disregard this email.`,

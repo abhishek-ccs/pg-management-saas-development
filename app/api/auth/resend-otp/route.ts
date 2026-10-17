@@ -113,11 +113,27 @@ export async function POST(request: Request) {
     } catch {}
 
     storeOtp(cleanEmail, otp, 'signup_verification')
-    await sendOtpEmail({
+    const emailResult = await sendOtpEmail({
       to: cleanEmail,
       otp,
       purpose: 'signup',
     })
+
+    if (!emailResult.success) {
+      logger.error('Resend OTP email dispatch failed via Resend:', {
+        to: cleanEmail,
+        error: emailResult.error,
+      })
+      return NextResponse.json(
+        {
+          success: false,
+          error: emailResult.error
+            ? `Unable to resend verification email: ${emailResult.error}`
+            : 'Could not resend verification code. Please try again.',
+        },
+        { status: 502 }
+      )
+    }
 
     return NextResponse.json({
       success: true,
