@@ -21,6 +21,14 @@ import {
   generateSmsReminder,
 } from '../lib/due-dates.js'
 import { calculateMidCycleElectricitySplit } from '../lib/electricity-split.ts'
+import {
+  validateUpiId,
+  validatePaymentLink,
+  validateQrImageFile,
+  validateDecodedQrData,
+  validatePaymentDetailsForm,
+  getValidatedReminderPaymentOptions,
+} from '../lib/payment-validation.ts'
 import { isSafeRedirectPath, getSafeRedirectPath } from '../lib/validation.js'
 import {
   generateTenantToken,
@@ -1331,6 +1339,199 @@ test('35. Mid-Cycle Electricity Bill Sharing Engine Invariants', () => {
   assert.strictEqual(elena.unitsConsumed, 40, 'Elena units must be 40')
   assert.strictEqual(dave.amountDue, 800, 'Dave amount must be 800')
   assert.strictEqual(elena.amountDue, 400, 'Elena amount must be 400')
+})
+
+test('36. UPI ID & Payment Link Deep Validation Law', () => {
+  // Case A: Valid UPI IDs
+  const validUpis = [
+    'sunrisepg@okhdfcbank',
+    '9876543210@paytm',
+    'staynest.bills@icici',
+    'raj-kumar@sbi',
+    'owner@upi',
+    'pg_management@axisbank',
+  ]
+  for (const upi of validUpis) {
+    const res = validateUpiId(upi)
+    assert.ok(res.isValid, `Valid UPI ID "${upi}" must pass validation`)
+    assert.strictEqual(res.data, upi)
+  }
+
+  // Case B: Invalid UPI IDs
+  const invalidUpis = [
+    { id: '', err: 'empty' },
+    { id: '   ', err: 'empty' },
+    { id: 'sunrisepg', err: 'must contain @' },
+    { id: 'sunrise@pg@okhdfcbank', err: 'multiple @' },
+    { id: 'user@', err: 'bank handle after @' },
+    { id: '@okhdfcbank', err: 'username before @' },
+    { id: 'user name@okhdfcbank', err: 'spaces' },
+    { id: 'user#name@upi', err: 'unsupported characters' },
+  ]
+  for (const { id, err } of invalidUpis) {
+    const res = validateUpiId(id)
+    assert.strictEqual(res.isValid, false, `Invalid UPI ID "${id}" must fail validation`)
+    assert.ok(res.error, `Must return actionable error for "${id}"`)
+  }
+
+  // Case C: Valid Payment Links (HTTPS gateways & UPI deep links)
+  const validLinks = [
+    'https://rzp.io/l/sunrisepg',
+    'https://paytm.me/m-sunrise',
+    'https://phonepe.com/pay/pg123',
+    'https://gpay.app.goo.gl/pay',
+    'https://razorpay.me/@sunrisepg',
+    'https://bharatpe.com/pay',
+    'upi://pay?pa=sunrisepg@okhdfcbank&pn=Sunrise%20PG&cu=INR',
+    'upi://pay?pa=owner@upi',
+  ]
+  for (const link of validLinks) {
+    const res = validatePaymentLink(link)
+    assert.ok(res.isValid, `Valid payment link "${link}" must pass validation`)
+    assert.strictEqual(res.data, link)
+  }
+
+  // Case D: Insecure, malformed, or unsupported payment links
+  const invalidLinks = [
+    { link: 'http://insecure-gateway.com/pay', reason: 'plain HTTP must be rejected' },
+    { link: 'ftp://files.example.com/pay', reason: 'FTP scheme must be rejected' },
+    { link: 'javascript:alert(1)', reason: 'javascript scheme must be rejected' },
+    { link: 'not-a-valid-url', reason: 'plain text must be rejected' },
+    { link: 'upi://pay', reason: 'UPI link without payee pa= parameter must be rejected' },
+    { link: 'upi://pay?pn=PGName', reason: 'UPI link missing pa= parameter must be rejected' },
+    { link: 'upi://pay?pa=invalid upi with spaces', reason: 'UPI link with malformed pa= must be rejected' },
+    { link: 'https://youtube.com/watch?v=123', reason: 'Non-payment domains must be rejected' },
+  ]
+  for (const { link, reason } of invalidLinks) {
+    const res = validatePaymentLink(link)
+    assert.strictEqual(res.isValid, false, `Link "${link}" (${reason}) must be rejected`)
+    assert.ok(res.error, `Must provide actionable error explanation for "${link}"`)
+  }
+})
+
+test('37. QR Code File & Decoded URI Validation Law', () => {
+  // Case A: File MIME type checks
+  const validFiles = [
+    { type: 'image/png', size: 1024 * 500, name: 'qr.png' },
+    { type: 'image/jpeg', size: 1024 * 800, name: 'qr.jpg' },
+    { type: 'image/webp', size: 1024 * 300, name: 'qr.webp' },
+    { type: 'image/svg+xml', size: 1024 * 100, name: 'qr.svg' },
+  ]
+  for (const f of validFiles) {
+    const res = validateQrImageFile(f)
+    assert.ok(res.isValid, `File ${f.name} must be accepted`)
+  }
+
+  // Case B: Oversized file (> 2MB)
+  const oversizedFile = { type: 'image/png', size: 3 * 1024 * 1024, name: 'huge_qr.png' }
+  const overRes = validateQrImageFile(oversizedFile)
+  assert.strictEqual(overRes.isValid, false, 'Files > 2MB must be rejected')
+  assert.ok(overRes.error?.includes('2MB'), 'Error must mention 2MB limit')
+
+  // Case C: Invalid file types
+  const invalidFiles = [
+    { type: 'application/pdf', size: 1024 * 200, name: 'doc.pdf' },
+    { type: 'text/plain', size: 1024 * 50, name: 'notes.txt' },
+    { type: 'application/zip', size: 1024 * 500, name: 'archive.zip' },
+  ]
+  for (const f of invalidFiles) {
+    const res = validateQrImageFile(f)
+    assert.strictEqual(res.isValid, false, `File ${f.name} (${f.type}) must be rejected`)
+  }
+
+  // Case D: Decoded QR Data Validation
+  const validDecoded = [
+    'upi://pay?pa=sunrisepg@okhdfcbank&pn=Sunrise%20PG',
+    'https://rzp.io/l/rent',
+    'sunrisepg@okhdfcbank',
+  ]
+  for (const str of validDecoded) {
+    const res = validateDecodedQrData(str)
+    assert.ok(res.isValid, `Decoded QR string "${str}" must be accepted`)
+  }
+
+  const invalidDecoded = [
+    'Hello World, this is not a payment link',
+    'http://insecure-site.com/payment',
+    'random_gibberish_1234567890',
+  ]
+  for (const str of invalidDecoded) {
+    const res = validateDecodedQrData(str)
+    assert.strictEqual(res.isValid, false, `Invalid decoded string "${str}" must be rejected`)
+    assert.ok(res.error, 'Must provide clear error for unverified QR content')
+  }
+})
+
+test('38. Payment Details Form Validation & Reminder Protection Barrier', () => {
+  // Case A: Completely empty form submission
+  const emptyForm = validatePaymentDetailsForm({ upiId: '', paymentLink: '', qrCodeUrl: '' })
+  assert.strictEqual(emptyForm.isValid, false, 'Empty payment form must fail validation')
+  assert.ok(emptyForm.errors.general, 'Must return general error explaining at least one method is required')
+
+  // Case B: Invalid UPI ID prevents saving and returns field-specific error
+  const invalidUpiForm = validatePaymentDetailsForm({ upiId: 'invalid-no-at-sign', paymentLink: '' })
+  assert.strictEqual(invalidUpiForm.isValid, false)
+  assert.ok(invalidUpiForm.errors.upiId, 'Must return specific error for upiId')
+
+  // Case C: Invalid payment link prevents saving
+  const invalidLinkForm = validatePaymentDetailsForm({ upiId: 'valid@upi', paymentLink: 'http://insecure.com' })
+  assert.strictEqual(invalidLinkForm.isValid, false)
+  assert.ok(invalidLinkForm.errors.paymentLink, 'Must return specific error for insecure paymentLink')
+
+  // Case D: Valid payment options return clean data
+  const validForm = validatePaymentDetailsForm({
+    upiId: 'sunrisepg@okhdfcbank',
+    paymentLink: 'https://rzp.io/l/sunrise',
+    qrCodeUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  })
+  assert.ok(validForm.isValid, 'Valid form must pass')
+  assert.strictEqual(validForm.cleanData.upiId, 'sunrisepg@okhdfcbank')
+  assert.strictEqual(validForm.cleanData.paymentLink, 'https://rzp.io/l/sunrise')
+
+  // Case E: Reminders filter out invalid or malformed payment options
+  const filtered = getValidatedReminderPaymentOptions({
+    upiId: 'malformed upi with spaces',
+    paymentLink: 'http://insecure.com',
+  })
+  assert.strictEqual(filtered, null, 'Must return null when all provided options are invalid')
+
+  // Case F: Reminders preserve valid options while discarding invalid ones
+  const mixed = getValidatedReminderPaymentOptions({
+    upiId: 'valid@upi',
+    paymentLink: 'http://insecure-link.com', // invalid -> discarded
+  })
+  assert.ok(mixed, 'Must keep valid option')
+  assert.strictEqual(mixed.upiId, 'valid@upi')
+  assert.strictEqual(mixed.paymentLink, undefined, 'Invalid link must be omitted')
+
+  // Case G: WhatsApp reminder with invalid payment details does NOT include payment section
+  const reminderWithBadData = generateWhatsAppReminder({
+    tenantName: 'Rahul',
+    phone: '9876543210',
+    amount: 5000,
+    dueDay: 5,
+    propertyName: 'Sunrise PG',
+    paymentDetails: {
+      upiId: 'invalid-upi-id',
+      paymentLink: 'http://insecure.com',
+    },
+  })
+  assert.ok(!reminderWithBadData.includes('Payment Options:'), 'Invalid payment details must NOT be included in reminder')
+  assert.ok(!reminderWithBadData.includes('invalid-upi-id'), 'Must not leak invalid UPI ID')
+
+  // Case H: SMS reminder with invalid payment details does NOT include payment text
+  const smsWithBadData = generateSmsReminder({
+    tenantName: 'Rahul',
+    amount: 5000,
+    dueDay: 5,
+    propertyName: 'Sunrise PG',
+    paymentDetails: {
+      upiId: 'invalid-upi-id',
+      paymentLink: 'not-a-link',
+    },
+  })
+  assert.ok(!smsWithBadData.includes('UPI:'), 'SMS must omit invalid payment info')
+  assert.ok(!smsWithBadData.includes('Pay link:'), 'SMS must omit invalid payment link')
 })
 
 

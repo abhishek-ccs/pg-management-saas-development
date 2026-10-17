@@ -132,9 +132,8 @@ export function formatPaymentTimestamp(
   }
 }
 
-/**
- * Payment details structure for payment reminders
- */
+import { getValidatedReminderPaymentOptions } from './payment-validation'
+
 export interface ReminderPaymentDetails {
   upiId?: string | null
   paymentLink?: string | null
@@ -158,10 +157,13 @@ export function generateWhatsAppReminder(params: {
   const formattedPhone = cleanPhone.startsWith('91') && cleanPhone.length === 12 ? cleanPhone : cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
 
   const amountStr = `₹${amount.toLocaleString('en-IN')}`
-  const upiId = paymentDetails?.upiId?.trim()
-  const paymentLink = paymentDetails?.paymentLink?.trim()
 
-  // Format payment section if payment option exists
+  // Strict validation: Incomplete, malformed, or invalid payment details are never included
+  const validatedPayment = getValidatedReminderPaymentOptions(paymentDetails)
+  const upiId = validatedPayment?.upiId
+  const paymentLink = validatedPayment?.paymentLink
+
+  // Format payment section if verified payment option exists
   let paymentTextEn = ''
   let paymentTextHi = ''
 
@@ -205,8 +207,10 @@ export function generateSmsReminder(params: {
   const cleanPhone = (phone || '').replace(/[^\d]/g, '')
   const amountStr = `₹${amount.toLocaleString('en-IN')}`
 
-  const upiId = paymentDetails?.upiId?.trim()
-  const paymentLink = paymentDetails?.paymentLink?.trim()
+  // Strict validation: Incomplete, malformed, or invalid payment details are never included
+  const validatedPayment = getValidatedReminderPaymentOptions(paymentDetails)
+  const upiId = validatedPayment?.upiId
+  const paymentLink = validatedPayment?.paymentLink
 
   let payInfoEn = ''
   let payInfoHi = ''

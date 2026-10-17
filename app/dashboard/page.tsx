@@ -38,6 +38,13 @@ import {
   generateSmsReminder,
   type ReminderPaymentDetails,
 } from '@/lib/due-dates'
+import {
+  validatePaymentDetailsForm,
+  validateQrImageFile,
+  decodeAndValidateQrImage,
+  validateUpiId,
+  validatePaymentLink,
+} from '@/lib/payment-validation'
 import { calculateMidCycleElectricitySplit } from '@/lib/electricity-split'
 import { BaseraBookLogo, BaseraBookIcon } from '@/components/ui/BaseraBookLogo'
 import {
@@ -103,6 +110,18 @@ import {
 // ------------------------------------------------------------------------------
 // Data Types
 // ------------------------------------------------------------------------------
+export type Property = {
+  id: string
+  name: string
+  address: string
+  contact: string
+  city: string
+  rules?: string | null
+  upi_id?: string | null
+  payment_link?: string | null
+  upi_qr_url?: string | null
+}
+
 type Tenant = {
   id: string
   property_id?: string | null
@@ -304,13 +323,26 @@ export default function DashboardPage() {
   const [dashboardBillingCycle, setDashboardBillingCycle] = useState<'yearly' | 'monthly'>('yearly')
 
   // Real Database Business State (Multi-property support with strict property isolation)
-  const [properties, setProperties] = useState<Array<{ id: string; name: string; address: string; contact: string; city: string; rules?: string | null }>>([])
+  const [properties, setProperties] = useState<Property[]>([])
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>('')
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null)
 
   // Active property derived helper
-  const property = useMemo(() => {
-    return properties.find((p) => p.id === selectedPropertyId) || properties[0] || { id: '', name: '', address: '', contact: '', city: '', rules: null }
+  const property: Property = useMemo(() => {
+    return (
+      properties.find((p) => p.id === selectedPropertyId) ||
+      properties[0] || {
+        id: '',
+        name: '',
+        address: '',
+        contact: '',
+        city: '',
+        rules: null,
+        upi_id: null,
+        payment_link: null,
+        upi_qr_url: null,
+      }
+    )
   }, [properties, selectedPropertyId])
 
   const propertyType = useMemo(() => getPropertyType(property), [property])
@@ -448,6 +480,26 @@ export default function DashboardPage() {
     qrCodeUrl: string
   }>({ upiId: '', paymentLink: '', qrCodeUrl: '' })
   const [isSavingPaymentDetails, setIsSavingPaymentDetails] = useState(false)
+  const [isDecodingQr, setIsDecodingQr] = useState(false)
+  const [paymentValidationErrors, setPaymentValidationErrors] = useState<{
+    upiId?: string
+    paymentLink?: string
+    qrCode?: string
+    general?: string
+  }>({})
+  const [paymentSuccessMessage, setPaymentSuccessMessage] = useState<string>('')
+
+  // Sync payment options with selected property if configured specifically for this property
+  useEffect(() => {
+    if (!property?.id) return
+    if (property.upi_id || property.payment_link || property.upi_qr_url) {
+      setOwnerPaymentDetails({
+        upiId: property.upi_id || '',
+        paymentLink: property.payment_link || '',
+        qrCodeUrl: property.upi_qr_url || '',
+      })
+    }
+  }, [property?.id, property?.upi_id, property?.payment_link, property?.upi_qr_url])
 
   // Mid-Cycle Electricity Split Modal State
   const [showMidCycleModal, setShowMidCycleModal] = useState(false)
@@ -682,13 +734,15 @@ export default function DashboardPage() {
         if (!isMounted) return
 
         // Saved Payment Options (UPI ID, payment link, QR Code image)
-        if (profileRes?.data) {
-          setOwnerPaymentDetails({
-            upiId: profileRes.data.upi_id || '',
-            paymentLink: profileRes.data.payment_link || '',
-            qrCodeUrl: profileRes.data.upi_qr_url || '',
-          })
-        }
+        const loadedUpi = profileRes?.data?.upi_id || propRes?.data?.[0]?.upi_id || ''
+        const loadedLink = profileRes?.data?.payment_link || propRes?.data?.[0]?.payment_link || ''
+        const loadedQr = profileRes?.data?.upi_qr_url || propRes?.data?.[0]?.upi_qr_url || ''
+
+        setOwnerPaymentDetails({
+          upiId: loadedUpi,
+          paymentLink: loadedLink,
+          qrCodeUrl: loadedQr,
+        })
 
         // Subscription & Trial status from database row
         if (subRes.data) {
@@ -710,6 +764,9 @@ export default function DashboardPage() {
           contact: p.contact_number || '',
           city: p.city || '',
           rules: p.rules || null,
+          upi_id: p.upi_id || null,
+          payment_link: p.payment_link || null,
+          upi_qr_url: p.upi_qr_url || null,
         }))
         setProperties(propList)
         setSelectedPropertyId((curr) => {
@@ -1102,7 +1159,7 @@ export default function DashboardPage() {
           })
           .eq('id', targetId)
           .eq('owner_id', userId)
-          .select('id,name,address,contact_number,city,rules')
+          .select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url')
           .single()
       } else {
         res = await supabase
@@ -1114,9 +1171,12 @@ export default function DashboardPage() {
             contact_number: contact,
             city,
             rules: packedRules,
+            upi_id: ownerPaymentDetails?.upiId || null,
+            payment_link: ownerPaymentDetails?.paymentLink || null,
+            upi_qr_url: ownerPaymentDetails?.qrCodeUrl || null,
             updated_at: new Date().toISOString(),
           })
-          .select('id,name,address,contact_number,city,rules')
+          .select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url')
           .single()
       }
 
@@ -1137,6 +1197,9 @@ export default function DashboardPage() {
           contact: res.data.contact_number || '',
           city: res.data.city || '',
           rules: res.data.rules || packedRules,
+          upi_id: res.data.upi_id || null,
+          payment_link: res.data.payment_link || null,
+          upi_qr_url: res.data.upi_qr_url || null,
         }
         if (targetId) {
           setProperties((prev) => prev.map((p) => (p.id === targetId ? savedProp : p)))
@@ -2600,11 +2663,27 @@ export default function DashboardPage() {
   async function handleSavePaymentDetails(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!userId) return
+
+    setPaymentSuccessMessage('')
+    const validation = validatePaymentDetailsForm(ownerPaymentDetails)
+    if (!validation.isValid) {
+      setPaymentValidationErrors(validation.errors)
+      const firstErr =
+        validation.errors.upiId ||
+        validation.errors.paymentLink ||
+        validation.errors.qrCode ||
+        validation.errors.general ||
+        'Please correct the invalid payment options.'
+      flash(firstErr)
+      return
+    }
+
+    setPaymentValidationErrors({})
     setIsSavingPaymentDetails(true)
     try {
-      const upiId = ownerPaymentDetails.upiId?.trim() || null
-      const paymentLink = ownerPaymentDetails.paymentLink?.trim() || null
-      const qrCodeUrl = ownerPaymentDetails.qrCodeUrl || null
+      const upiId = validation.cleanData.upiId
+      const paymentLink = validation.cleanData.paymentLink
+      const qrCodeUrl = validation.cleanData.qrCodeUrl
 
       const { error } = await supabase
         .from('profiles')
@@ -2632,9 +2711,25 @@ export default function DashboardPage() {
             updated_at: new Date().toISOString(),
           })
           .eq('id', property.id)
+
+        // Keep local properties state updated
+        setProperties((prev) =>
+          prev.map((p) =>
+            p.id === property.id
+              ? { ...p, upi_id: upiId, payment_link: paymentLink, upi_qr_url: qrCodeUrl }
+              : p
+          )
+        )
       }
 
-      flash('Payment options saved successfully. Future reminders will include them.')
+      setOwnerPaymentDetails({
+        upiId: upiId || '',
+        paymentLink: paymentLink || '',
+        qrCodeUrl: qrCodeUrl || '',
+      })
+      const successMsg = 'Payment options saved successfully. Future reminders and resident self-service portal will include them.'
+      setPaymentSuccessMessage(successMsg)
+      flash(successMsg)
     } catch (err: any) {
       flash(err?.message || 'Error saving payment options.')
     } finally {
@@ -2642,20 +2737,70 @@ export default function DashboardPage() {
     }
   }
 
-  function handleQrImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleQrImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) {
-      flash('QR code image must be under 2MB.')
+
+    setPaymentSuccessMessage('')
+    const fileCheck = validateQrImageFile(file)
+    if (!fileCheck.isValid) {
+      const errMsg = fileCheck.error || 'Invalid QR code image file.'
+      flash(errMsg)
+      setPaymentValidationErrors((prev) => ({ ...prev, qrCode: errMsg }))
+      e.target.value = ''
       return
     }
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string
-      setOwnerPaymentDetails((prev) => ({ ...prev, qrCodeUrl: dataUrl }))
-      flash('QR code image loaded. Click "Save Payment Options" to persist.')
+
+    setIsDecodingQr(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target?.result as string
+        if (!dataUrl) {
+          setIsDecodingQr(false)
+          return
+        }
+
+        const decodeRes = await decodeAndValidateQrImage(dataUrl)
+        if (!decodeRes.isValid) {
+          const errMsg = decodeRes.error || 'Could not verify a valid UPI payment QR code from the image.'
+          flash(errMsg)
+          setPaymentValidationErrors((prev) => ({ ...prev, qrCode: errMsg }))
+          setIsDecodingQr(false)
+          e.target.value = ''
+          return
+        }
+
+        // Auto-extract UPI ID from QR uri if owner hasn't typed one yet
+        let detectedUpiId = ''
+        if (decodeRes.data?.uri.startsWith('upi://pay')) {
+          try {
+            const qStart = decodeRes.data.uri.indexOf('?')
+            if (qStart !== -1) {
+              const sp = new URLSearchParams(decodeRes.data.uri.slice(qStart + 1))
+              detectedUpiId = sp.get('pa') || ''
+            }
+          } catch {}
+        }
+
+        setOwnerPaymentDetails((prev) => ({
+          ...prev,
+          qrCodeUrl: dataUrl,
+          upiId: !prev.upiId && detectedUpiId ? detectedUpiId : prev.upiId,
+        }))
+        setPaymentValidationErrors((prev) => ({ ...prev, qrCode: undefined }))
+        flash('UPI QR code verified successfully! Click "Save Payment Details" to persist.')
+        setIsDecodingQr(false)
+      }
+      reader.onerror = () => {
+        flash('Error reading the uploaded file.')
+        setIsDecodingQr(false)
+      }
+      reader.readAsDataURL(file)
+    } catch (err: any) {
+      flash('Error processing QR image: ' + err?.message)
+      setIsDecodingQr(false)
     }
-    reader.readAsDataURL(file)
   }
 
   // Save Mid-Cycle Electricity Bill & Individual Tenant Shares
@@ -3467,6 +3612,10 @@ export default function DashboardPage() {
               onSavePaymentDetails={handleSavePaymentDetails}
               onQrImageUpload={handleQrImageUpload}
               isSavingPaymentDetails={isSavingPaymentDetails}
+              isDecodingQr={isDecodingQr}
+              paymentValidationErrors={paymentValidationErrors}
+              setPaymentValidationErrors={setPaymentValidationErrors}
+              paymentSuccessMessage={paymentSuccessMessage}
               onDeleteProperty={() => setShowDeletePropertyModal(true)}
               onViewPlans={() => setShowPricingModal(true)}
               onSignOut={() => setShowLogoutModal(true)}
@@ -6208,8 +6357,12 @@ function TenantsTab({
         </div>
       </div>
 
-      {/* Payment Option Setup Prompt Banner (Shown when owner has not configured payment option) */}
-      {(!ownerPaymentDetails?.upiId && !ownerPaymentDetails?.paymentLink && !ownerPaymentDetails?.qrCodeUrl) && (
+      {/* Payment Option Setup Prompt Banner (Shown when owner has not configured valid payment options) */}
+      {!Boolean(
+        (ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid) ||
+        (ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid) ||
+        ownerPaymentDetails?.qrCodeUrl
+      ) && (
         <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-[#eedfc9] bg-[#fdf9f2] p-4 text-xs text-[#784b20]">
           <div className="flex items-center gap-3">
             <div className="grid size-9 place-items-center rounded-xl bg-[#8b5a2b]/15 text-[#8b5a2b] shrink-0">
@@ -6218,7 +6371,7 @@ function TenantsTab({
             <div>
               <p className="font-bold text-[#3d3934]">No UPI QR code or payment link configured</p>
               <p className="text-[11px] text-[#85899a]">
-                Payment reminders sent to residents currently omit payment links. Add your UPI details so residents can pay directly.
+                Payment reminders sent to residents currently omit payment links. Add your verified UPI details so residents can pay directly.
               </p>
             </div>
           </div>
@@ -6348,9 +6501,9 @@ function TenantsTab({
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 rounded-lg border border-[#25D366]/40 bg-[#25D366]/10 px-2 py-1 text-[11px] font-semibold text-[#1e7e34] hover:bg-[#25D366]/20 transition-colors"
                             title={
-                              ownerPaymentDetails?.upiId
+                              ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid
                                 ? `Send WhatsApp reminder (Includes UPI: ${ownerPaymentDetails.upiId})`
-                                : ownerPaymentDetails?.paymentLink
+                                : ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid
                                 ? 'Send WhatsApp reminder (Includes online payment link)'
                                 : 'Send WhatsApp reminder (No payment details configured)'
                             }
@@ -7157,9 +7310,19 @@ function SettingsTab({
   onSavePaymentDetails,
   onQrImageUpload,
   isSavingPaymentDetails,
+  isDecodingQr = false,
+  paymentValidationErrors = {},
+  setPaymentValidationErrors,
+  paymentSuccessMessage = '',
   onViewPlans,
   onSignOut,
 }: any) {
+  const isPaymentConfigured = Boolean(
+    (ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid) ||
+    (ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid) ||
+    ownerPaymentDetails?.qrCodeUrl
+  )
+
   return (
     <div className="max-w-2xl space-y-6">
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
@@ -7193,7 +7356,7 @@ function SettingsTab({
               </p>
             </div>
           </div>
-          {ownerPaymentDetails?.upiId || ownerPaymentDetails?.paymentLink || ownerPaymentDetails?.qrCodeUrl ? (
+          {isPaymentConfigured ? (
             <span className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-2.5 py-0.5 text-[10px] font-bold text-[#236b4e]">
               <CheckCircle2 className="size-3.5" />
               Configured
@@ -7206,6 +7369,20 @@ function SettingsTab({
           )}
         </div>
 
+        {paymentSuccessMessage && (
+          <div className="mt-4 rounded-xl border border-[#a3e4be] bg-[#f0fbf5] p-3 text-xs text-[#236b4e] flex items-center gap-2 font-medium">
+            <CheckCircle2 className="size-4 shrink-0 text-[#236b4e]" />
+            <span>{paymentSuccessMessage}</span>
+          </div>
+        )}
+
+        {paymentValidationErrors?.general && (
+          <div className="mt-4 rounded-xl border border-[#ffc9c1] bg-[#fff0e9] p-3 text-xs text-[#b95c3c] flex items-center gap-2 font-medium">
+            <AlertCircle className="size-4 shrink-0 text-[#b95c3c]" />
+            <span>{paymentValidationErrors.general}</span>
+          </div>
+        )}
+
         <form onSubmit={onSavePaymentDetails} className="mt-5 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-[#555a6c]">
@@ -7216,11 +7393,22 @@ function SettingsTab({
               type="text"
               placeholder="e.g. yourname@okhdfcbank or 9876543210@paytm"
               value={ownerPaymentDetails?.upiId || ''}
-              onChange={(e) =>
+              onChange={(e) => {
                 setOwnerPaymentDetails?.((prev: any) => ({ ...prev, upiId: e.target.value }))
-              }
-              className="w-full rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
+                setPaymentValidationErrors?.((prev: any) => ({ ...prev, upiId: undefined, general: undefined }))
+              }}
+              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors ${
+                paymentValidationErrors?.upiId
+                  ? 'border-[#b95c3c] focus:border-[#b95c3c] focus:ring-1 focus:ring-[#b95c3c]'
+                  : 'border-[#e4e6ec] focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]'
+              }`}
             />
+            {paymentValidationErrors?.upiId && (
+              <p className="mt-1.5 text-xs text-[#b95c3c] flex items-center gap-1 font-medium">
+                <AlertCircle className="size-3.5 shrink-0" />
+                {paymentValidationErrors.upiId}
+              </p>
+            )}
           </div>
 
           <div>
@@ -7229,14 +7417,25 @@ function SettingsTab({
             </label>
             <p className="text-[11px] text-[#85899a] mb-1.5">Online payment or gateway collection URL (e.g. Razorpay, Paytm link, or UPI deep link).</p>
             <input
-              type="url"
-              placeholder="e.g. https://rzp.io/l/yourpgrent or https://paytm.me/..."
+              type="text"
+              placeholder="e.g. https://rzp.io/l/yourpgrent or upi://pay?pa=..."
               value={ownerPaymentDetails?.paymentLink || ''}
-              onChange={(e) =>
+              onChange={(e) => {
                 setOwnerPaymentDetails?.((prev: any) => ({ ...prev, paymentLink: e.target.value }))
-              }
-              className="w-full rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
+                setPaymentValidationErrors?.((prev: any) => ({ ...prev, paymentLink: undefined, general: undefined }))
+              }}
+              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors ${
+                paymentValidationErrors?.paymentLink
+                  ? 'border-[#b95c3c] focus:border-[#b95c3c] focus:ring-1 focus:ring-[#b95c3c]'
+                  : 'border-[#e4e6ec] focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]'
+              }`}
             />
+            {paymentValidationErrors?.paymentLink && (
+              <p className="mt-1.5 text-xs text-[#b95c3c] flex items-center gap-1 font-medium">
+                <AlertCircle className="size-3.5 shrink-0" />
+                {paymentValidationErrors.paymentLink}
+              </p>
+            )}
           </div>
 
           <div>
@@ -7244,17 +7443,18 @@ function SettingsTab({
               UPI QR Code Image
             </label>
             <p className="text-[11px] text-[#85899a] mb-2">
-              Upload your UPI QR code image (PNG, JPG, or SVG). Residents can scan this QR code on their self-service portal or view it via reminder links.
+              Upload your UPI QR code image (PNG, JPG, WebP, or SVG). BaseraBook automatically verifies readability and embeds it into resident self-service links.
             </p>
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-              <label className="inline-flex items-center gap-2 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] px-4 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#f3ede3] transition-colors cursor-pointer shadow-xs">
-                <Upload className="size-4" />
-                Upload QR Image
+              <label className="inline-flex items-center gap-2 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] px-4 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#f3ede3] transition-colors cursor-pointer shadow-xs disabled:opacity-60">
+                {isDecodingQr ? <Loader2 className="size-4 animate-spin text-[#8b5a2b]" /> : <Upload className="size-4" />}
+                {isDecodingQr ? 'Verifying & Scanning QR...' : 'Upload QR Image'}
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
                   onChange={onQrImageUpload}
+                  disabled={isDecodingQr}
                   className="hidden"
                 />
               </label>
@@ -7262,9 +7462,10 @@ function SettingsTab({
               {ownerPaymentDetails?.qrCodeUrl && (
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     setOwnerPaymentDetails?.((prev: any) => ({ ...prev, qrCodeUrl: '' }))
-                  }
+                    setPaymentValidationErrors?.((prev: any) => ({ ...prev, qrCode: undefined }))
+                  }}
                   className="text-xs font-medium text-[#b95c3c] hover:underline"
                 >
                   Remove QR Image
@@ -7272,16 +7473,26 @@ function SettingsTab({
               )}
             </div>
 
+            {paymentValidationErrors?.qrCode && (
+              <p className="mt-1.5 text-xs text-[#b95c3c] flex items-center gap-1 font-medium">
+                <AlertCircle className="size-3.5 shrink-0" />
+                {paymentValidationErrors.qrCode}
+              </p>
+            )}
+
             {ownerPaymentDetails?.qrCodeUrl && (
-              <div className="mt-3 flex items-center gap-3 rounded-xl border border-[#ebe4da] bg-[#fbf8f3] p-3 w-fit">
+              <div className="mt-3 flex items-center gap-3 rounded-xl border border-[#a3e4be] bg-[#f0fbf5] p-3 w-fit">
                 <img
                   src={ownerPaymentDetails.qrCodeUrl}
                   alt="Saved UPI QR Code Preview"
                   className="size-24 rounded-lg border border-[#e8dfd4] bg-white object-contain p-1 shadow-2xs"
                 />
                 <div className="text-xs">
-                  <p className="font-semibold text-[#3d3934]">Active QR Code</p>
-                  <p className="text-[11px] text-[#85899a]">Ready to be shared with residents</p>
+                  <p className="font-semibold text-[#236b4e] flex items-center gap-1">
+                    <CheckCircle2 className="size-3.5 text-[#236b4e]" />
+                    Verified Active QR Code
+                  </p>
+                  <p className="text-[11px] text-[#676b7d] mt-0.5">Ready to be shared with residents</p>
                 </div>
               </div>
             )}
@@ -7290,13 +7501,13 @@ function SettingsTab({
           <div className="rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-3 text-[11px] text-[#676b7d] flex items-start gap-2">
             <Sparkles className="size-4 text-[#8b5a2b] shrink-0 mt-0.5" />
             <span>
-              <strong>Smart Reminders:</strong> When you send rent or utility payment-due reminders from the Residents tab, BaseraBook will automatically attach your UPI ID, Payment Link, and QR details. If not set, reminders are sent without payment info, and future reminders always reflect the latest saved options.
+              <strong>Smart Reminders:</strong> When you send rent or utility payment-due reminders from the Residents tab, BaseraBook will automatically attach your verified UPI ID, Payment Link, and QR details. If not set, reminders are sent cleanly without payment info.
             </span>
           </div>
 
           <button
             type="submit"
-            disabled={isSavingPaymentDetails}
+            disabled={isSavingPaymentDetails || isDecodingQr}
             className="flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] disabled:opacity-60 transition-colors"
           >
             {isSavingPaymentDetails ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}

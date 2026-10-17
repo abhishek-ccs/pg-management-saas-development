@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getTenantSession } from '@/lib/tenant-access'
 import { createAdminClient } from '@/lib/supabase/server'
+import { getValidatedReminderPaymentOptions } from '@/lib/payment-validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -110,7 +111,7 @@ export async function GET() {
     }
 
     // 7. Fetch Owner Profile Payment Options
-    let paymentOptions = {
+    let rawPaymentOptions = {
       upiId: property?.upi_id || null,
       paymentLink: property?.payment_link || null,
       qrCodeUrl: property?.upi_qr_url || null,
@@ -122,14 +123,20 @@ export async function GET() {
         .eq('id', session.ownerId)
         .maybeSingle()
       if (profile) {
-        paymentOptions = {
-          upiId: profile.upi_id || paymentOptions.upiId,
-          paymentLink: profile.payment_link || paymentOptions.paymentLink,
-          qrCodeUrl: profile.upi_qr_url || paymentOptions.qrCodeUrl,
+        rawPaymentOptions = {
+          upiId: rawPaymentOptions.upiId || profile.upi_id || null,
+          paymentLink: rawPaymentOptions.paymentLink || profile.payment_link || null,
+          qrCodeUrl: rawPaymentOptions.qrCodeUrl || profile.upi_qr_url || null,
         }
       }
     } catch {
       // Profile query fallback
+    }
+
+    const paymentOptions = getValidatedReminderPaymentOptions(rawPaymentOptions) || {
+      upiId: null,
+      paymentLink: null,
+      qrCodeUrl: null,
     }
 
     // 8. Fetch Mid-Cycle Electricity Shares for this resident
