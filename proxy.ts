@@ -17,7 +17,12 @@ export async function proxy(request: NextRequest) {
 
   // 1. Abuse Protection & Rate Limiting
   let limitCategory: 'auth' | 'api' | null = null
-  if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/auth')) {
+  if (
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/signup') ||
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/forgot-password')
+  ) {
     limitCategory = 'auth'
   } else if (pathname.startsWith('/api') && !pathname.startsWith('/api/health')) {
     limitCategory = 'api'

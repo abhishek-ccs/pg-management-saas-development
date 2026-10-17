@@ -94,8 +94,8 @@ export async function updateSession(request: NextRequest) {
       }
     }
 
-    // Public auth pages (login / signup): Redirect already logged in users
-    if (pathname === '/login' || pathname === '/signup') {
+    // Public auth pages (login / signup / forgot-password): Redirect already logged in users
+    if (pathname === '/login' || pathname === '/signup' || pathname === '/forgot-password') {
       const { data: profile } = await supabase
         .from('profiles')
         .select('role,status')
@@ -106,6 +106,12 @@ export async function updateSession(request: NextRequest) {
         return redirectWithCookies(new URL('/admin', request.url))
       }
       return redirectWithCookies(new URL('/dashboard', request.url))
+    }
+
+    // Email verification guard: users must verify their email before accessing features that require a verified account
+    if (pathname.startsWith('/dashboard') && !user.email_confirmed_at) {
+      await supabase.auth.signOut()
+      return redirectWithCookies(new URL('/login?error=unverified', request.url))
     }
 
     // Suspended account guard for dashboard

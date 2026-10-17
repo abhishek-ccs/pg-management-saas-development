@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Building2,
   CheckCircle2,
+  Clock,
   Eye,
   EyeOff,
   Loader2,
@@ -33,6 +34,7 @@ export default function SignupPage() {
   const [verifying, setVerifying] = useState(false)
   const [resending, setResending] = useState(false)
   const [cooldown, setCooldown] = useState(0)
+  const [timerLeft, setTimerLeft] = useState(300) // 5 minutes
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
@@ -43,6 +45,21 @@ export default function SignupPage() {
     }, 1000)
     return () => clearInterval(timer)
   }, [cooldown])
+
+  // 5-minute OTP countdown timer
+  useEffect(() => {
+    if (step !== 'otp' || timerLeft <= 0) return
+    const interval = setInterval(() => {
+      setTimerLeft((prev) => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [step, timerLeft])
+
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`
+  }
 
   async function submitSignup(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -68,39 +85,33 @@ export default function SignupPage() {
       return
     }
 
-    const { data, error: authError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: {
-        emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL ?? `${window.location.origin}/auth/callback`,
-        data: { full_name: fullName.trim() },
-      },
-    })
+    try {
+      const res = await fetch('/api/auth/signup-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: fullName.trim(),
+          email: email.trim(),
+          password,
+        }),
+      })
 
-    if (authError) {
-      setError(
-        authError.message.toLowerCase().includes('password')
-          ? 'Please use a stronger password (at least 6 characters).'
-          : authError.message.toLowerCase().includes('already registered')
-          ? 'This email is already registered. Please sign in instead.'
-          : 'We could not create your account. Please verify your details.'
-      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setError(data?.error || 'Could not initiate registration. Please try again.')
+        setLoading(false)
+        return
+      }
+
+      setStep('otp')
+      setCooldown(60)
+      setTimerLeft(300)
+      setMessage(data.message || `A 6-digit verification code has been sent to ${email.trim()}.`)
+    } catch {
+      setError('Network error. Please check your internet connection and try again.')
+    } finally {
       setLoading(false)
-      return
     }
-
-    // Check if session was immediately created (e.g. email confirmation disabled)
-    if (data.session) {
-      setMessage('Account created successfully! Preparing your workspace...')
-      setTimeout(() => router.push('/dashboard'), 1000)
-      return
-    }
-
-    // Otherwise show OTP verification screen
-    setStep('otp')
-    setCooldown(60)
-    setMessage(`A 6-digit verification code has been sent to ${email.trim()}.`)
-    setLoading(false)
   }
 
   async function handleVerifyOtp(e: React.FormEvent<HTMLFormElement>) {
@@ -110,31 +121,48 @@ export default function SignupPage() {
       return
     }
 
+    if (timerLeft <= 0) {
+      setError('This verification code has expired (5-minute limit). Please request a new code.')
+      return
+    }
+
     setVerifying(true)
     setError('')
     setMessage('')
 
-    const { data, error: verifyError } = await supabase.auth.verifyOtp({
-      email: email.trim(),
-      token: otp.trim(),
-      type: 'signup',
-    })
+    try {
+      const res = await fetch('/api/auth/verify-signup-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          otp: otp.trim(),
+        }),
+      })
 
-    if (verifyError) {
-      setError(
-        verifyError.message.toLowerCase().includes('expired')
-          ? 'Verification code has expired. Please request a new code.'
-          : 'Invalid verification code. Please check your email and try again.'
-      )
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setError(data?.error || 'Invalid verification code. Please check and try again.')
+        setVerifying(false)
+        return
+      }
+
+      setMessage('Email verified successfully! Preparing your workspace...')
+
+      // Establish session
+      await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+
+      setTimeout(() => {
+        router.push('/dashboard')
+        router.refresh()
+      }, 1000)
+    } catch {
+      setError('Network error during verification. Please try again.')
       setVerifying(false)
-      return
     }
-
-    setMessage('Email verified successfully! Opening your workspace...')
-    setTimeout(() => {
-      router.push('/dashboard')
-      router.refresh()
-    }, 1200)
   }
 
   async function handleResendOtp() {
@@ -143,18 +171,29 @@ export default function SignupPage() {
     setError('')
     setMessage('')
 
-    const { error: resendError } = await supabase.auth.resend({
-      type: 'signup',
-      email: email.trim(),
-    })
+    try {
+      const res = await fetch('/api/auth/resend-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          purpose: 'signup_verification',
+        }),
+      })
 
-    if (resendError) {
-      setError('Unable to resend verification code right now. Please wait a moment.')
-    } else {
-      setMessage(`A fresh verification code was sent to ${email.trim()}.`)
-      setCooldown(60)
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setError(data?.error || 'Unable to resend verification code right now.')
+      } else {
+        setMessage(`A fresh 6-digit verification code was sent to ${email.trim()}.`)
+        setCooldown(60)
+        setTimerLeft(300)
+      }
+    } catch {
+      setError('Network error. Could not resend verification code.')
+    } finally {
+      setResending(false)
     }
-    setResending(false)
   }
 
   return (
@@ -300,7 +339,12 @@ export default function SignupPage() {
 
             <form onSubmit={handleVerifyOtp} className="mt-6 flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-                6-Digit Verification Code <span className="text-[#8b5a2b]">*</span>
+                <div className="flex items-center justify-between">
+                  <span>6-Digit Verification Code <span className="text-[#8b5a2b]">*</span></span>
+                  <span className={`text-[11px] font-semibold ${timerLeft <= 60 ? 'text-[#b95c3c] font-bold' : 'text-[#8b5a2b]'}`}>
+                    Expires in: {formatTimer(timerLeft)}
+                  </span>
+                </div>
                 <input
                   type="text"
                   inputMode="numeric"

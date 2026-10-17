@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AlertCircle, Building2, CheckCircle2, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react'
@@ -17,6 +17,20 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [unverifiedEmail, setUnverifiedEmail] = useState(false)
+
+  // Detect URL status parameters on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('reset') === 'success') {
+      setMessage('Password reset successfully! Please sign in with your new password.')
+    }
+    if (params.get('error') === 'unverified') {
+      setError('Please verify your email before accessing your dashboard.')
+      setUnverifiedEmail(true)
+    }
+  }, [])
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -24,6 +38,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
     setMessage('')
+    setUnverifiedEmail(false)
 
     if (!isValidEmail(email)) {
       setError('Please enter a valid email address (e.g. owner@example.com).')
@@ -38,11 +53,24 @@ export default function LoginPage() {
     })
 
     if (authError) {
+      const isUnconfirmed = authError.message.toLowerCase().includes('confirm')
       setError(
-        authError.message.toLowerCase().includes('confirm')
-          ? 'Please confirm your email before signing in.'
+        isUnconfirmed
+          ? 'Please verify your email before signing in. Check your inbox for your 6-digit code.'
           : 'Invalid email or password. Please verify your credentials.'
       )
+      if (isUnconfirmed) {
+        setUnverifiedEmail(true)
+      }
+      setLoading(false)
+      return
+    }
+
+    // Check if user email is unconfirmed
+    if (data?.user && !data.user.email_confirmed_at) {
+      await supabase.auth.signOut()
+      setError('Please verify your email before accessing your dashboard.')
+      setUnverifiedEmail(true)
       setLoading(false)
       return
     }
@@ -95,7 +123,15 @@ export default function LoginPage() {
           </label>
 
           <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
-            Password <span className="text-[#8b5a2b]">*</span>
+            <div className="flex items-center justify-between">
+              <span>Password <span className="text-[#8b5a2b]">*</span></span>
+              <Link
+                href="/forgot-password"
+                className="font-semibold text-[#8b5a2b] hover:underline transition-colors"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <div className="relative">
               <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[#999daa]" />
               <input

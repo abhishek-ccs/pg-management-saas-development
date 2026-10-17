@@ -35,6 +35,9 @@ export const ROUTE_LIMITS: Record<string, RateLimitConfig> = {
   auth: { maxTokens: 10, refillRatePerSec: 0.2 }, // 10 requests max, refills 1 token per 5s
   api: { maxTokens: 60, refillRatePerSec: 1 },    // 60 requests max, refills 1 token per 1s
   public: { maxTokens: 120, refillRatePerSec: 2 }, // 120 requests max, refills 2 tokens per 1s
+  otp_send: { maxTokens: 5, refillRatePerSec: 0.05 }, // 5 sends max, refills 1 token per 20s
+  otp_verify: { maxTokens: 10, refillRatePerSec: 0.1 }, // 10 verifications max, refills 1 token per 10s
+  password_reset: { maxTokens: 5, refillRatePerSec: 0.05 }, // 5 reset requests max, refills 1 token per 20s
 }
 
 /**

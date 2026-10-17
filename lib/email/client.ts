@@ -1,4 +1,4 @@
-import { logger } from '@/lib/logger'
+import { logger } from '../logger'
 
 export interface SendEmailOptions {
   to: string
@@ -13,7 +13,7 @@ export interface SendEmailResult {
   error?: string
 }
 
-import { SUPPORT_EMAIL } from '@/lib/constants'
+import { SUPPORT_EMAIL } from '../constants'
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY
 const EMAIL_FROM = process.env.EMAIL_FROM || `BaseraBook Support <${SUPPORT_EMAIL}>`
@@ -125,3 +125,106 @@ export async function sendReceiptEmail(
   `
   return sendEmail({ to, subject: `Payment Receipt: REC-${receiptId.slice(0, 8).toUpperCase()} from ${propertyName}`, html })
 }
+
+export interface SendOtpEmailOptions {
+  to: string
+  otp: string
+  purpose: 'signup' | 'password_reset'
+  name?: string
+}
+
+export async function sendOtpEmail({ to, otp, purpose, name }: SendOtpEmailOptions) {
+  const isReset = purpose === 'password_reset'
+  const title = isReset ? 'Reset Your BaseraBook Password' : 'Verify Your BaseraBook Email'
+  const greeting = name ? `Hello ${name},` : 'Hello,'
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title}</title>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #faf7f2; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #2c221e;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #faf7f2; padding: 40px 16px;">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="100%" style="max-width: 540px; background-color: #ffffff; border: 1px solid #e8dfd4; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 20px rgba(70, 50, 30, 0.04);">
+              <!-- Brand Header -->
+              <tr>
+                <td style="background-color: #8b5a2b; padding: 24px 32px; text-align: left;">
+                  <span style="font-size: 20px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em;">BaseraBook</span>
+                  <span style="display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: #f4e8dc; margin-top: 2px;">Your Property. Smartly Managed.</span>
+                </td>
+              </tr>
+
+              <!-- Content Body -->
+              <tr>
+                <td style="padding: 32px 32px 24px 32px;">
+                  <h1 style="font-size: 20px; font-weight: 700; color: #2c221e; margin: 0 0 12px 0;">
+                    ${title}
+                  </h1>
+                  <p style="font-size: 14px; line-height: 22px; color: #555a6c; margin: 0 0 20px 0;">
+                    ${greeting}
+                  </p>
+                  <p style="font-size: 14px; line-height: 22px; color: #555a6c; margin: 0 0 24px 0;">
+                    ${isReset
+                      ? 'We received a request to reset your password. Enter the 6-digit verification code below to set a new password:'
+                      : 'Thank you for signing up for BaseraBook. Enter this 6-digit verification code to confirm your email and activate your workspace:'}
+                  </p>
+
+                  <!-- 6-Digit OTP Box -->
+                  <div style="background-color: #faf7f2; border: 2px dashed #dec2a5; border-radius: 14px; padding: 20px; text-align: center; margin: 0 0 24px 0;">
+                    <span style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace; font-size: 32px; font-weight: 800; letter-spacing: 10px; color: #8b5a2b; display: inline-block;">
+                      ${otp}
+                    </span>
+                    <p style="font-size: 12px; font-weight: 600; color: #b46b1a; margin: 8px 0 0 0;">
+                      ⏳ Valid for 5 minutes only
+                    </p>
+                  </div>
+
+                  <!-- Security Advisory Card -->
+                  <div style="background-color: #fbf8f4; border-left: 4px solid #8b5a2b; border-radius: 6px; padding: 12px 16px; margin: 0 0 24px 0;">
+                    <p style="font-size: 12px; line-height: 18px; color: #6d655e; margin: 0;">
+                      <strong>Security Notice:</strong> Never share this code with anyone. BaseraBook representatives will never ask for your verification code. If you did not request this code, no changes have been made to your account.
+                    </p>
+                  </div>
+
+                  <p style="font-size: 13px; line-height: 20px; color: #7d756d; margin: 0;">
+                    Need help? Reach out to our support team at <a href="mailto:${SUPPORT_EMAIL}" style="color: #8b5a2b; text-decoration: underline;">${SUPPORT_EMAIL}</a>.
+                  </p>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="background-color: #faf7f2; border-top: 1px solid #ebe4da; padding: 20px 32px; text-align: center;">
+                  <p style="font-size: 11px; color: #9c8e80; margin: 0 0 4px 0;">
+                    © ${new Date().getFullYear()} BaseraBook Technologies · All rights reserved.
+                  </p>
+                  <p style="font-size: 10px; color: #b0a498; margin: 0;">
+                    This is an automated security transmission. Please do not reply directly to this email.
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `
+
+  const subject = isReset
+    ? `Your BaseraBook Password Reset Code: ${otp}`
+    : `Your BaseraBook Verification Code: ${otp}`
+
+  return sendEmail({
+    to,
+    subject,
+    html,
+    text: `${title}\n\nYour 6-digit verification code is: ${otp}\n\nThis code expires in 5 minutes.\n\nSecurity Notice: If you did not make this request, please disregard this email.`,
+  })
+}
+
