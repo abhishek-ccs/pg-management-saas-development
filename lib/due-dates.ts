@@ -133,6 +133,15 @@ export function formatPaymentTimestamp(
 }
 
 /**
+ * Payment details structure for payment reminders
+ */
+export interface ReminderPaymentDetails {
+  upiId?: string | null
+  paymentLink?: string | null
+  qrCodeUrl?: string | null
+}
+
+/**
  * Generate a prefilled WhatsApp reminder link
  */
 export function generateWhatsAppReminder(params: {
@@ -142,14 +151,39 @@ export function generateWhatsAppReminder(params: {
   dueDay: number
   propertyName: string
   locale?: 'en' | 'hi'
+  paymentDetails?: ReminderPaymentDetails | null
 }): string {
-  const { tenantName, phone, amount, dueDay, propertyName, locale = 'en' } = params
+  const { tenantName, phone, amount, dueDay, propertyName, locale = 'en', paymentDetails } = params
   const cleanPhone = (phone || '').replace(/[^\d]/g, '')
   const formattedPhone = cleanPhone.startsWith('91') && cleanPhone.length === 12 ? cleanPhone : cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
 
   const amountStr = `₹${amount.toLocaleString('en-IN')}`
-  const messageEn = `Hello ${tenantName},\n\nThis is a friendly rent reminder from ${propertyName || 'BaseraBook Property'}. Your monthly rent of ${amountStr} is due on the ${dueDay}th of this month.\n\nPlease complete your payment at your earliest convenience. Thank you!`
-  const messageHi = `नमस्ते ${tenantName},\n\n${propertyName || 'BaseraBook Property'} से आपके मासिक किराए का स्मरण पत्र। आपका मासिक किराया ${amountStr} इस महीने की ${dueDay} तारीख को देय है।\n\nकृपया समय पर भुगतान सुनिश्चित करें। धन्यवाद!`
+  const upiId = paymentDetails?.upiId?.trim()
+  const paymentLink = paymentDetails?.paymentLink?.trim()
+
+  // Format payment section if payment option exists
+  let paymentTextEn = ''
+  let paymentTextHi = ''
+
+  if (upiId || paymentLink) {
+    const linesEn: string[] = []
+    const linesHi: string[] = []
+
+    if (upiId) {
+      linesEn.push(`• UPI ID: ${upiId}`)
+      linesHi.push(`• UPI ID: ${upiId}`)
+    }
+    if (paymentLink) {
+      linesEn.push(`• Pay Online: ${paymentLink}`)
+      linesHi.push(`• ऑनलाइन भुगतान लिंक: ${paymentLink}`)
+    }
+
+    paymentTextEn = `\n\nPayment Options:\n${linesEn.join('\n')}\n\nPlease share the transaction confirmation/screenshot once completed.`
+    paymentTextHi = `\n\nभुगतान विकल्प:\n${linesHi.join('\n')}\n\nभुगतान पश्चात कृपया स्क्रीनशॉट या संदर्भ संख्या साझा करें।`
+  }
+
+  const messageEn = `Hello ${tenantName},\n\nThis is a friendly rent reminder from ${propertyName || 'BaseraBook Property'}. Your monthly rent of ${amountStr} is due on the ${dueDay}th of this month.${paymentTextEn}\n\nPlease complete your payment at your earliest convenience. Thank you!`
+  const messageHi = `नमस्ते ${tenantName},\n\n${propertyName || 'BaseraBook Property'} से आपके मासिक किराए का स्मरण पत्र। आपका मासिक किराया ${amountStr} इस महीने की ${dueDay} तारीख को देय है।${paymentTextHi}\n\nकृपया समय पर भुगतान सुनिश्चित करें। धन्यवाद!`
 
   const text = encodeURIComponent(locale === 'hi' ? messageHi : messageEn)
   return formattedPhone ? `https://wa.me/${formattedPhone}?text=${text}` : `https://wa.me/?text=${text}`
@@ -165,14 +199,31 @@ export function generateSmsReminder(params: {
   dueDay: number
   propertyName: string
   locale?: 'en' | 'hi'
+  paymentDetails?: ReminderPaymentDetails | null
 }): string {
-  const { tenantName, phone, amount, dueDay, propertyName, locale = 'en' } = params
+  const { tenantName, phone, amount, dueDay, propertyName, locale = 'en', paymentDetails } = params
   const cleanPhone = (phone || '').replace(/[^\d]/g, '')
   const amountStr = `₹${amount.toLocaleString('en-IN')}`
+
+  const upiId = paymentDetails?.upiId?.trim()
+  const paymentLink = paymentDetails?.paymentLink?.trim()
+
+  let payInfoEn = ''
+  let payInfoHi = ''
+
+  if (upiId) {
+    payInfoEn += ` Pay via UPI: ${upiId}.`
+    payInfoHi += ` UPI: ${upiId}.`
+  } else if (paymentLink) {
+    payInfoEn += ` Pay link: ${paymentLink}.`
+    payInfoHi += ` लिंक: ${paymentLink}.`
+  }
+
   const message =
     locale === 'hi'
-      ? `नमस्ते ${tenantName}, ${propertyName || 'BaseraBook Property'} का किराया ${amountStr} देय तारीख (${dueDay}) तक अवश्य जमा करें।`
-      : `Dear ${tenantName}, kindly note your rent of ${amountStr} for ${propertyName || 'BaseraBook Property'} is due on the ${dueDay}th. Thank you.`
+      ? `नमस्ते ${tenantName}, ${propertyName || 'BaseraBook Property'} का किराया ${amountStr} देय तारीख (${dueDay}) तक अवश्य जमा करें।${payInfoHi} धन्यवाद।`
+      : `Dear ${tenantName}, kindly note your rent of ${amountStr} for ${propertyName || 'BaseraBook Property'} is due on the ${dueDay}th.${payInfoEn} Thank you.`
 
   return `sms:${cleanPhone}?body=${encodeURIComponent(message)}`
 }
+

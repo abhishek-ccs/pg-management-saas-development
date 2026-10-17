@@ -19,6 +19,12 @@ import {
   MapPin,
   DoorOpen,
   BedDouble,
+  Copy,
+  Check,
+  ExternalLink,
+  QrCode,
+  CreditCard,
+  Split,
 } from 'lucide-react'
 
 interface TenantData {
@@ -40,6 +46,24 @@ interface TenantData {
   }
   roomNumber: string
   bedNumber: string
+  paymentOptions?: {
+    upiId?: string | null
+    paymentLink?: string | null
+    qrCodeUrl?: string | null
+  }
+  electricityShares?: Array<{
+    id: string
+    periodStart: string
+    periodEnd: string
+    occupiedDays: number
+    totalPeriodDays: number
+    sharePercentage: number
+    unitsConsumed?: number | null
+    amountDue: number
+    calculationMethod: string
+    calculationExplanation: string
+    isPaid: boolean
+  }>
   payments: Array<{
     id: string
     receiptNumber: string
@@ -58,6 +82,9 @@ interface TenantData {
     units: number
     totalAmount: number
     readingDate: string
+    periodStart?: string | null
+    periodEnd?: string | null
+    calculationType?: string | null
   }>
   settlement?: {
     id: string
@@ -85,6 +112,8 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
   const [error, setError] = useState<string | null>(null)
   const [selectedReceipt, setSelectedReceipt] = useState<any | null>(null)
   const [isReceiptLoading, setIsReceiptLoading] = useState(false)
+  const [copiedUpi, setCopiedUpi] = useState(false)
+  const [showQrModal, setShowQrModal] = useState(false)
 
   useEffect(() => {
     async function loadPortalData() {
@@ -122,10 +151,16 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
     }
   }
 
+  function handleCopyUpi(upiId: string) {
+    navigator.clipboard.writeText(upiId)
+    setCopiedUpi(true)
+    setTimeout(() => setCopiedUpi(false), 2500)
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#faf7f2] flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md rounded-3xl border border-[#ebe4da] bg-white p-8 text-center shadow-sm">
+        <div className="w-full max-w-sm rounded-3xl border border-[#ebe4da] bg-white p-8 text-center shadow-sm">
           <Loader2 className="mx-auto size-8 animate-spin text-[#8b5a2b]" />
           <h2 className="mt-4 text-base font-bold text-[#2c221e]">Loading Resident Portal...</h2>
           <p className="mt-1 text-xs text-[#85899a]">Verifying session and preparing account ledger.</p>
@@ -150,7 +185,8 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
     )
   }
 
-  const { tenant, property, roomNumber, bedNumber, payments, electricity, settlement } = data
+  const { tenant, property, roomNumber, bedNumber, payments, electricity, settlement, paymentOptions, electricityShares = [] } = data
+  const hasPaymentOptions = !!(paymentOptions?.upiId || paymentOptions?.paymentLink || paymentOptions?.qrCodeUrl)
 
   return (
     <div className="min-h-screen bg-[#faf7f2] text-[#2c221e] antialiased selection:bg-[#8b5a2b]/20">
@@ -252,6 +288,117 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
           </div>
         </div>
 
+        {/* Quick Payment Options Card (When configured by PG Owner) */}
+        {hasPaymentOptions && (
+          <div className="rounded-3xl border border-[#d9ccbe] bg-gradient-to-br from-[#fdfbf9] to-[#faf5ee] p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-[#ebdcd0] pb-3">
+              <div className="flex items-center gap-2">
+                <CreditCard className="size-5 text-[#8b5a2b]" />
+                <h3 className="text-base font-bold text-[#2c221e]">Payment Options</h3>
+              </div>
+              <span className="rounded-full bg-[#8b5a2b]/10 px-2.5 py-0.5 text-[10px] font-bold text-[#784b20]">
+                Verified Details
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-[#676b7d]">
+              Pay your monthly rent and utility dues directly to property management using the options below:
+            </p>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {paymentOptions?.upiId && (
+                <div className="flex items-center gap-2 rounded-2xl border border-[#e8dfd4] bg-white px-3.5 py-2 shadow-2xs">
+                  <div className="flex flex-col text-left">
+                    <span className="text-[10px] font-bold uppercase text-[#999daa]">UPI ID</span>
+                    <span className="font-mono text-xs font-semibold text-[#2c221e]">{paymentOptions.upiId}</span>
+                  </div>
+                  <button
+                    onClick={() => handleCopyUpi(paymentOptions.upiId!)}
+                    className="ml-2 flex items-center gap-1 rounded-lg border border-[#e8dfd4] bg-[#faf7f2] px-2 py-1 text-[11px] font-semibold text-[#784b20] hover:bg-[#ebdcd0] transition-colors"
+                  >
+                    {copiedUpi ? <Check className="size-3 text-[#236b4e]" /> : <Copy className="size-3" />}
+                    <span>{copiedUpi ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              )}
+
+              {paymentOptions?.paymentLink && (
+                <a
+                  href={paymentOptions.paymentLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 rounded-2xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                >
+                  <span>Pay Online via Link</span>
+                  <ExternalLink className="size-3.5" />
+                </a>
+              )}
+
+              {paymentOptions?.qrCodeUrl && (
+                <button
+                  onClick={() => setShowQrModal(true)}
+                  className="flex items-center gap-1.5 rounded-2xl border border-[#8b5a2b] bg-white px-3.5 py-2 text-xs font-semibold text-[#784b20] shadow-2xs hover:bg-[#faf7f2] transition-colors"
+                >
+                  <QrCode className="size-4 text-[#8b5a2b]" />
+                  <span>Scan UPI QR Code</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Mid-Cycle Shared Electricity Bills Section */}
+        {electricityShares.length > 0 && (
+          <div className="rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center gap-2 border-b border-[#f0ebe3] pb-3">
+              <Split className="size-5 text-[#8b5a2b]" />
+              <h3 className="text-base font-bold text-[#2c221e]">Mid-Cycle Electricity Shares</h3>
+            </div>
+            <p className="mt-1 text-xs text-[#85899a]">
+              Transparent proportional billing for periods during which residents moved in or vacated.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              {electricityShares.map((share) => (
+                <div
+                  key={share.id}
+                  className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-4 text-xs transition-colors hover:border-[#8b5a2b]/40"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#ede6dd] pb-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-[#2c221e]">
+                          {new Date(share.periodStart).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} –{' '}
+                          {new Date(share.periodEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </span>
+                        <span className="rounded-md bg-white border border-[#e8dfd4] px-2 py-0.5 text-[10px] font-bold text-[#8b5a2b]">
+                          {share.occupiedDays} of {share.totalPeriodDays} days
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] font-medium text-[#236b4e] flex items-center gap-1">
+                        <CheckCircle2 className="size-3 text-[#236b4e]" />
+                        You are not charged for days prior to your move-in date
+                      </p>
+                    </div>
+
+                    <div className="flex items-center sm:flex-col sm:items-end justify-between">
+                      <span className="text-[11px] text-[#85899a]">Your Calculated Share</span>
+                      <span className="text-base font-bold text-[#784b20]">{currency(share.amountDue)}</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-[#676b7d]">
+                    <p className="leading-relaxed">{share.calculationExplanation}</p>
+                    <span className="shrink-0 font-semibold text-[#8b5a2b]">
+                      Share: {share.sharePercentage}%
+                      {share.unitsConsumed !== null && ` • ${share.unitsConsumed} kWh`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Move-Out Settlement Section (If completed) */}
         {settlement && (
           <div className="rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-sm">
@@ -286,17 +433,12 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
                   <span className="font-semibold">- {currency(settlement.unpaid_electricity)}</span>
                 </div>
               )}
-              {settlement.deductions && settlement.deductions.length > 0 && (
-                <div className="py-2 border-b border-[#ede6dd]">
-                  <p className="font-semibold text-[#676b7d] mb-1">Itemized Deductions:</p>
-                  {settlement.deductions.map((d: any) => (
-                    <div key={d.id} className="flex justify-between py-1 pl-2 text-[11px] text-[#717585]">
-                      <span>• {d.reason}</span>
-                      <span className="font-medium text-[#b95c3c]">- {currency(d.amount)}</span>
-                    </div>
-                  ))}
+              {settlement.deductions?.map((d: any) => (
+                <div key={d.id} className="flex justify-between py-1.5 border-b border-[#ede6dd] text-[#b95c3c]">
+                  <span>Less: {d.reason || d.category}</span>
+                  <span className="font-semibold">- {currency(d.amount)}</span>
                 </div>
-              )}
+              ))}
               <div className="flex justify-between pt-3 text-sm font-bold">
                 <span className="text-[#2c221e]">
                   {settlement.net_refund_amount > 0 ? 'Net Refund Payable to You' : 'Balance Settled'}
@@ -479,6 +621,51 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
                 className="flex items-center gap-1.5 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
               >
                 <Printer className="size-4" /> Print / Save PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Code Modal for Resident */}
+      {showQrModal && paymentOptions?.qrCodeUrl && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-4 backdrop-blur-xs overflow-y-auto">
+          <div className="w-full max-w-sm rounded-3xl border border-[#e8dfd4] bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto text-center">
+            <div className="flex items-center justify-between border-b border-[#f0f1f4] pb-3">
+              <h3 className="text-base font-bold text-[#3d3934]">Scan UPI QR Code</h3>
+              <button
+                onClick={() => setShowQrModal(false)}
+                className="rounded-xl p-1.5 text-[#8b8fa0] hover:bg-[#f7f3ed] hover:text-[#3d3934] transition-colors"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-col items-center">
+              <div className="p-3 bg-white border border-[#e8dfd4] rounded-2xl shadow-sm">
+                <img
+                  src={paymentOptions.qrCodeUrl}
+                  alt="UPI QR Code"
+                  className="size-56 object-contain rounded-xl"
+                />
+              </div>
+
+              {paymentOptions.upiId && (
+                <p className="mt-3 font-mono text-xs font-semibold text-[#676b7d]">
+                  UPI ID: {paymentOptions.upiId}
+                </p>
+              )}
+              <p className="mt-1 text-[11px] text-[#85899a]">
+                Scan with any UPI app (GPay, PhonePe, Paytm) to pay dues directly.
+              </p>
+            </div>
+
+            <div className="mt-5">
+              <button
+                onClick={() => setShowQrModal(false)}
+                className="w-full rounded-xl bg-[#8b5a2b] py-2.5 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

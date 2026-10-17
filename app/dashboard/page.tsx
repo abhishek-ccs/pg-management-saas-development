@@ -36,16 +36,20 @@ import {
   formatPaymentTimestamp,
   generateWhatsAppReminder,
   generateSmsReminder,
+  type ReminderPaymentDetails,
 } from '@/lib/due-dates'
+import { calculateMidCycleElectricitySplit } from '@/lib/electricity-split'
 import { BaseraBookLogo, BaseraBookIcon } from '@/components/ui/BaseraBookLogo'
 import {
   Activity,
+  AlertCircle,
   AlertTriangle,
   ArrowRight,
   BedDouble,
   Bell,
   Building2,
   Calendar,
+  CalendarRange,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -53,6 +57,7 @@ import {
   CircleHelp,
   Clock,
   Copy,
+  CreditCard,
   DoorOpen,
   Download,
   Edit2,
@@ -70,10 +75,12 @@ import {
   PieChart,
   Plus,
   Printer,
+  QrCode,
   Receipt,
   RefreshCw,
   RotateCcw,
   RotateCw,
+  Save,
   Search,
   Settings,
   Share2,
@@ -81,8 +88,10 @@ import {
   ShieldBan,
   ShieldCheck,
   Sparkles,
+  Split,
   Trash2,
   Undo2,
+  Upload,
   UserCheck,
   UserMinus,
   Users,
@@ -175,6 +184,10 @@ type ElectricityRecord = {
   current_reading: number
   rate_per_unit: number
   reading_date: string
+  period_start?: string | null
+  period_end?: string | null
+  calculation_type?: string | null
+  split_breakdown?: any[] | null
 }
 
 const navigation = [
@@ -427,6 +440,39 @@ export default function DashboardPage() {
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [showElectricityModal, setShowElectricityModal] = useState(false)
   const [editingElectricity, setEditingElectricity] = useState<ElectricityRecord | null>(null)
+
+  // Owner Payment Options (UPI ID, Link, QR Code)
+  const [ownerPaymentDetails, setOwnerPaymentDetails] = useState<{
+    upiId: string
+    paymentLink: string
+    qrCodeUrl: string
+  }>({ upiId: '', paymentLink: '', qrCodeUrl: '' })
+  const [isSavingPaymentDetails, setIsSavingPaymentDetails] = useState(false)
+
+  // Mid-Cycle Electricity Split Modal State
+  const [showMidCycleModal, setShowMidCycleModal] = useState(false)
+  const [midCycleRoomId, setMidCycleRoomId] = useState<string>('all')
+  const [midCyclePeriodStart, setMidCyclePeriodStart] = useState<string>(() => {
+    const d = new Date()
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    return `${y}-${m}-01`
+  })
+  const [midCyclePeriodEnd, setMidCyclePeriodEnd] = useState<string>(() => {
+    const d = new Date()
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+    const lastDay = new Date(y, m, 0).getDate()
+    return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+  })
+  const [midCycleBillAmount, setMidCycleBillAmount] = useState<number>(1200)
+  const [midCycleRatePerUnit, setMidCycleRatePerUnit] = useState<number>(10)
+  const [midCycleTotalUnits, setMidCycleTotalUnits] = useState<number>(120)
+  const [midCycleUseMeterReadings, setMidCycleUseMeterReadings] = useState<boolean>(false)
+  const [midCycleResidentReadings, setMidCycleResidentReadings] = useState<Record<string, { opening: number; closing: number }>>({})
+  const [isSavingMidCycleSplit, setIsSavingMidCycleSplit] = useState(false)
+  const [viewingSplitRecord, setViewingSplitRecord] = useState<ElectricityRecord | null>(null)
+
   const [showComplaintModal, setShowComplaintModal] = useState(false)
   const [editingComplaint, setEditingComplaint] = useState<Complaint | null>(null)
   const [showPricingModal, setShowPricingModal] = useState(false)
@@ -619,19 +665,30 @@ export default function DashboardPage() {
           expenseRes,
           elecRes,
           complaintRes,
+          profileRes,
         ] = await Promise.all([
           supabase.from('subscriptions').select('trial_start,trial_end,status,plan').eq('owner_id', user.id).maybeSingle(),
-          supabase.from('properties').select('id,name,address,contact_number,city,rules').eq('owner_id', user.id).order('created_at', { ascending: true }),
+          supabase.from('properties').select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url').eq('owner_id', user.id).order('created_at', { ascending: true }),
           supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
           supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
           supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
           supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,deleted_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
           supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
-          supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id').eq('owner_id', user.id).order('reading_date', { ascending: false }),
+          supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,period_start,period_end,calculation_type,split_breakdown').eq('owner_id', user.id).order('reading_date', { ascending: false }),
           supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+          supabase.from('profiles').select('upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
         ])
 
         if (!isMounted) return
+
+        // Saved Payment Options (UPI ID, payment link, QR Code image)
+        if (profileRes?.data) {
+          setOwnerPaymentDetails({
+            upiId: profileRes.data.upi_id || '',
+            paymentLink: profileRes.data.payment_link || '',
+            qrCodeUrl: profileRes.data.upi_qr_url || '',
+          })
+        }
 
         // Subscription & Trial status from database row
         if (subRes.data) {
@@ -785,6 +842,10 @@ export default function DashboardPage() {
           previous_reading: Number(el.previous_reading),
           current_reading: Number(el.current_reading),
           rate_per_unit: Number(el.rate_per_unit),
+          period_start: el.period_start || null,
+          period_end: el.period_end || null,
+          calculation_type: el.calculation_type || 'standard',
+          split_breakdown: el.split_breakdown || null,
         })))
         setComplaints(complaintRes.data || [])
 
@@ -2535,6 +2596,190 @@ export default function DashboardPage() {
     }
   }
 
+  // Save / Update PG Owner Payment Options (UPI QR Code, Payment Link)
+  async function handleSavePaymentDetails(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!userId) return
+    setIsSavingPaymentDetails(true)
+    try {
+      const upiId = ownerPaymentDetails.upiId?.trim() || null
+      const paymentLink = ownerPaymentDetails.paymentLink?.trim() || null
+      const qrCodeUrl = ownerPaymentDetails.qrCodeUrl || null
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          upi_id: upiId,
+          payment_link: paymentLink,
+          upi_qr_url: qrCodeUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', userId)
+
+      if (error) {
+        flash('Could not save payment options: ' + error.message)
+        return
+      }
+
+      // Also update property if selected
+      if (property?.id) {
+        await supabase
+          .from('properties')
+          .update({
+            upi_id: upiId,
+            payment_link: paymentLink,
+            upi_qr_url: qrCodeUrl,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', property.id)
+      }
+
+      flash('Payment options saved successfully. Future reminders will include them.')
+    } catch (err: any) {
+      flash(err?.message || 'Error saving payment options.')
+    } finally {
+      setIsSavingPaymentDetails(false)
+    }
+  }
+
+  function handleQrImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) {
+      flash('QR code image must be under 2MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string
+      setOwnerPaymentDetails((prev) => ({ ...prev, qrCodeUrl: dataUrl }))
+      flash('QR code image loaded. Click "Save Payment Options" to persist.')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // Save Mid-Cycle Electricity Bill & Individual Tenant Shares
+  async function handleSaveMidCycleSplit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (isSavingMidCycleSplit) return
+    if (!userId) return
+
+    // Get candidate tenants in this room/property
+    const candidateTenants = currentPropertyTenants.filter((t) => {
+      if (midCycleRoomId !== 'all' && t.room_id !== midCycleRoomId) return false
+      return true
+    })
+
+    if (candidateTenants.length === 0) {
+      flash('No residents found for the selected room/period.')
+      return
+    }
+
+    const residentsForCalculation = candidateTenants.map((t) => {
+      const readings = midCycleResidentReadings[t.id]
+      return {
+        id: t.id,
+        name: t.name,
+        room: t.room,
+        joiningDate: t.joiningDate || midCyclePeriodStart,
+        vacatedDate: t.status === 'Vacated' ? new Date().toISOString().slice(0, 10) : null,
+        moveInReading: readings?.opening !== undefined ? readings.opening : null,
+        closingReading: readings?.closing !== undefined ? readings.closing : null,
+      }
+    })
+
+    let splitResult
+    try {
+      splitResult = calculateMidCycleElectricitySplit({
+        periodStart: midCyclePeriodStart,
+        periodEnd: midCyclePeriodEnd,
+        totalAmount: midCycleBillAmount,
+        totalUnits: midCycleTotalUnits,
+        ratePerUnit: midCycleRatePerUnit,
+        useMeterReadings: midCycleUseMeterReadings,
+        residents: residentsForCalculation,
+      })
+    } catch (calcErr: any) {
+      flash(calcErr?.message || 'Error calculating electricity split.')
+      return
+    }
+
+    setIsSavingMidCycleSplit(true)
+    try {
+      const finalRoomId = midCycleRoomId !== 'all' ? midCycleRoomId : null
+      const roomName = finalRoomId ? rooms.find((r) => r.id === finalRoomId)?.room_number || 'Room' : 'General'
+
+      // 1. Insert master electricity reading
+      const { data: readingData, error: readingErr } = await supabase
+        .from('electricity_readings')
+        .insert({
+          owner_id: userId,
+          property_id: property.id || null,
+          room_id: finalRoomId,
+          previous_reading: 0,
+          current_reading: splitResult.totalUnits,
+          rate_per_unit: splitResult.ratePerUnit,
+          reading_date: midCyclePeriodEnd,
+          period_start: midCyclePeriodStart,
+          period_end: midCyclePeriodEnd,
+          calculation_type: splitResult.calculationMethod,
+          split_breakdown: splitResult.residentShares,
+        })
+        .select('*')
+        .single()
+
+      if (readingErr) {
+        flash('Could not record mid-cycle electricity bill: ' + readingErr.message)
+        return
+      }
+
+      // 2. Insert individual tenant shares
+      const shareInserts = splitResult.residentShares.map((s) => ({
+        owner_id: userId,
+        reading_id: readingData.id,
+        tenant_id: s.residentId,
+        property_id: property.id || null,
+        room_id: finalRoomId,
+        period_start: midCyclePeriodStart,
+        period_end: midCyclePeriodEnd,
+        occupied_days: s.occupiedDays,
+        total_period_days: s.totalPeriodDays,
+        share_percentage: s.sharePercentage,
+        units_consumed: s.unitsConsumed ?? null,
+        amount_due: s.amountDue,
+        calculation_method: s.calculationMethod,
+        calculation_explanation: s.calculationExplanation,
+      }))
+
+      await supabase.from('tenant_electricity_shares').insert(shareInserts)
+
+      // 3. Update local state
+      setElectricity((prev) => [
+        {
+          id: readingData.id,
+          room_id: readingData.room_id,
+          room: roomName,
+          previous_reading: 0,
+          current_reading: Number(readingData.current_reading),
+          rate_per_unit: Number(readingData.rate_per_unit),
+          reading_date: readingData.reading_date,
+          period_start: readingData.period_start,
+          period_end: readingData.period_end,
+          calculation_type: readingData.calculation_type,
+          split_breakdown: readingData.split_breakdown,
+        },
+        ...prev,
+      ])
+
+      setShowMidCycleModal(false)
+      flash(`Mid-cycle electricity split recorded for ${splitResult.residentShares.length} resident(s).`)
+    } catch (err: any) {
+      flash(err?.message || 'Failed to save mid-cycle electricity split.')
+    } finally {
+      setIsSavingMidCycleSplit(false)
+    }
+  }
+
   // Add Complaint
   async function handleAddComplaint(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -3091,6 +3336,8 @@ export default function DashboardPage() {
                 setPaymentFormAmount(t.rent)
                 setShowPaymentModal(true)
               }}
+              ownerPaymentDetails={ownerPaymentDetails}
+              onOpenPaymentSettings={() => setActive('Settings')}
               searchQuery={q}
               onClearSearch={() => setSearch('')}
             />
@@ -3129,6 +3376,8 @@ export default function DashboardPage() {
                 }
                 setShowElectricityModal(true)
               }}
+              onAddMidCycle={() => setShowMidCycleModal(true)}
+              onViewSplitBreakdown={(el: ElectricityRecord) => setViewingSplitRecord(el)}
               onEditReading={(el: ElectricityRecord) => setEditingElectricity(el)}
               onDeleteReading={handleDeleteElectricity}
               searchQuery={q}
@@ -3213,6 +3462,11 @@ export default function DashboardPage() {
                 setEditingPropertyId(id)
                 setShowPropertyModal(true)
               }}
+              ownerPaymentDetails={ownerPaymentDetails}
+              setOwnerPaymentDetails={setOwnerPaymentDetails}
+              onSavePaymentDetails={handleSavePaymentDetails}
+              onQrImageUpload={handleQrImageUpload}
+              isSavingPaymentDetails={isSavingPaymentDetails}
               onDeleteProperty={() => setShowDeletePropertyModal(true)}
               onViewPlans={() => setShowPricingModal(true)}
               onSignOut={() => setShowLogoutModal(true)}
@@ -4669,6 +4923,402 @@ export default function DashboardPage() {
         </Modal>
       )}
 
+      {/* Mid-Cycle Electricity Bill Sharing Modal */}
+      {showMidCycleModal && (() => {
+        const candidateTenants = currentPropertyTenants.filter((t) => {
+          if (midCycleRoomId !== 'all' && t.room_id !== midCycleRoomId) return false
+          return true
+        })
+
+        const liveResidents = candidateTenants.map((t) => {
+          const readings = midCycleResidentReadings[t.id]
+          return {
+            id: t.id,
+            name: t.name,
+            room: t.room,
+            joiningDate: t.joiningDate || midCyclePeriodStart,
+            vacatedDate: t.status === 'Vacated' ? new Date().toISOString().slice(0, 10) : null,
+            moveInReading: readings?.opening !== undefined ? readings.opening : null,
+            closingReading: readings?.closing !== undefined ? readings.closing : null,
+          }
+        })
+
+        let liveSplit: any = null
+        let liveSplitError: string | null = null
+        if (liveResidents.length > 0 && midCycleBillAmount > 0 && midCyclePeriodStart && midCyclePeriodEnd) {
+          try {
+            liveSplit = calculateMidCycleElectricitySplit({
+              periodStart: midCyclePeriodStart,
+              periodEnd: midCyclePeriodEnd,
+              totalAmount: Number(midCycleBillAmount),
+              totalUnits: Number(midCycleTotalUnits),
+              ratePerUnit: Number(midCycleRatePerUnit),
+              useMeterReadings: midCycleUseMeterReadings,
+              residents: liveResidents,
+            })
+          } catch (err: any) {
+            liveSplitError = err?.message || 'Error calculating split.'
+          }
+        }
+
+        return (
+          <Modal
+            title="Mid-Cycle Electricity Bill Sharing Calculator"
+            onClose={() => !isSavingMidCycleSplit && setShowMidCycleModal(false)}
+          >
+            <form onSubmit={handleSaveMidCycleSplit} className="flex flex-col gap-4 text-xs">
+              <div className="rounded-xl border border-[#ebe4da] bg-[#faf7f2] p-3 text-[11px] text-[#676b7d] flex items-start gap-2">
+                <Sparkles className="size-4 text-[#8b5a2b] shrink-0 mt-0.5" />
+                <span>
+                  <strong>Mid-Cycle Fair Share:</strong> Calculates exact electricity shares based on each resident&apos;s occupancy dates during the billing period. Residents who joined mid-cycle are <strong>never charged</strong> for days before their move-in date.
+                </span>
+              </div>
+
+              {/* Room and Period Selection */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="flex flex-col gap-1.5 font-semibold text-[#555a6c]">
+                  <span>Scope / Room</span>
+                  <select
+                    value={midCycleRoomId}
+                    onChange={(e) => setMidCycleRoomId(e.target.value)}
+                    className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2 text-xs font-normal outline-none focus:border-[#8b5a2b]"
+                  >
+                    <option value="all">Entire Property (All Residents)</option>
+                    {currentPropertyRooms.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        Room {r.room_number} ({r.room_type})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <Field
+                  label="Billing Period Start"
+                  name="period_start"
+                  type="date"
+                  value={midCyclePeriodStart}
+                  onChange={(e: any) => setMidCyclePeriodStart(e.target.value)}
+                  required
+                />
+
+                <Field
+                  label="Billing Period End"
+                  name="period_end"
+                  type="date"
+                  value={midCyclePeriodEnd}
+                  onChange={(e: any) => setMidCyclePeriodEnd(e.target.value)}
+                  required
+                />
+              </div>
+
+              {/* Bill Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Field
+                  label="Total Bill (₹)"
+                  name="bill_amount"
+                  type="number"
+                  min="1"
+                  value={midCycleBillAmount}
+                  onChange={(e: any) => {
+                    const amt = Number(e.target.value)
+                    setMidCycleBillAmount(amt)
+                    if (midCycleRatePerUnit > 0) {
+                      setMidCycleTotalUnits(Math.round(amt / midCycleRatePerUnit))
+                    }
+                  }}
+                  required
+                />
+
+                <Field
+                  label="Rate per Unit (₹)"
+                  name="rate_per_unit"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  value={midCycleRatePerUnit}
+                  onChange={(e: any) => {
+                    const rate = Number(e.target.value)
+                    setMidCycleRatePerUnit(rate)
+                    if (rate > 0) {
+                      setMidCycleTotalUnits(Math.round(midCycleBillAmount / rate))
+                    }
+                  }}
+                  required
+                />
+
+                <Field
+                  label="Total Units (kWh)"
+                  name="total_units"
+                  type="number"
+                  min="0"
+                  value={midCycleTotalUnits}
+                  onChange={(e: any) => setMidCycleTotalUnits(Number(e.target.value))}
+                  required
+                />
+              </div>
+
+              {/* Meter Readings Option Toggle */}
+              <div className="rounded-xl border border-[#e8dfd4] bg-[#fdfcf9] p-3">
+                <label className="flex items-center gap-2 cursor-pointer font-semibold text-[#3d3934]">
+                  <input
+                    type="checkbox"
+                    checked={midCycleUseMeterReadings}
+                    onChange={(e) => setMidCycleUseMeterReadings(e.target.checked)}
+                    className="size-4 rounded accent-[#8b5a2b]"
+                  />
+                  <span>Use Move-In / Move-Out Meter Readings (if individual meters recorded)</span>
+                </label>
+                <p className="mt-1 text-[11px] text-[#85899a] pl-6">
+                  When enabled, exact units consumed between move-in and closing readings will be used. Otherwise, shares are split proportionally by active occupied days.
+                </p>
+
+                {midCycleUseMeterReadings && (
+                  <div className="mt-3 space-y-2 border-t border-[#eee6dc] pt-3 pl-6">
+                    <p className="text-[11px] font-bold text-[#555a6c]">Resident Meter Readings:</p>
+                    {candidateTenants.map((t) => (
+                      <div key={t.id} className="flex flex-wrap items-center gap-2">
+                        <span className="w-28 truncate font-medium text-[#3d3934]">{t.name}</span>
+                        <input
+                          type="number"
+                          placeholder="Move-in reading"
+                          value={midCycleResidentReadings[t.id]?.opening ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? undefined : Number(e.target.value)
+                            setMidCycleResidentReadings((prev) => ({
+                              ...prev,
+                              [t.id]: {
+                                opening: val ?? 0,
+                                closing: prev[t.id]?.closing ?? 0,
+                              },
+                            }))
+                          }}
+                          className="w-28 rounded-lg border border-[#e4e6ec] px-2 py-1 text-xs outline-none focus:border-[#8b5a2b]"
+                        />
+                        <span className="text-[#85899a]">to</span>
+                        <input
+                          type="number"
+                          placeholder="Closing reading"
+                          value={midCycleResidentReadings[t.id]?.closing ?? ''}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? undefined : Number(e.target.value)
+                            setMidCycleResidentReadings((prev) => ({
+                              ...prev,
+                              [t.id]: {
+                                opening: prev[t.id]?.opening ?? 0,
+                                closing: val ?? 0,
+                              },
+                            }))
+                          }}
+                          className="w-28 rounded-lg border border-[#e4e6ec] px-2 py-1 text-xs outline-none focus:border-[#8b5a2b]"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Real-time Calculation Breakdown Preview */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#3d3934]">Live Fair-Share Calculation Preview</span>
+                  {liveSplit && (
+                    <span className="text-[11px] font-semibold text-[#8b5a2b]">
+                      Cycle Duration: {liveSplit.totalPeriodDays} days
+                    </span>
+                  )}
+                </div>
+
+                {liveSplitError ? (
+                  <div className="rounded-xl border border-[#ffe0e0] bg-[#fff5f5] p-3 text-xs text-[#b95c3c]">
+                    {liveSplitError}
+                  </div>
+                ) : candidateTenants.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-[#d8c2aa] bg-[#faf7f2] p-4 text-center text-xs text-[#85899a]">
+                    No residents found in the selected room.
+                  </div>
+                ) : liveSplit?.residentShares ? (
+                  <div className="overflow-x-auto rounded-xl border border-[#e8dfd4] bg-white">
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                        <tr>
+                          <th className="px-3 py-2.5">Resident</th>
+                          <th className="px-3 py-2.5">Move-in Date</th>
+                          <th className="px-3 py-2.5">Days Active</th>
+                          <th className="px-3 py-2.5">Status</th>
+                          <th className="px-3 py-2.5">Share %</th>
+                          <th className="px-3 py-2.5 text-right">Amount Due</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#eee6dc]">
+                        {liveSplit.residentShares.map((s: any) => {
+                          const isMidCycleJoiner = s.occupiedDays < liveSplit.totalPeriodDays
+                          return (
+                            <tr key={s.residentId} className="hover:bg-[#fbf8f3]">
+                              <td className="px-3 py-2.5 font-bold text-[#3d3934]">
+                                {s.residentName}
+                              </td>
+                              <td className="px-3 py-2.5 text-[#676b7d]">
+                                {s.moveInDate ? new Date(s.moveInDate).toLocaleDateString('en-IN') : 'Existing'}
+                              </td>
+                              <td className="px-3 py-2.5 text-[#676b7d]">
+                                {s.occupiedDays} / {s.totalPeriodDays} days
+                              </td>
+                              <td className="px-3 py-2.5">
+                                {isMidCycleJoiner ? (
+                                  <span className="inline-flex items-center rounded-md bg-[#faf3ea] px-1.5 py-0.5 text-[10px] font-semibold text-[#8b5a2b]">
+                                    Joined Mid-Cycle (0 charge before move-in)
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-md bg-[#eaf5ea] px-1.5 py-0.5 text-[10px] font-semibold text-[#2e7d32]">
+                                    Full Cycle
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2.5 text-[#676b7d]">
+                                {s.sharePercentage.toFixed(1)}%
+                              </td>
+                              <td className="px-3 py-2.5 font-bold text-right text-[#3d3934]">
+                                {currency(s.amountDue)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot className="border-t border-[#eee6dc] bg-[#faf7f2] font-bold text-[#3d3934]">
+                        <tr>
+                          <td colSpan={5} className="px-3 py-2 text-right">
+                            Total Split Reconciled:
+                          </td>
+                          <td className="px-3 py-2 text-right text-[#8b5a2b]">
+                            {currency(liveSplit.residentShares.reduce((acc: number, cur: any) => acc + cur.amountDue, 0))}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isSavingMidCycleSplit}
+                  onClick={() => setShowMidCycleModal(false)}
+                  className="rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingMidCycleSplit || candidateTenants.length === 0 || !liveSplit}
+                  className="flex items-center gap-1.5 rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] disabled:opacity-50 transition-colors"
+                >
+                  {isSavingMidCycleSplit && <Loader2 className="size-3.5 animate-spin" />}
+                  {isSavingMidCycleSplit ? 'Recording Split...' : 'Record Split Bill'}
+                </button>
+              </div>
+            </form>
+          </Modal>
+        )
+      })()}
+
+      {/* View Mid-Cycle Split Breakdown Modal */}
+      {viewingSplitRecord && (
+        <Modal
+          title={`Electricity Split Breakdown — ${viewingSplitRecord.room_id ? `Room ${viewingSplitRecord.room}` : 'Property General'}`}
+          onClose={() => setViewingSplitRecord(null)}
+        >
+          <div className="space-y-4 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-4">
+              <div>
+                <p className="text-[11px] text-[#85899a]">Billing Period</p>
+                <p className="font-bold text-[#3d3934]">
+                  {viewingSplitRecord.period_start && viewingSplitRecord.period_end
+                    ? `${new Date(viewingSplitRecord.period_start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${new Date(viewingSplitRecord.period_end).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
+                    : new Date(viewingSplitRecord.reading_date).toLocaleDateString('en-IN')}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[#85899a]">Total Units</p>
+                <p className="font-bold text-[#784b20]">{viewingSplitRecord.current_reading} units</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[#85899a]">Rate / Unit</p>
+                <p className="font-bold text-[#3d3934]">{currency(viewingSplitRecord.rate_per_unit)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] text-[#85899a]">Total Bill</p>
+                <p className="font-bold text-[#3d3934]">
+                  {currency(viewingSplitRecord.current_reading * viewingSplitRecord.rate_per_unit)}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="font-bold text-[#3d3934] mb-2">Itemized Resident Shares</h4>
+              {viewingSplitRecord.split_breakdown && viewingSplitRecord.split_breakdown.length > 0 ? (
+                <div className="overflow-x-auto rounded-xl border border-[#ebe4da] bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                      <tr>
+                        <th className="px-3 py-2.5">Resident</th>
+                        <th className="px-3 py-2.5">Occupied Days</th>
+                        <th className="px-3 py-2.5">Share %</th>
+                        <th className="px-3 py-2.5">Explanation</th>
+                        <th className="px-3 py-2.5 text-right">Amount Due</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#eee6dc]">
+                      {viewingSplitRecord.split_breakdown.map((share: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-[#fbf8f3]">
+                          <td className="px-3 py-2.5 font-bold text-[#3d3934]">
+                            {share.residentName}
+                          </td>
+                          <td className="px-3 py-2.5 text-[#676b7d]">
+                            {share.occupiedDays} / {share.totalPeriodDays} days
+                          </td>
+                          <td className="px-3 py-2.5 text-[#676b7d]">
+                            {share.sharePercentage.toFixed(1)}%
+                          </td>
+                          <td className="px-3 py-2.5 text-[11px] text-[#85899a]">
+                            {share.calculationExplanation || 'Proportional occupancy split'}
+                          </td>
+                          <td className="px-3 py-2.5 font-bold text-right text-[#3d3934]">
+                            {currency(share.amountDue)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="border-t border-[#eee6dc] bg-[#faf7f2] font-bold text-[#3d3934]">
+                      <tr>
+                        <td colSpan={4} className="px-3 py-2 text-right">
+                          Total Bill:
+                        </td>
+                        <td className="px-3 py-2 text-right text-[#8b5a2b]">
+                          {currency(viewingSplitRecord.split_breakdown.reduce((acc: number, s: any) => acc + s.amountDue, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-xs text-[#85899a]">No breakdown details stored for this reading.</p>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setViewingSplitRecord(null)}
+                className="rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
+              >
+                Close Breakdown
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {/* Floating 5-Second Undo Toast */}
       {undoItem && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-2xl border border-[#c29668] bg-[#2e2318] px-5 py-3 text-xs text-white shadow-2xl animate-in slide-in-from-bottom-3">
@@ -5515,6 +6165,8 @@ function TenantsTab({
   onDeleteTenant,
   onRecordPayment,
   onSharePortalLink,
+  ownerPaymentDetails,
+  onOpenPaymentSettings,
   searchQuery,
   onClearSearch,
 }: any) {
@@ -5555,6 +6207,29 @@ function TenantsTab({
           </button>
         </div>
       </div>
+
+      {/* Payment Option Setup Prompt Banner (Shown when owner has not configured payment option) */}
+      {(!ownerPaymentDetails?.upiId && !ownerPaymentDetails?.paymentLink && !ownerPaymentDetails?.qrCodeUrl) && (
+        <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-[#eedfc9] bg-[#fdf9f2] p-4 text-xs text-[#784b20]">
+          <div className="flex items-center gap-3">
+            <div className="grid size-9 place-items-center rounded-xl bg-[#8b5a2b]/15 text-[#8b5a2b] shrink-0">
+              <CreditCard className="size-4" />
+            </div>
+            <div>
+              <p className="font-bold text-[#3d3934]">No UPI QR code or payment link configured</p>
+              <p className="text-[11px] text-[#85899a]">
+                Payment reminders sent to residents currently omit payment links. Add your UPI details so residents can pay directly.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onOpenPaymentSettings}
+            className="inline-flex items-center justify-center rounded-xl bg-[#8b5a2b] px-3.5 py-1.5 font-semibold text-white shadow-2xs hover:bg-[#784b20] transition-colors self-start sm:self-auto shrink-0"
+          >
+            Set Up Payment Options →
+          </button>
+        </div>
+      )}
 
       {/* Due Status Quick Filter Badges */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -5638,6 +6313,7 @@ function TenantsTab({
                     dueDay: t.rent_due_day || 5,
                     propertyName: property?.name || 'BaseraBook Property',
                     locale,
+                    paymentDetails: ownerPaymentDetails,
                   })
 
                   return (
@@ -5671,7 +6347,13 @@ function TenantsTab({
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 rounded-lg border border-[#25D366]/40 bg-[#25D366]/10 px-2 py-1 text-[11px] font-semibold text-[#1e7e34] hover:bg-[#25D366]/20 transition-colors"
-                            title="Send WhatsApp payment reminder"
+                            title={
+                              ownerPaymentDetails?.upiId
+                                ? `Send WhatsApp reminder (Includes UPI: ${ownerPaymentDetails.upiId})`
+                                : ownerPaymentDetails?.paymentLink
+                                ? 'Send WhatsApp reminder (Includes online payment link)'
+                                : 'Send WhatsApp reminder (No payment details configured)'
+                            }
                           >
                             <MessageCircle className="size-3.5 text-[#25D366]" />
                             <span className="hidden md:inline">Remind</span>
@@ -6086,20 +6768,38 @@ function DeletedRecordsTab({
   )
 }
 
-function ElectricityTab({ records, rooms, onAddReading, onEditReading, onDeleteReading, searchQuery, onClearSearch }: any) {
+function ElectricityTab({
+  records,
+  rooms,
+  onAddReading,
+  onAddMidCycle,
+  onViewSplitBreakdown,
+  onEditReading,
+  onDeleteReading,
+  searchQuery,
+  onClearSearch,
+}: any) {
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Electricity & Utilities</h2>
-          <p className="text-xs text-[#85899a]">Meter reading logger and automated consumption charges.</p>
+          <p className="text-xs text-[#85899a]">Meter reading logger and automated consumption charges with mid-cycle occupancy splits.</p>
         </div>
-        <button
-          onClick={onAddReading}
-          className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors self-start sm:self-auto"
-        >
-          <Plus className="size-4" /> Record Reading
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={onAddMidCycle}
+            className="flex items-center gap-2 rounded-xl border border-[#8b5a2b] bg-white px-3.5 py-2 text-xs font-semibold text-[#8b5a2b] shadow-2xs hover:bg-[#faf7f2] transition-colors self-start sm:self-auto"
+          >
+            <Split className="size-4" /> Mid-Cycle Bill Split
+          </button>
+          <button
+            onClick={onAddReading}
+            className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors self-start sm:self-auto"
+          >
+            <Plus className="size-4" /> Record Reading
+          </button>
+        </div>
       </div>
 
       {records.length === 0 ? (
@@ -6125,24 +6825,56 @@ function ElectricityTab({ records, rooms, onAddReading, onEditReading, onDeleteR
                   <th className="px-5 py-3.5">Units</th>
                   <th className="px-5 py-3.5">Rate / Unit</th>
                   <th className="px-5 py-3.5">Total Amount</th>
-                  <th className="px-5 py-3.5">Date</th>
+                  <th className="px-5 py-3.5">Date / Period</th>
                   <th className="px-5 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#eee6dc]">
                 {records.map((el: ElectricityRecord) => {
+                  const isMidCycle = el.calculation_type && el.calculation_type !== 'standard'
                   const units = Math.max(0, el.current_reading - el.previous_reading)
                   const total = units * el.rate_per_unit
                   return (
                     <tr key={el.id} className="hover:bg-[#fbf8f3] transition-colors">
-                      <td className="px-5 py-4 font-bold text-[#3d3934]">Room {el.room}</td>
+                      <td className="px-5 py-4 font-bold text-[#3d3934]">
+                        <div className="flex flex-col gap-1">
+                          <span>{el.room_id ? `Room ${el.room}` : 'Building General Meter'}</span>
+                          {isMidCycle && (
+                            <span className="inline-flex items-center gap-1 w-fit rounded-md bg-[#8b5a2b]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#784b20]">
+                              <Split className="size-3" />
+                              Mid-Cycle Split
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-5 py-4 text-[#676b7d]">{el.previous_reading}</td>
                       <td className="px-5 py-4 text-[#676b7d]">{el.current_reading}</td>
                       <td className="px-5 py-4 font-bold text-[#784b20]">{units} units</td>
                       <td className="px-5 py-4 text-[#676b7d]">{currency(el.rate_per_unit)}</td>
                       <td className="px-5 py-4 font-bold text-[#44485a]">{currency(total)}</td>
-                      <td className="px-5 py-4 text-[#85899a]">{new Date(el.reading_date).toLocaleDateString('en-IN')}</td>
+                      <td className="px-5 py-4 text-[#85899a]">
+                        {el.period_start && el.period_end ? (
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-[#44485a]">
+                              {new Date(el.period_start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} –{' '}
+                              {new Date(el.period_end).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                            </span>
+                            <span className="text-[10px] text-[#999daa]">Billing Period</span>
+                          </div>
+                        ) : (
+                          new Date(el.reading_date).toLocaleDateString('en-IN')
+                        )}
+                      </td>
                       <td className="px-5 py-4 text-right">
+                        {isMidCycle && el.split_breakdown && (
+                          <button
+                            onClick={() => onViewSplitBreakdown?.(el)}
+                            className="rounded-lg p-1.5 text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors mr-1"
+                            title="View mid-cycle resident calculation breakdown"
+                          >
+                            <FileText className="size-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => onEditReading?.(el)}
                           className="rounded-lg p-1.5 text-[#a0a3af] hover:text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors mr-1"
@@ -6420,6 +7152,11 @@ function SettingsTab({
   isEndingSoon,
   isTrialExpired,
   subscriptionPlan,
+  ownerPaymentDetails = { upiId: '', paymentLink: '', qrCodeUrl: '' },
+  setOwnerPaymentDetails,
+  onSavePaymentDetails,
+  onQrImageUpload,
+  isSavingPaymentDetails,
   onViewPlans,
   onSignOut,
 }: any) {
@@ -6442,6 +7179,130 @@ function SettingsTab({
             <p className="font-semibold text-[#44485a]">{userEmail}</p>
           </div>
         </div>
+      </div>
+
+      {/* 2. Resident Payment Options (UPI ID, Link, QR Code) */}
+      <div id="payment-options-settings" className="rounded-2xl border border-[#ebe4da] bg-white p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-[#8b5a2b]">
+            <QrCode className="size-5" />
+            <div>
+              <h3 className="text-base font-bold text-[#3d3934]">Payment QR Code & UPI Link</h3>
+              <p className="text-xs text-[#85899a]">
+                Auto-included in payment-due reminders sent to your residents via WhatsApp & SMS.
+              </p>
+            </div>
+          </div>
+          {ownerPaymentDetails?.upiId || ownerPaymentDetails?.paymentLink || ownerPaymentDetails?.qrCodeUrl ? (
+            <span className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-2.5 py-0.5 text-[10px] font-bold text-[#236b4e]">
+              <CheckCircle2 className="size-3.5" />
+              Configured
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-full bg-[#fff4e5] border border-[#f5c285] px-2.5 py-0.5 text-[10px] font-bold text-[#b46b1a]">
+              <AlertCircle className="size-3.5" />
+              Setup Needed
+            </span>
+          )}
+        </div>
+
+        <form onSubmit={onSavePaymentDetails} className="mt-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-[#555a6c]">
+              UPI ID / VPA
+            </label>
+            <p className="text-[11px] text-[#85899a] mb-1.5">Residents can pay directly using Google Pay, PhonePe, Paytm, or BHIM.</p>
+            <input
+              type="text"
+              placeholder="e.g. yourname@okhdfcbank or 9876543210@paytm"
+              value={ownerPaymentDetails?.upiId || ''}
+              onChange={(e) =>
+                setOwnerPaymentDetails?.((prev: any) => ({ ...prev, upiId: e.target.value }))
+              }
+              className="w-full rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[#555a6c]">
+              Payment Link (Optional)
+            </label>
+            <p className="text-[11px] text-[#85899a] mb-1.5">Online payment or gateway collection URL (e.g. Razorpay, Paytm link, or UPI deep link).</p>
+            <input
+              type="url"
+              placeholder="e.g. https://rzp.io/l/yourpgrent or https://paytm.me/..."
+              value={ownerPaymentDetails?.paymentLink || ''}
+              onChange={(e) =>
+                setOwnerPaymentDetails?.((prev: any) => ({ ...prev, paymentLink: e.target.value }))
+              }
+              className="w-full rounded-xl border border-[#e4e6ec] bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[#555a6c]">
+              UPI QR Code Image
+            </label>
+            <p className="text-[11px] text-[#85899a] mb-2">
+              Upload your UPI QR code image (PNG, JPG, or SVG). Residents can scan this QR code on their self-service portal or view it via reminder links.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <label className="inline-flex items-center gap-2 rounded-xl border border-[#e8dfd4] bg-[#faf7f2] px-4 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#f3ede3] transition-colors cursor-pointer shadow-xs">
+                <Upload className="size-4" />
+                Upload QR Image
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={onQrImageUpload}
+                  className="hidden"
+                />
+              </label>
+
+              {ownerPaymentDetails?.qrCodeUrl && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOwnerPaymentDetails?.((prev: any) => ({ ...prev, qrCodeUrl: '' }))
+                  }
+                  className="text-xs font-medium text-[#b95c3c] hover:underline"
+                >
+                  Remove QR Image
+                </button>
+              )}
+            </div>
+
+            {ownerPaymentDetails?.qrCodeUrl && (
+              <div className="mt-3 flex items-center gap-3 rounded-xl border border-[#ebe4da] bg-[#fbf8f3] p-3 w-fit">
+                <img
+                  src={ownerPaymentDetails.qrCodeUrl}
+                  alt="Saved UPI QR Code Preview"
+                  className="size-24 rounded-lg border border-[#e8dfd4] bg-white object-contain p-1 shadow-2xs"
+                />
+                <div className="text-xs">
+                  <p className="font-semibold text-[#3d3934]">Active QR Code</p>
+                  <p className="text-[11px] text-[#85899a]">Ready to be shared with residents</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-3 text-[11px] text-[#676b7d] flex items-start gap-2">
+            <Sparkles className="size-4 text-[#8b5a2b] shrink-0 mt-0.5" />
+            <span>
+              <strong>Smart Reminders:</strong> When you send rent or utility payment-due reminders from the Residents tab, BaseraBook will automatically attach your UPI ID, Payment Link, and QR details. If not set, reminders are sent without payment info, and future reminders always reflect the latest saved options.
+            </span>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSavingPaymentDetails}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] disabled:opacity-60 transition-colors"
+          >
+            {isSavingPaymentDetails ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+            {isSavingPaymentDetails ? 'Saving Payment Details...' : 'Save Payment Details'}
+          </button>
+        </form>
       </div>
 
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">

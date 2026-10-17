@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   must_change_password BOOLEAN DEFAULT false,
   mfa_enrolled BOOLEAN DEFAULT false,
   mfa_secret TEXT,
+  upi_id TEXT,
+  payment_link TEXT,
+  upi_qr_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -83,6 +86,9 @@ CREATE TABLE IF NOT EXISTS public.properties (
   pincode TEXT,
   contact_number TEXT,
   rules TEXT,
+  upi_id TEXT,
+  payment_link TEXT,
+  upi_qr_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
   CONSTRAINT uq_properties_owner UNIQUE (owner_id)
@@ -238,6 +244,10 @@ CREATE TABLE IF NOT EXISTS public.electricity_readings (
   total_units NUMERIC(10, 2) GENERATED ALWAYS AS (current_reading - previous_reading) STORED,
   total_amount NUMERIC(10, 2) GENERATED ALWAYS AS ((current_reading - previous_reading) * rate_per_unit) STORED,
   reading_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  period_start DATE,
+  period_end DATE,
+  calculation_type TEXT DEFAULT 'standard',
+  split_breakdown JSONB DEFAULT '[]'::jsonb,
   is_settled BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
@@ -1003,5 +1013,48 @@ CREATE POLICY "tenant_access_tokens_owner_update" ON public.tenant_access_tokens
 
 CREATE POLICY "tenant_access_tokens_owner_delete" ON public.tenant_access_tokens
   FOR DELETE USING (owner_id = auth.uid());
+
+-- ------------------------------------------------------------------------------
+-- 18. Tenant Electricity Shares Table (Mid-Cycle Proportional Bill Split)
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.tenant_electricity_shares (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  reading_id UUID REFERENCES public.electricity_readings(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+  property_id UUID REFERENCES public.properties(id) ON DELETE SET NULL,
+  room_id UUID REFERENCES public.rooms(id) ON DELETE SET NULL,
+  period_start DATE NOT NULL,
+  period_end DATE NOT NULL,
+  occupied_days INT NOT NULL DEFAULT 0,
+  total_period_days INT NOT NULL DEFAULT 0,
+  share_percentage NUMERIC(5, 2) NOT NULL DEFAULT 0,
+  units_consumed NUMERIC(10, 2) DEFAULT NULL,
+  amount_due NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  calculation_method TEXT NOT NULL DEFAULT 'proportional_daily_occupancy',
+  calculation_explanation TEXT,
+  is_paid BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_electricity_shares_tenant ON public.tenant_electricity_shares(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_electricity_shares_owner ON public.tenant_electricity_shares(owner_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_electricity_shares_reading ON public.tenant_electricity_shares(reading_id);
+
+ALTER TABLE public.tenant_electricity_shares ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "tenant_electricity_shares_owner_select" ON public.tenant_electricity_shares
+  FOR SELECT USING (owner_id = auth.uid() OR public.is_super_admin());
+
+CREATE POLICY "tenant_electricity_shares_owner_insert" ON public.tenant_electricity_shares
+  FOR INSERT WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY "tenant_electricity_shares_owner_update" ON public.tenant_electricity_shares
+  FOR UPDATE USING (owner_id = auth.uid()) WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY "tenant_electricity_shares_owner_delete" ON public.tenant_electricity_shares
+  FOR DELETE USING (owner_id = auth.uid());
+
 
 

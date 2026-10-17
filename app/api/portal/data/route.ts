@@ -37,7 +37,7 @@ export async function GET() {
     if (tenant.property_id) {
       const { data: prop } = await admin
         .from('properties')
-        .select('id, name, address, city, state, contact_number, rules')
+        .select('id, name, address, city, state, contact_number, rules, upi_id, payment_link, upi_qr_url')
         .eq('id', tenant.property_id)
         .maybeSingle()
       property = prop
@@ -79,7 +79,7 @@ export async function GET() {
     if (tenant.room_id) {
       const { data: readings } = await admin
         .from('electricity_readings')
-        .select('id, previous_reading, current_reading, rate_per_unit, total_units, total_amount, reading_date')
+        .select('id, previous_reading, current_reading, rate_per_unit, total_units, total_amount, reading_date, period_start, period_end, calculation_type')
         .eq('room_id', tenant.room_id)
         .order('reading_date', { ascending: false })
         .limit(6)
@@ -109,11 +109,48 @@ export async function GET() {
       // Table may not have records yet
     }
 
-    // 7. Calculate real-time rent status
+    // 7. Fetch Owner Profile Payment Options
+    let paymentOptions = {
+      upiId: property?.upi_id || null,
+      paymentLink: property?.payment_link || null,
+      qrCodeUrl: property?.upi_qr_url || null,
+    }
+    try {
+      const { data: profile } = await admin
+        .from('profiles')
+        .select('upi_id, payment_link, upi_qr_url')
+        .eq('id', session.ownerId)
+        .maybeSingle()
+      if (profile) {
+        paymentOptions = {
+          upiId: profile.upi_id || paymentOptions.upiId,
+          paymentLink: profile.payment_link || paymentOptions.paymentLink,
+          qrCodeUrl: profile.upi_qr_url || paymentOptions.qrCodeUrl,
+        }
+      }
+    } catch {
+      // Profile query fallback
+    }
+
+    // 8. Fetch Mid-Cycle Electricity Shares for this resident
+    let electricityShares: any[] = []
+    try {
+      const { data: shares } = await admin
+        .from('tenant_electricity_shares')
+        .select('id, reading_id, period_start, period_end, occupied_days, total_period_days, share_percentage, units_consumed, amount_due, calculation_method, calculation_explanation, is_paid, created_at')
+        .eq('tenant_id', session.tenantId)
+        .eq('owner_id', session.ownerId)
+        .order('period_end', { ascending: false })
+      electricityShares = shares || []
+    } catch {
+      // Table query fallback
+    }
+
+    // 9. Calculate real-time rent status
     const now = new Date()
     const currentMonth = now.getMonth()
     const currentYear = now.getFullYear()
-    const currentDate = now.getDate()
+    const currentDate = new Date().getDate()
 
     const hasPaidRentThisMonth = (payments || []).some((p) => {
       if (p.payment_type !== 'rent') return false
@@ -153,6 +190,20 @@ export async function GET() {
       },
       roomNumber,
       bedNumber,
+      paymentOptions,
+      electricityShares: (electricityShares || []).map((s) => ({
+        id: s.id,
+        periodStart: s.period_start,
+        periodEnd: s.period_end,
+        occupiedDays: Number(s.occupied_days || 0),
+        totalPeriodDays: Number(s.total_period_days || 0),
+        sharePercentage: Number(s.share_percentage || 0),
+        unitsConsumed: s.units_consumed !== null && s.units_consumed !== undefined ? Number(s.units_consumed) : null,
+        amountDue: Number(s.amount_due || 0),
+        calculationMethod: s.calculation_method || 'proportional_daily_occupancy',
+        calculationExplanation: s.calculation_explanation || '',
+        isPaid: !!s.is_paid,
+      })),
       payments: (payments || []).map((p) => ({
         id: p.id,
         receiptNumber: `REC-${p.id.slice(0, 8).toUpperCase()}`,
@@ -174,6 +225,9 @@ export async function GET() {
           units,
           totalAmount: total,
           readingDate: el.reading_date,
+          periodStart: el.period_start,
+          periodEnd: el.period_end,
+          calculationType: el.calculation_type,
         }
       }),
       settlement,

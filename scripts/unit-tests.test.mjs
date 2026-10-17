@@ -20,6 +20,7 @@ import {
   generateWhatsAppReminder,
   generateSmsReminder,
 } from '../lib/due-dates.js'
+import { calculateMidCycleElectricitySplit } from '../lib/electricity-split.ts'
 import { isSafeRedirectPath, getSafeRedirectPath } from '../lib/validation.js'
 import {
   generateTenantToken,
@@ -1194,5 +1195,143 @@ test('33. Tenant Portal: Search Engine Privacy & No-Index Header Invariant (SEC-
     '/api/portal must be protected from search engine indexing'
   )
 })
+
+test('34. Payment QR & UPI Link Reminder Integration', () => {
+  // Case A: Reminder with no payment options saved -> omits payment details cleanly
+  const waWithoutPay = generateWhatsAppReminder({
+    tenantName: 'Vikas Sharma',
+    phone: '9876543210',
+    amount: 7500,
+    dueDay: 5,
+    propertyName: 'Sunrise PG',
+    locale: 'en',
+    paymentDetails: null,
+  })
+  assert.ok(!waWithoutPay.includes('Payment Options:'), 'Must omit payment section if no payment options saved')
+  assert.ok(waWithoutPay.includes('Vikas'), 'Must include resident name')
+  assert.ok(waWithoutPay.includes('7%2C500') || waWithoutPay.includes('7500'), 'Must include amount')
+
+  // Case B: Reminder with UPI ID saved -> includes UPI ID
+  const waWithUpi = generateWhatsAppReminder({
+    tenantName: 'Vikas Sharma',
+    phone: '9876543210',
+    amount: 7500,
+    dueDay: 5,
+    propertyName: 'Sunrise PG',
+    locale: 'en',
+    paymentDetails: {
+      upiId: 'sunrisepg@okhdfcbank',
+      paymentLink: null,
+    },
+  })
+  assert.ok(waWithUpi.includes('sunrisepg%40okhdfcbank') || waWithUpi.includes('sunrisepg@okhdfcbank'), 'Must include saved UPI ID')
+  assert.ok(waWithUpi.includes('Payment%20Options'), 'Must include payment header')
+
+  // Case C: Reminder with Payment Link saved -> includes payment link
+  const waWithLink = generateWhatsAppReminder({
+    tenantName: 'Vikas Sharma',
+    phone: '9876543210',
+    amount: 7500,
+    dueDay: 5,
+    propertyName: 'Sunrise PG',
+    locale: 'en',
+    paymentDetails: {
+      paymentLink: 'https://paytm.me/m-sunrise',
+    },
+  })
+  assert.ok(waWithLink.includes('paytm.me'), 'Must include payment link')
+
+  // Case D: Hindi locale reminder with UPI
+  const waHi = generateWhatsAppReminder({
+    tenantName: 'विकास शर्मा',
+    phone: '9876543210',
+    amount: 7500,
+    dueDay: 5,
+    propertyName: 'सनराइज पीजी',
+    locale: 'hi',
+    paymentDetails: {
+      upiId: 'sunrisepg@upi',
+    },
+  })
+  assert.ok(waHi.includes('sunrisepg%40upi') || waHi.includes('sunrisepg@upi'), 'Must include UPI ID in Hindi reminder')
+
+  // Case E: SMS reminder with UPI
+  const smsWithPay = generateSmsReminder({
+    tenantName: 'Vikas',
+    amount: 7500,
+    dueDay: 5,
+    propertyName: 'Sunrise PG',
+    paymentDetails: { upiId: 'sunrisepg@upi' },
+  })
+  assert.ok(smsWithPay.includes('sunrisepg%40upi') || smsWithPay.includes('sunrisepg@upi'), 'SMS must include UPI info')
+
+  // Case F: SMS reminder without payment option
+  const smsWithoutPay = generateSmsReminder({
+    tenantName: 'Vikas',
+    amount: 7500,
+    dueDay: 5,
+    propertyName: 'Sunrise PG',
+    paymentDetails: null,
+  })
+  assert.ok(!smsWithoutPay.includes('UPI:'), 'SMS must omit UPI info if none saved')
+})
+
+test('35. Mid-Cycle Electricity Bill Sharing Engine Invariants', () => {
+  // Scenario: 30-day month (2026-09-01 to 2026-09-30), total bill ₹1200
+  // Resident 1 (Alice): Joined 2026-08-01 (full 30 days present)
+  // Resident 2 (Bob): Joined 2026-09-16 (15 days present, joined mid-cycle)
+  const result = calculateMidCycleElectricitySplit({
+    periodStart: '2026-09-01',
+    periodEnd: '2026-09-30',
+    totalAmount: 1200,
+    ratePerUnit: 10,
+    residents: [
+      { id: 'res-alice', name: 'Alice', room: '101', joiningDate: '2026-08-01' },
+      { id: 'res-bob', name: 'Bob', room: '101', joiningDate: '2026-09-16' },
+    ],
+  })
+
+  assert.strictEqual(result.totalPeriodDays, 30, 'Total days must equal 30')
+  assert.strictEqual(result.totalAmount, 1200, 'Total amount must match')
+
+  const alice = result.residentShares.find((s) => s.residentId === 'res-alice')
+  const bob = result.residentShares.find((s) => s.residentId === 'res-bob')
+
+  assert.ok(alice, 'Alice share must be computed')
+  assert.ok(bob, 'Bob share must be computed')
+
+  assert.strictEqual(alice.occupiedDays, 30, 'Alice must have 30 occupied days')
+  assert.strictEqual(bob.occupiedDays, 15, 'Bob must have 15 occupied days')
+
+  // Mathematical law: Bob joined on day 16. Bob pays ₹0 for days 1-15!
+  // Days 1-15: ₹40/day * 15 days = ₹600 (Alice pays 100% = ₹600, Bob pays ₹0)
+  // Days 16-30: ₹40/day * 15 days = ₹600 (Split 50/50: Alice ₹300, Bob ₹300)
+  // Total Alice: ₹900 (75%). Total Bob: ₹300 (25%).
+  assert.strictEqual(alice.amountDue, 900, 'Alice share must be exactly ₹900')
+  assert.strictEqual(bob.amountDue, 300, 'Bob share must be exactly ₹300')
+  assert.strictEqual(alice.amountDue + bob.amountDue, 1200, 'Sum of shares must perfectly equal total bill ₹1200')
+  assert.ok(bob.calculationExplanation.includes('not charged for days prior'), 'Explanation must clarify zero charges before move-in')
+
+  // Scenario 2: Individual move-in meter readings
+  const meterResult = calculateMidCycleElectricitySplit({
+    periodStart: '2026-09-01',
+    periodEnd: '2026-09-30',
+    ratePerUnit: 10,
+    useMeterReadings: true,
+    residents: [
+      { id: 'res-1', name: 'Dave', joiningDate: '2026-09-01', moveInReading: 100, closingReading: 180 },
+      { id: 'res-2', name: 'Elena', joiningDate: '2026-09-15', moveInReading: 0, closingReading: 40 },
+    ],
+  })
+
+  assert.strictEqual(meterResult.calculationMethod, 'meter_readings', 'Method must be meter_readings')
+  const dave = meterResult.residentShares.find((s) => s.residentId === 'res-1')
+  const elena = meterResult.residentShares.find((s) => s.residentId === 'res-2')
+  assert.strictEqual(dave.unitsConsumed, 80, 'Dave units must be 80')
+  assert.strictEqual(elena.unitsConsumed, 40, 'Elena units must be 40')
+  assert.strictEqual(dave.amountDue, 800, 'Dave amount must be 800')
+  assert.strictEqual(elena.amountDue, 400, 'Elena amount must be 400')
+})
+
 
 
