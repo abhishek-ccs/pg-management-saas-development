@@ -3,33 +3,45 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Check, ShieldCheck, Sparkles, HelpCircle, AlertCircle } from 'lucide-react'
+import { Check, ShieldCheck, Sparkles, HelpCircle, AlertCircle, X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { resolveAuthoritativeSubscription } from '@/lib/subscription'
 import { useI18n } from '@/lib/i18n'
-import {
-  PRICING_CONFIG,
-  ANNUAL_SAVINGS_AMOUNT,
-  ANNUAL_SAVINGS_PERCENT,
-  YEARLY_MONTHLY_EQUIVALENT,
-  formatINR,
-  getSavingsLabel,
-} from '@/lib/pricing'
+import { PRICING_PLANS, PricingPlan, formatINR } from '@/lib/pricing'
 
 export function PricingContent() {
   const router = useRouter()
   const [hasSession, setHasSession] = useState<boolean | null>(null)
   const [isSubscribed, setIsSubscribed] = useState(false)
-  const [billingCycle, setBillingCycle] = useState<'yearly' | 'monthly'>('yearly')
+  // Requirement 2: Default selection: Monthly
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly')
+  const [confirmingPlan, setConfirmingPlan] = useState<{
+    plan: PricingPlan
+    cycle: 'monthly' | 'yearly'
+  } | null>(null)
   const [loadingPlan, setLoadingPlan] = useState<'monthly' | 'yearly' | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const { t, locale } = useI18n()
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const requestedPlan = new URLSearchParams(window.location.search).get('plan')
-      if (requestedPlan === 'monthly' || requestedPlan === 'yearly') {
-        setBillingCycle(requestedPlan)
+      const params = new URLSearchParams(window.location.search)
+      const requestedInterval = params.get('interval') || params.get('billing')
+      const targetCycle: 'monthly' | 'yearly' = requestedInterval === 'yearly' ? 'yearly' : 'monthly'
+      if (requestedInterval === 'monthly' || requestedInterval === 'yearly') {
+        setBillingCycle(targetCycle)
+      }
+
+      const requestedPlanId = params.get('plan')
+      const autoCheckout = params.get('checkout') === '1'
+      if (requestedPlanId && autoCheckout) {
+        const found = PRICING_PLANS.find((p) => p.id === requestedPlanId)
+        if (found && found.id !== 'enterprise') {
+          setConfirmingPlan({
+            plan: found,
+            cycle: targetCycle,
+          })
+        }
       }
     }
 
@@ -73,13 +85,16 @@ export function PricingContent() {
     })
   }, [])
 
-  async function handleSubscribe(planType: 'monthly' | 'yearly') {
-    setErrorMessage('')
+  function handleSelectPlan(plan: PricingPlan) {
+    if (plan.id === 'enterprise') {
+      router.push('/contact?plan=enterprise')
+      return
+    }
 
-    // 1. If not authenticated, route through login flow preserving return URL
+    // 1. If not authenticated, route through signup preserving intended plan & interval
     if (!hasSession) {
-      const destination = `/pricing?plan=${planType}`
-      router.push(`/login?next=${encodeURIComponent(destination)}`)
+      const destination = `/pricing?plan=${plan.id}&interval=${billingCycle}&checkout=1`
+      router.push(`/signup?plan=${plan.id}&interval=${billingCycle}&next=${encodeURIComponent(destination)}`)
       return
     }
 
@@ -89,14 +104,30 @@ export function PricingContent() {
       return
     }
 
-    setLoadingPlan(planType)
+    // 3. Before payment, open confirmation modal showing selected plan, total amount, and billing period
+    setErrorMessage('')
+    setConfirmingPlan({
+      plan,
+      cycle: billingCycle,
+    })
+  }
+
+  async function handleProceedToPayment(plan: PricingPlan, cycle: 'monthly' | 'yearly') {
+    setErrorMessage('')
+    setLoadingPlan(cycle)
 
     try {
-      // 3. Create server-side subscription on Razorpay
+      const amount = cycle === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice
+
+      // Create server-side subscription on Razorpay
       const res = await fetch('/api/razorpay/create-subscription', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planType }),
+        body: JSON.stringify({
+          planType: cycle,
+          plan: plan.id,
+          amount,
+        }),
       })
 
       const data = await res.json()
@@ -105,28 +136,28 @@ export function PricingContent() {
         throw new Error(data.error || 'Failed to initialize subscription with Razorpay.')
       }
 
-      // 4. Load Razorpay Checkout SDK
+      // Load Razorpay Checkout SDK
       const scriptReady = await loadRazorpayScript()
       if (!scriptReady) {
         throw new Error('Unable to load payment gateway checkout. Please check internet connection.')
       }
 
-      // 5. Open Razorpay Checkout modal
+      // Close pre-checkout confirmation modal before opening checkout popup
+      setConfirmingPlan(null)
+
+      // Open Razorpay Checkout modal
       const options = {
         key: data.keyId,
         subscription_id: data.subscriptionId,
         name: 'BaseraBook',
-        description:
-          data.isTrial
-            ? (planType === 'yearly' ? 'Yearly Subscription — 7-Day Free Trial' : 'Monthly Subscription — 7-Day Free Trial')
-            : (planType === 'yearly' ? 'Yearly Subscription' : 'Monthly Subscription'),
+        description: `${plan.name} (${cycle === 'yearly' ? 'Yearly' : 'Monthly'}) — ${formatINR(amount || 0)}`,
         image: '/favicon.ico',
         prefill: {
           name: data.user?.name || '',
           email: data.user?.email || '',
         },
         theme: {
-          color: '#9a7651',
+          color: '#8b5a2b',
         },
         handler: async (response: {
           razorpay_payment_id: string
@@ -141,7 +172,8 @@ export function PricingContent() {
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_subscription_id: response.razorpay_subscription_id,
                 razorpay_signature: response.razorpay_signature,
-                planType,
+                planType: cycle,
+                plan: plan.id,
               }),
             })
 
@@ -183,58 +215,53 @@ export function PricingContent() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-8 sm:py-16">
-      {/* Header & Toggle */}
+    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 sm:py-16">
+      {/* 1. Header & Subtitle */}
       <div className="mx-auto max-w-3xl text-center">
-        <p className="inline-flex items-center gap-2 rounded-full border border-[#e8d9c7] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#9a7651] shadow-2xs">
+        <p className="inline-flex items-center gap-2 rounded-full border border-[#e8d9c7] bg-white px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
           <Sparkles className="size-3.5" />
           {locale === 'hi' ? 'पारदर्शी रेंटल प्रॉपर्टी सॉफ्टवेयर मूल्य निर्धारण' : 'Transparent Rental Property Software Pricing'}
         </p>
 
-        <h1 className="mt-4 text-2xl xs:text-3xl sm:text-5xl font-semibold tracking-[-0.04em] text-[#403a34]">
-          {locale === 'hi' ? 'सरल, अनुमानित मूल्य निर्धारण।' : 'Simple, predictable plans.'}{' '}
-          <span className="font-serif italic font-normal text-[#9a7651]">
-            {locale === 'hi' ? 'बिना किसी छिपे शुल्क के।' : 'No hidden fees.'}
-          </span>
+        <h1 className="mt-4 text-3xl sm:text-5xl font-semibold tracking-[-0.04em] text-[#2c221e]">
+          {locale === 'hi' ? 'सरल, पारदर्शी प्लान।' : 'Simple, transparent plans for every property scale.'}
         </h1>
 
-        <p className="mt-4 text-xs sm:text-base text-[#776d62] max-w-2xl mx-auto leading-relaxed">
+        <p className="mt-3.5 text-sm sm:text-base text-[#776d62] max-w-2xl mx-auto leading-relaxed">
           {locale === 'hi'
-            ? 'प्रत्येक नया खाता 7 दिनों के निःशुल्क पूर्ण उपयोग के साथ शुरू होता है। कोई क्रेडिट कार्ड आवश्यक नहीं। अपनी सुविधानुसार मासिक या वार्षिक प्लान चुनें।'
-            : 'Every new account starts with a 7-day full access free trial. No credit card required upfront. Switch between flexible monthly and high-savings annual billing anytime.'}
+            ? 'अपनी प्रॉपर्टी के अनुसार प्लान चुनें। हर प्लान में संपूर्ण कमरा प्रबंधन, किरायेदार रिकॉर्ड और बहीखाता ट्रैकिंग शामिल है।'
+            : 'Choose the plan that fits your portfolio. All plans include automated rent collection, tenant records, and full ledger tracking with zero hidden fees.'}
         </p>
 
-        {/* Responsive Toggle */}
-        <div className="mt-7 inline-flex max-w-full items-center rounded-2xl border border-[#e8dfd4] bg-white p-1 sm:p-1.5 shadow-xs">
-          <button
-            type="button"
-            onClick={() => setBillingCycle('yearly')}
-            className={`flex items-center gap-1.5 sm:gap-2 rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-semibold transition-all ${
-              billingCycle === 'yearly'
-                ? 'bg-[#9a7651] text-white shadow-xs'
-                : 'text-[#676b7d] hover:text-[#2c2926]'
-            }`}
-          >
-            <span>{t.landing.yearlyBilling}</span>
-            <span
-              className={`rounded-full px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-bold ${
-                billingCycle === 'yearly' ? 'bg-[#f4ede3] text-[#866342]' : 'bg-[#eaf5ea] text-[#2e7d32]'
+        {/* 2. Monthly / Yearly Billing Toggle */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div className="inline-flex items-center rounded-2xl border border-[#e8dfd4] bg-white p-1 shadow-xs">
+            <button
+              type="button"
+              onClick={() => setBillingCycle('monthly')}
+              className={`rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
+                billingCycle === 'monthly'
+                  ? 'bg-[#8b5a2b] text-white shadow-xs'
+                  : 'text-[#676b7d] hover:text-[#2c221e]'
               }`}
             >
-              {getSavingsLabel(locale)}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setBillingCycle('monthly')}
-            className={`rounded-xl px-2.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-semibold transition-all ${
-              billingCycle === 'monthly'
-                ? 'bg-[#9a7651] text-white shadow-xs'
-                : 'text-[#676b7d] hover:text-[#2c2926]'
-            }`}
-          >
-            {t.landing.monthlyBilling}
-          </button>
+              {t.landing.monthlyBilling}
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingCycle('yearly')}
+              className={`rounded-xl px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
+                billingCycle === 'yearly'
+                  ? 'bg-[#8b5a2b] text-white shadow-xs'
+                  : 'text-[#676b7d] hover:text-[#2c221e]'
+              }`}
+            >
+              {t.landing.yearlyBilling}
+            </button>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#d2e7d6] bg-[#f0f9f2] px-3 py-1 text-xs font-semibold text-[#1e7e34]">
+            Save with yearly billing
+          </span>
         </div>
       </div>
 
@@ -246,221 +273,276 @@ export function PricingContent() {
         </div>
       )}
 
-      {/* Plan Cards */}
-      <div className="mt-12 grid gap-6 md:grid-cols-3 items-stretch">
-        {/* 1. Free Trial */}
-        <div className="flex flex-col justify-between rounded-3xl border border-[#e8dfd4] bg-white p-7 shadow-sm">
-          <div>
-            <span className="rounded-full bg-[#f4ede3] px-3 py-1 text-xs font-semibold text-[#9a7651]">
-              {t.pricing.trialHeader}
-            </span>
-            <div className="mt-5 flex items-baseline gap-1">
-              <span className="text-4xl font-bold">₹0</span>
-              <span className="text-xs text-[#85899a]">{t.landing.sevenDays}</span>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-[#776d62]">
-              {locale === 'hi'
-                ? 'BaseraBook के सभी टूल्स का 7 दिन तक पूर्ण उपयोग करके देखें।'
-                : 'Full access to all BaseraBook tools to configure your properties and test operations.'}
-            </p>
-            <ul className="mt-6 flex flex-col gap-2.5 text-xs text-[#555a6c]">
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'संपूर्ण प्रॉपर्टी, कमरे व बिस्तर सेटअप' : 'Complete property, rooms & beds setup'}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'किरायेदार रिकॉर्ड एवं कमरा आवंटन' : 'Tenant records and room allocation'}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'किराया संग्रह एवं बहीखाता प्रविष्टियां' : 'Rent collection & payment recording'}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'बिजली मीटर रीडिंग व खर्च ट्रैकिंग' : 'Expenses, electricity & complaints tracking'}
-              </li>
-            </ul>
-          </div>
-          <Link
-            href={hasSession ? '/dashboard' : '/signup'}
-            className="mt-8 block rounded-xl border border-[#d9c4aa] bg-[#fbf8f3] py-2.5 text-center text-xs font-semibold text-[#866342] hover:bg-[#f3eadf] transition-colors"
-          >
-            {hasSession ? t.landing.goToDashboard : t.landing.startFreeTrial}
-          </Link>
-        </div>
+      {/* 3. Four Balanced Pricing Cards */}
+      <div className="mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
+        {PRICING_PLANS.map((plan) => {
+          const isYearly = billingCycle === 'yearly'
+          const price = isYearly ? plan.yearlyPrice : plan.monthlyPrice
+          const formattedPrice = price !== null ? formatINR(price) : 'Custom pricing'
+          const periodLabel = isYearly ? '/year' : '/month'
 
-        {/* 2. Monthly Plan */}
-        <div
-          className={`flex flex-col justify-between rounded-3xl p-7 transition-all ${
-            billingCycle === 'monthly'
-              ? 'relative border-2 border-[#9a7651] bg-[#fbf8f3] shadow-lg ring-2 ring-[#9a7651]/20'
-              : 'border border-[#e8dfd4] bg-white shadow-sm'
-          }`}
-        >
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="rounded-full bg-[#f3eadf] px-3 py-1 text-xs font-semibold text-[#9a7651]">
-                {locale === 'hi' ? 'मासिक' : 'Monthly'}
-              </span>
-              {billingCycle === 'monthly' && (
-                <span className="rounded-full bg-[#9a7651] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
-                  {locale === 'hi' ? 'सक्रिय चयन' : 'Active Choice'}
-                </span>
-              )}
-            </div>
-            <div className="mt-5 flex items-baseline gap-1">
-              <span className="text-4xl font-bold">{formatINR(PRICING_CONFIG.monthlyRate)}</span>
-              <span className="text-xs text-[#85899a]">{t.landing.perMonth}</span>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-[#776d62]">
-              {locale === 'hi'
-                ? 'बिना किसी दीर्घकालिक अनुबंध के लचीला मासिक प्लान। कभी भी रद्द करें।'
-                : 'Flexible month-to-month plan with no long-term commitment. Cancel anytime.'}
-            </p>
-            <ul className="mt-6 flex flex-col gap-2.5 text-xs text-[#555a6c]">
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'सभी कोर कार्यक्षेत्र फीचर्स शामिल' : 'All core workspace features included'}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'असीमित कमरे, बिस्तर और किरायेदार' : 'Unlimited tenants & room capacity'}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'व्हाट्सएप रसीदें और संपूर्ण बहीखाता' : 'Payment receipts & financial ledger'}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'सॉफ्ट-डिलीट और डेटा पुनर्स्थापना सुरक्षा' : 'Soft-delete and undo protection'}
-              </li>
-            </ul>
-          </div>
-          <button
-            type="button"
-            onClick={() => handleSubscribe('monthly')}
-            disabled={loadingPlan !== null}
-            className="mt-8 block w-full rounded-xl bg-[#9a7651] py-2.5 text-center text-xs font-semibold text-white shadow-sm hover:bg-[#866342] transition-colors disabled:opacity-60 cursor-pointer"
-          >
-            {loadingPlan === 'monthly'
-              ? (locale === 'hi' ? 'प्रतीक्षा करें...' : 'Processing...')
-              : isSubscribed
-              ? t.landing.goToDashboard
-              : t.landing.startFreeTrial}
-          </button>
-        </div>
+          return (
+            <div
+              key={plan.id}
+              className={`flex flex-col justify-between rounded-3xl p-6 sm:p-7 transition-all ${
+                plan.popular
+                  ? 'border-2 border-[#8b5a2b] bg-[#fffdfa] shadow-md relative ring-1 ring-[#8b5a2b]/20'
+                  : 'border border-[#e8dfd4] bg-white shadow-2xs hover:border-[#d9cbbe]'
+              }`}
+            >
+              <div>
+                {/* Popular Badge */}
+                {plan.popular && (
+                  <span className="absolute -top-3 right-6 rounded-full bg-[#8b5a2b] px-3.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-xs">
+                    Most Popular
+                  </span>
+                )}
 
-        {/* 3. Yearly Plan */}
-        <div
-          className={`flex flex-col justify-between rounded-3xl p-7 transition-all ${
-            billingCycle === 'yearly'
-              ? 'relative border-2 border-[#9a7651] bg-[#fbf8f3] shadow-xl ring-2 ring-[#9a7651]/20 scale-[1.02]'
-              : 'border border-[#e8dfd4] bg-white shadow-sm'
-          }`}
-        >
-          {billingCycle === 'yearly' && (
-            <span className="absolute -top-3 right-6 rounded-full bg-[#9a7651] px-3.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-xs">
-              {locale === 'hi' ? 'सर्वश्रेष्ठ मूल्य' : 'Best Value · Highly Recommended'}
-            </span>
-          )}
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="rounded-full bg-[#f4ede3] px-3 py-1 text-xs font-semibold text-[#9a7651]">
-                {locale === 'hi' ? 'वार्षिक (अनुशंसित)' : 'Yearly (Recommended)'}
-              </span>
-              <span className="rounded-full bg-[#eaf5ea] px-2 py-0.5 text-[10px] font-bold text-[#2e7d32]">
-                {getSavingsLabel(locale)}
-              </span>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-[#2c221e]">{plan.name}</h3>
+                </div>
+
+                <p className="mt-1 text-xs font-semibold text-[#8b5a2b]">
+                  {locale === 'hi' ? plan.propertyLimitHi : plan.propertyLimit}
+                </p>
+
+                {/* Price Display: Only selected billing price is shown */}
+                <div className="mt-5 mb-2">
+                  {price !== null ? (
+                    <div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-[#2c221e]">
+                          {formattedPrice}
+                        </span>
+                        <span className="text-xs text-[#776d62] font-medium">{periodLabel}</span>
+                      </div>
+                      {isYearly && plan.annualSavings ? (
+                        <div className="mt-2">
+                          <span className="inline-block rounded-md bg-[#eaf5ea] px-2 py-0.5 text-[11px] font-bold text-[#2e7d32]">
+                            Save {formatINR(plan.annualSavings)}/year
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="mt-2 h-5" aria-hidden="true" />
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2c221e]">
+                          Custom pricing
+                        </span>
+                      </div>
+                      <div className="mt-2">
+                        <span className="inline-block text-[11px] font-medium text-[#776d62]">
+                          Tailored portfolio quote
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <p className="mt-3 text-xs leading-5 text-[#676b7d]">
+                  {locale === 'hi' ? plan.descriptionHi : plan.descriptionEn}
+                </p>
+
+                {/* Features list */}
+                <div className="mt-6 pt-5 border-t border-[#f0e8dd]">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-[#9c8e80]">
+                    Included Features
+                  </p>
+                  <ul className="mt-3 flex flex-col gap-2.5 text-xs text-[#555a6c]">
+                    {(locale === 'hi' ? plan.featuresHi : plan.featuresEn).map((feat, idx) => (
+                      <li key={idx} className="flex items-start gap-2">
+                        <Check className="size-4 shrink-0 text-[#8b5a2b] mt-0.5" />
+                        <span className="leading-5">{feat}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <div className="mt-8 pt-4">
+                {plan.id === 'enterprise' ? (
+                  <Link
+                    href="/contact?plan=enterprise"
+                    className="block w-full rounded-xl border border-[#8b5a2b] bg-white py-2.5 text-center text-xs font-semibold text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                  >
+                    Contact Us
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPlan(plan)}
+                    disabled={loadingPlan !== null}
+                    className={`block w-full rounded-xl py-2.5 text-center text-xs font-semibold transition-colors cursor-pointer ${
+                      plan.popular
+                        ? 'bg-[#8b5a2b] text-white shadow-xs hover:bg-[#784b20]'
+                        : 'border border-[#d9c4aa] bg-[#faf7f2] text-[#784b20] hover:bg-[#ebdccb]'
+                    }`}
+                  >
+                    {isSubscribed
+                      ? (locale === 'hi' ? 'डैशबोर्ड पर जाएं' : 'Go to Dashboard')
+                      : billingCycle === 'monthly'
+                      ? 'Choose Monthly Plan'
+                      : 'Choose Yearly Plan'}
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="mt-5 flex items-baseline gap-1.5">
-              <span className="text-4xl font-bold">{formatINR(PRICING_CONFIG.yearlyRate)}</span>
-              <span className="text-xs text-[#85899a]">{t.landing.perYear}</span>
-            </div>
-            <p className="mt-1 text-[11px] font-semibold text-[#9a7651]">
-              {locale === 'hi'
-                ? `मात्र ${formatINR(YEARLY_MONTHLY_EQUIVALENT)}/माह के बराबर (सीधी ₹${ANNUAL_SAVINGS_AMOUNT.toLocaleString('en-IN')} की बचत)`
-                : `Equivalent to ${formatINR(YEARLY_MONTHLY_EQUIVALENT)}/mo (Save ${formatINR(ANNUAL_SAVINGS_AMOUNT)}/yr)`}
-            </p>
-            <p className="mt-3 text-xs leading-5 text-[#776d62]">
-              {locale === 'hi'
-                ? 'गंभीर पीजी स्वामियों के लिए वार्षिक प्लान। बिना किसी मासिक बाधा के अधिकतम बचत।'
-                : 'Annual plan designed for established properties looking for long-term predictability with maximum savings.'}
-            </p>
-            <ul className="mt-6 flex flex-col gap-2.5 text-xs text-[#555a6c]">
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'मासिक प्लान की सभी सुविधाएं सम्मिलित' : 'Everything in Monthly included'}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi'
-                  ? `${ANNUAL_SAVINGS_PERCENT}% की सीधी छूट (${formatINR(ANNUAL_SAVINGS_AMOUNT)}/वर्ष बचत)`
-                  : `Direct ${ANNUAL_SAVINGS_PERCENT}% discount (${formatINR(ANNUAL_SAVINGS_AMOUNT)}/yr savings)`}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'वार्षिक बहीखाता और कर रिपोर्ट निर्यात' : 'Annual financial export & tax-ready ledger'}
-              </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 shrink-0 text-[#9a7651]" />
-                {locale === 'hi' ? 'प्राथमिकता ग्राहक ईमेल सहायता' : 'Priority email & onboarding support'}
-              </li>
-            </ul>
-          </div>
-          <button
-            type="button"
-            onClick={() => handleSubscribe('yearly')}
-            disabled={loadingPlan !== null}
-            className="mt-8 block w-full rounded-xl bg-[#9a7651] py-2.5 text-center text-xs font-semibold text-white shadow-sm hover:bg-[#866342] transition-colors disabled:opacity-60 cursor-pointer"
-          >
-            {loadingPlan === 'yearly'
-              ? (locale === 'hi' ? 'प्रतीक्षा करें...' : 'Processing...')
-              : isSubscribed
-              ? t.landing.goToDashboard
-              : t.landing.startFreeTrial}
-          </button>
-        </div>
+          )
+        })}
       </div>
 
-      {/* Feature Guarantee & Trust Elements (Honest, No Fake Claims) */}
+      {/* 4. Small Trust & Benefits Row */}
       <div className="mt-14 rounded-2xl border border-[#eee4d7] bg-white p-6 sm:p-8">
         <div className="grid gap-6 sm:grid-cols-3">
           <div className="flex items-start gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f4ede3] text-[#9a7651]">
-              <ShieldCheck className="size-5" />
-            </span>
-            <div>
-              <h2 className="text-sm font-semibold text-[#2c2926]">Zero Lock-in Guarantee</h2>
-              <p className="mt-1 text-xs text-[#776d62] leading-5">
-                Export your tenant data and ledger records at any time in standard JSON or CSV formats.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f4ede3] text-[#9a7651]">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f4ede3] text-[#8b5a2b]">
               <Sparkles className="size-5" />
             </span>
             <div>
-              <h2 className="text-sm font-semibold text-[#2c2926]">Instant 1-Minute Activation</h2>
+              <h4 className="text-sm font-semibold text-[#2c221e]">7-Day Full Access Trial</h4>
               <p className="mt-1 text-xs text-[#776d62] leading-5">
-                Sign up and immediately configure your building, rooms, and first resident without waiting.
+                Start immediately with full feature access and live database isolation. Zero credit card needed upfront.
               </p>
             </div>
           </div>
           <div className="flex items-start gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f4ede3] text-[#9a7651]">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f4ede3] text-[#8b5a2b]">
+              <ShieldCheck className="size-5" />
+            </span>
+            <div>
+              <h4 className="text-sm font-semibold text-[#2c221e]">Flexible Cancellation</h4>
+              <p className="mt-1 text-xs text-[#776d62] leading-5">
+                Switch between monthly and yearly billing anytime. Cancel auto-renewal with one click inside settings.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#f4ede3] text-[#8b5a2b]">
               <HelpCircle className="size-5" />
             </span>
             <div>
-              <h2 className="text-sm font-semibold text-[#2c2926]">Responsive Support</h2>
+              <h4 className="text-sm font-semibold text-[#2c221e]">Zero Lock-in Data Export</h4>
               <p className="mt-1 text-xs text-[#776d62] leading-5">
-                Questions or issues? Reach out directly via email to our dedicated product support team.
+                Export complete tenant rolls, room ledgers, and payment history in CSV and JSON formats anytime.
               </p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* 5. Compact Closing CTA */}
+      <div className="mt-8 rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-5 sm:p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div>
+          <h4 className="text-sm font-bold text-[#2c221e]">Need multi-building setup or assisted migration?</h4>
+          <p className="mt-0.5 text-xs text-[#776d62]">
+            Our onboarding team can migrate your tenant spreadsheets and configure your buildings in 24 hours.
+          </p>
+        </div>
+        <Link
+          href="/contact?subject=migration_assistance"
+          className="shrink-0 rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white shadow-2xs hover:bg-[#784b20] transition-colors"
+        >
+          Talk to Onboarding Team
+        </Link>
+      </div>
+
+      {/* Pre-Payment Confirmation Modal (Satisfies: "Before payment, clearly show the selected plan, total amount, and billing period") */}
+      {confirmingPlan && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+        >
+          <div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-6 sm:p-7 shadow-2xl animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-4 border-b border-[#f0e8dc]">
+              <div>
+                <h2 className="text-base font-bold text-[#2c221e]">Confirm Subscription Plan</h2>
+                <p className="text-xs text-[#776d62] mt-0.5">Review before payment gateway checkout</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmingPlan(null)}
+                className="rounded-full p-1 text-[#8b8277] hover:bg-[#faf7f2] hover:text-[#2c221e] transition-colors cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-[#e8dfd4] bg-[#fbf8f3] p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-base font-bold text-[#2c221e]">{confirmingPlan.plan.name} Plan</span>
+                  <p className="text-xs font-medium text-[#8b5a2b]">{confirmingPlan.plan.propertyLimit}</p>
+                </div>
+                <span className="rounded-full bg-[#f4ede3] px-2.5 py-1 text-[11px] font-semibold text-[#8b5a2b] capitalize">
+                  {confirmingPlan.cycle} Billing
+                </span>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-[#e8dfd4] flex items-baseline justify-between">
+                <span className="text-xs text-[#776d62]">Total Amount:</span>
+                <div className="text-right">
+                  <span className="text-2xl font-bold text-[#2c221e]">
+                    {formatINR(
+                      confirmingPlan.cycle === 'yearly'
+                        ? confirmingPlan.plan.yearlyPrice!
+                        : confirmingPlan.plan.monthlyPrice!
+                    )}
+                  </span>
+                  <span className="text-xs text-[#776d62]">
+                    {confirmingPlan.cycle === 'yearly' ? ' / year' : ' / month'}
+                  </span>
+                </div>
+              </div>
+
+              {confirmingPlan.cycle === 'yearly' && confirmingPlan.plan.annualSavings && (
+                <p className="mt-2 text-right text-xs font-semibold text-[#2e7d32]">
+                  🎉 You save {formatINR(confirmingPlan.plan.annualSavings)} with annual billing
+                </p>
+              )}
+            </div>
+
+            <div className="mt-4 rounded-xl bg-[#f0f9f2] p-3 text-xs text-[#1e7e34] border border-[#d2e7d6] flex items-start gap-2">
+              <ShieldCheck className="size-4 shrink-0 mt-0.5 text-[#1e7e34]" />
+              <p>
+                <strong>7-Day Free Trial included.</strong> Eligible accounts will not be charged until the 7-day trial concludes. Cancel anytime with 1 click.
+              </p>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-2.5">
+              <button
+                type="button"
+                onClick={() => handleProceedToPayment(confirmingPlan.plan, confirmingPlan.cycle)}
+                disabled={loadingPlan !== null}
+                className="w-full rounded-xl bg-[#8b5a2b] py-3 text-center text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2"
+              >
+                {loadingPlan !== null ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    <span>Connecting to Payment Gateway...</span>
+                  </>
+                ) : (
+                  <span>Proceed to Secure Payment</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setConfirmingPlan(null)}
+                disabled={loadingPlan !== null}
+                className="w-full rounded-xl border border-[#e8dfd4] bg-white py-2.5 text-center text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] transition-colors cursor-pointer"
+              >
+                Change Plan / Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -104,3 +104,131 @@ export const PLANS: { trial: PlanTier; monthly: PlanTier; yearly: PlanTier } = {
     ],
   },
 }
+
+export interface PricingPlan {
+  id: 'starter' | 'growth' | 'business' | 'enterprise'
+  name: string
+  nameHi: string
+  propertyLimit: string
+  propertyLimitHi: string
+  monthlyPrice: number | null
+  yearlyPrice: number | null
+  annualSavings: number | null
+  popular?: boolean
+  descriptionEn: string
+  descriptionHi: string
+  featuresEn: string[]
+  featuresHi: string[]
+}
+
+export const PRICING_PLANS: PricingPlan[] = [
+  {
+    id: 'starter',
+    name: 'Starter',
+    nameHi: 'स्टार्टर',
+    propertyLimit: '1–2 properties',
+    propertyLimitHi: '1–2 प्रॉपर्टी',
+    monthlyPrice: 1099,
+    yearlyPrice: 9999,
+    annualSavings: 3189,
+    descriptionEn: 'Essential property management for independent PGs, flats, and rental units.',
+    descriptionHi: 'स्वतंत्र पीजी और रेंटल संपत्तियों के प्रबंधन के लिए आवश्यक उपकरण।',
+    featuresEn: [
+      'Manage 1–2 properties',
+      'Unlimited rooms, beds & tenants',
+      'Automated rent due dates & tracking',
+      'WhatsApp & SMS payment receipts',
+      'Standard email support',
+    ],
+    featuresHi: [
+      '1–2 प्रॉपर्टी तक प्रबंधन',
+      'असीमित कमरे, बिस्तर और किरायेदार',
+      'स्वचालित किराया देय तिथि और ट्रैकिंग',
+      'व्हाट्सएप और एसएमएस भुगतान रसीदें',
+      'मानक ईमेल सहायता',
+    ],
+  },
+  {
+    id: 'growth',
+    name: 'Growth',
+    nameHi: 'ग्रोथ',
+    propertyLimit: '3–5 properties',
+    propertyLimitHi: '3–5 प्रॉपर्टी',
+    monthlyPrice: 1799,
+    yearlyPrice: 17990,
+    annualSavings: 3598,
+    popular: true,
+    descriptionEn: 'Complete operations suite for expanding PG & hostel operators.',
+    descriptionHi: 'विस्तारित पीजी और हॉस्टल संचालकों के लिए संपूर्ण संचालन समाधान।',
+    featuresEn: [
+      'Manage 3–5 properties',
+      'Everything in Starter included',
+      'Multi-property isolation & switcher',
+      'Mid-cycle electricity bill calculator',
+      'Soft-delete with 30-day trash restore',
+      'Priority email & onboarding support',
+    ],
+    featuresHi: [
+      '3–5 प्रॉपर्टी तक प्रबंधन',
+      'स्टार्टर की सभी सुविधाएं शामिल',
+      'मल्टी-प्रॉपर्टी आइसोलेशन व स्विचर',
+      'मिड-साइकिल बिजली बिल कैलकुलेटर',
+      '30-दिन ट्रैश डेटा पुनर्स्थापना',
+      'प्राथमिकता ईमेल एवं ऑनबोर्डिंग सहायता',
+    ],
+  },
+  {
+    id: 'business',
+    name: 'Business',
+    nameHi: 'बिजनेस',
+    propertyLimit: '6–9 properties',
+    propertyLimitHi: '6–9 प्रॉपर्टी',
+    monthlyPrice: 2799,
+    yearlyPrice: 27990,
+    annualSavings: 5598,
+    descriptionEn: 'High-volume scale and financial control for multi-building operations.',
+    descriptionHi: 'मल्टी-बिल्डिंग संचालन के लिए उच्च-स्तरीय वित्तीय नियंत्रण।',
+    featuresEn: [
+      'Manage 6–9 properties',
+      'Everything in Growth included',
+      'Tax-ready financial exports (CSV/JSON)',
+      'Tenant self-service portal & links',
+      'Staff admin security & controls',
+      'Dedicated account assistance',
+    ],
+    featuresHi: [
+      '6–9 प्रॉपर्टी तक प्रबंधन',
+      'ग्रोथ की सभी सुविधाएं शामिल',
+      'कर-अनुकूल वित्तीय निर्यात (CSV/JSON)',
+      'किरायेदार स्वयं-सेवा पोर्टल और लिंक',
+      'स्टाफ एडमिन सुरक्षा नियंत्रण',
+      'समर्पित खाता सहायता',
+    ],
+  },
+  {
+    id: 'enterprise',
+    name: 'Enterprise',
+    nameHi: 'एंटरप्राइज',
+    propertyLimit: '9+ properties',
+    propertyLimitHi: '9+ प्रॉपर्टी',
+    monthlyPrice: null,
+    yearlyPrice: null,
+    annualSavings: null,
+    descriptionEn: 'Tailored architecture, custom integrations, and SLA for large portfolios.',
+    descriptionHi: 'बड़े पोर्टफोलियो के लिए अनुकूलित वास्तुकला और एसएलए।',
+    featuresEn: [
+      '9+ properties & custom capacity',
+      'Everything in Business included',
+      'Custom spreadsheet data migration',
+      'Tailored integrations & workflows',
+      'Dedicated account manager & SLA',
+    ],
+    featuresHi: [
+      '9+ प्रॉपर्टी एवं असीमित क्षमता',
+      'बिजनेस की सभी सुविधाएं शामिल',
+      'स्प्रेडशीट से डेटा माइग्रेशन',
+      'अनुकूलित एकीकरण और वर्कफ़्लो',
+      'समर्पित खाता प्रबंधक और एसएलए',
+    ],
+  },
+]

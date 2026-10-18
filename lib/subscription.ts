@@ -38,12 +38,14 @@ export interface AuthoritativeSubscriptionState {
 export const DEFAULT_PROPERTY_LIMIT = 2
 
 export const PLAN_PROPERTY_LIMITS: Record<string, number> = {
-  trial: DEFAULT_PROPERTY_LIMIT,
-  monthly: DEFAULT_PROPERTY_LIMIT,
-  yearly: DEFAULT_PROPERTY_LIMIT,
-  starter: DEFAULT_PROPERTY_LIMIT,
-  growth: DEFAULT_PROPERTY_LIMIT,
-  pro: DEFAULT_PROPERTY_LIMIT,
+  trial: 2,
+  monthly: 2,
+  yearly: 5,
+  starter: 2,
+  growth: 5,
+  business: 9,
+  enterprise: 999,
+  pro: 5,
 }
 
 export interface CustomerEntitlement {

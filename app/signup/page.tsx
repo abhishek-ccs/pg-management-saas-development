@@ -19,7 +19,7 @@ import {
   User,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { isValidEmail } from '@/lib/validation'
+import { isValidEmail, getSafeRedirectPath } from '@/lib/validation'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -155,8 +155,11 @@ export default function SignupPage() {
         password,
       })
 
+      const nextParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('next') : null
+      const destination = getSafeRedirectPath(nextParam, '/dashboard')
+
       setTimeout(() => {
-        router.push('/dashboard')
+        router.push(destination)
         router.refresh()
       }, 1000)
     } catch {

@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         user_email: user.email || '',
         plan_type: planType,
+        plan_tier: body.plan || 'growth',
         app: 'BaseraBook',
       },
     }
@@ -100,9 +101,11 @@ export async function POST(req: NextRequest) {
           ? 'trialing'
           : resolvedState.status
 
+      const targetPlan = body.plan || (planType === 'yearly' ? 'growth' : 'growth')
+
       const updateData: Record<string, any> = {
         owner_id: user.id,
-        plan: planType,
+        plan: targetPlan,
         status: pendingStatus,
         razorpay_subscription_id: subscription.id,
         razorpay_plan_id: planId,
@@ -124,8 +127,9 @@ export async function POST(req: NextRequest) {
       subscriptionId: subscription.id,
       keyId,
       planType,
+      plan: body.plan || 'growth',
       isTrial: isTrialEligible,
-      amount: planType === 'yearly' ? 14999 : 1699,
+      amount: body.amount || (planType === 'yearly' ? 17990 : 1799),
       user: {
         id: user.id,
         email: user.email,

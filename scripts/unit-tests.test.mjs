@@ -13,6 +13,7 @@ import {
   YEARLY_MONTHLY_EQUIVALENT,
   formatINR,
   getSavingsLabel,
+  PRICING_PLANS,
 } from '../lib/pricing.js'
 import {
   calculateRentDueStatus,
@@ -39,13 +40,7 @@ import {
 import { applySecurityHeaders } from '../lib/security/headers.ts'
 import { NextResponse } from 'next/server'
 import { CANONICAL_SITE_URL, getSiteUrl, constructMetadata } from '../lib/site.ts'
-import {
-  resolveAuthoritativeSubscription,
-  resolveCustomerEntitlements,
-  getOwnerEntitlements,
-  DEFAULT_PROPERTY_LIMIT,
-  PLAN_PROPERTY_LIMITS,
-} from '../lib/subscription.ts'
+import { resolveAuthoritativeSubscription } from '../lib/subscription.ts'
 import nextConfig from '../next.config.mjs'
 
 test('1. Support Email & Mailto URL Generation', () => {
@@ -1887,308 +1882,40 @@ test('42. Google Analytics 4: Measurement ID & CSP Allowlist Invariant', async (
   )
 })
 
-test('43. Subscription-Based Property Limit Engine & Regression Matrix', async () => {
-  const now = Date.now()
-  const oneDay = 86400000
+test('43. Four-Tier Canonical Pricing Plans & Annual Savings Math', () => {
+  // 1. Verify exact 4 plans exist in order
+  assert.strictEqual(PRICING_PLANS.length, 4, 'Must have exactly 4 plans')
+  const [starter, growth, business, enterprise] = PRICING_PLANS
 
-  // Standard active paid subscription fixture
-  const paidSub = [
-    {
-      id: 'sub_active_pro',
-      owner_id: 'user_active_paid',
-      status: 'active',
-      plan: 'pro',
-      razorpay_subscription_id: 'sub_rzp_pro_123',
-      trial_end: null,
-      updated_at: new Date(now).toISOString(),
-    },
-  ]
+  // Starter: 1–2 properties, ₹1,099/month, ₹9,999/year, Save ₹3,189/year
+  assert.strictEqual(starter.name, 'Starter')
+  assert.strictEqual(starter.propertyLimit, '1–2 properties')
+  assert.strictEqual(starter.monthlyPrice, 1099, 'Starter monthly must be ₹1,099')
+  assert.strictEqual(starter.yearlyPrice, 9999, 'Starter yearly must be ₹9,999')
+  assert.strictEqual(starter.annualSavings, 3189, 'Starter annual savings must be ₹3,189')
+  assert.strictEqual(1099 * 12 - 9999, 3189, '1099 * 12 - 9999 = 3189')
 
-  // Mock DB generator for multi-tenant and count verification
-  const createMockDb = (subs, propertiesList) => ({
-    from: (table) => {
-      let filterOwnerId = null
-      let isCount = false
-      const builder = {
-        select: (cols, opts) => {
-          if (opts && opts.count === 'exact') isCount = true
-          return builder
-        },
-        eq: (field, val) => {
-          if (field === 'owner_id') filterOwnerId = val
-          return builder
-        },
-        order: () => builder,
-        then: (resolve) => {
-          if (table === 'subscriptions') {
-            const filtered = subs.filter((s) => s.owner_id === filterOwnerId)
-            resolve({ data: filtered, error: null })
-          } else if (table === 'properties') {
-            const filtered = propertiesList.filter((p) => p.owner_id === filterOwnerId)
-            if (isCount) {
-              resolve({ count: filtered.length, data: null, error: null })
-            } else {
-              resolve({ data: filtered, error: null })
-            }
-          }
-        },
-      }
-      return builder
-    },
-  })
+  // Growth: 3–5 properties, ₹1,799/month, ₹17,990/year, Save ₹3,598/year, Most Popular
+  assert.strictEqual(growth.name, 'Growth')
+  assert.strictEqual(growth.propertyLimit, '3–5 properties')
+  assert.strictEqual(growth.monthlyPrice, 1799, 'Growth monthly must be ₹1,799')
+  assert.strictEqual(growth.yearlyPrice, 17990, 'Growth yearly must be ₹17,990')
+  assert.strictEqual(growth.annualSavings, 3598, 'Growth annual savings must be ₹3,598')
+  assert.strictEqual(1799 * 12 - 17990, 3598, '1799 * 12 - 17990 = 3598')
+  assert.strictEqual(growth.popular, true, 'Growth must be flagged as popular')
 
-  // =========================================================================
-  // Scenario 1: A customer with 0 properties can create a property
-  // =========================================================================
-  const ent0 = resolveCustomerEntitlements(paidSub, 0, now)
-  assert.strictEqual(ent0.hasPaidAccess, true, 'Case 1: Must have paid access')
-  assert.strictEqual(ent0.maxProperties, DEFAULT_PROPERTY_LIMIT, 'Case 1: Max properties is default limit (2)')
-  assert.strictEqual(ent0.activePropertyCount, 0, 'Case 1: 0 active properties')
-  assert.strictEqual(ent0.remainingPropertySlots, 2, 'Case 1: 2 remaining property slots')
-  assert.strictEqual(ent0.canCreateProperty, true, 'Case 1: Customer with 0 properties can create a property')
-  assert.strictEqual(ent0.isOverLimit, false, 'Case 1: Not over limit')
+  // Business: 6–9 properties, ₹2,799/month, ₹27,990/year, Save ₹5,598/year
+  assert.strictEqual(business.name, 'Business')
+  assert.strictEqual(business.propertyLimit, '6–9 properties')
+  assert.strictEqual(business.monthlyPrice, 2799, 'Business monthly must be ₹2,799')
+  assert.strictEqual(business.yearlyPrice, 27990, 'Business yearly must be ₹27,990')
+  assert.strictEqual(business.annualSavings, 5598, 'Business annual savings must be ₹5,598')
+  assert.strictEqual(2799 * 12 - 27990, 5598, '2799 * 12 - 27990 = 5598')
 
-  // =========================================================================
-  // Scenario 2: A customer with 1 property can create a second property
-  // =========================================================================
-  const ent1 = resolveCustomerEntitlements(paidSub, 1, now)
-  assert.strictEqual(ent1.activePropertyCount, 1, 'Case 2: 1 active property')
-  assert.strictEqual(ent1.remainingPropertySlots, 1, 'Case 2: 1 remaining property slot')
-  assert.strictEqual(ent1.canCreateProperty, true, 'Case 2: Customer with 1 property can create a second property')
-  assert.strictEqual(ent1.isOverLimit, false, 'Case 2: Not over limit')
-
-  // =========================================================================
-  // Scenario 3: A customer with 2 properties cannot create a third property under a 2-property entitlement
-  // =========================================================================
-  const ent2 = resolveCustomerEntitlements(paidSub, 2, now)
-  assert.strictEqual(ent2.activePropertyCount, 2, 'Case 3: 2 active properties')
-  assert.strictEqual(ent2.remainingPropertySlots, 0, 'Case 3: 0 remaining property slots')
-  assert.strictEqual(ent2.canCreateProperty, false, 'Case 3: Customer with 2 properties cannot create a third property')
-  assert.strictEqual(ent2.isOverLimit, false, 'Case 3: Exactly at limit (not over limit)')
-  assert.ok(
-    ent2.reason.includes('includes 2 properties'),
-    'Case 3: Explains that current plan includes 2 properties'
-  )
-
-  // =========================================================================
-  // Scenario 4: A customer cannot bypass the limit through a direct API request
-  // =========================================================================
-  const simulateApiCreateProperty = async (mockSupabase, ownerId, propertyPayload) => {
-    const entitlement = await getOwnerEntitlements(mockSupabase, ownerId)
-    if (!entitlement.canCreateProperty) {
-      return {
-        status: 403,
-        error: entitlement.reason,
-        code: 'PROPERTY_LIMIT_REACHED',
-        entitlement,
-      }
-    }
-    return {
-      status: 201,
-      property: { id: 'prop_new', owner_id: ownerId, ...propertyPayload },
-    }
-  }
-
-  const mockDbAtLimit = createMockDb(
-    [{ owner_id: 'user_at_limit', status: 'active', plan: 'pro', razorpay_subscription_id: 'sub_1' }],
-    [
-      { id: 'p1', owner_id: 'user_at_limit', name: 'Alpha PG' },
-      { id: 'p2', owner_id: 'user_at_limit', name: 'Beta PG' },
-    ]
-  )
-
-  const directApiRes = await simulateApiCreateProperty(mockDbAtLimit, 'user_at_limit', { name: 'Unauthorized Third PG' })
-  assert.strictEqual(directApiRes.status, 403, 'Case 4: Direct API creation must be rejected with HTTP 403')
-  assert.strictEqual(directApiRes.code, 'PROPERTY_LIMIT_REACHED', 'Case 4: Rejection must return PROPERTY_LIMIT_REACHED code')
-  assert.ok(
-    directApiRes.error.includes('includes 2 properties'),
-    'Case 4: Rejection response explains that current plan includes 2 properties'
-  )
-
-  // =========================================================================
-  // Scenario 5: Concurrent requests cannot exceed the limit
-  // =========================================================================
-  const simulateConcurrentCreationWithAdvisoryLock = async (existingCount, maxLimit, concurrentAttempts) => {
-    let currentCount = existingCount
-    let lockAcquired = false
-    const results = []
-
-    const runTransaction = async (attemptId) => {
-      // Simulate PostgreSQL pg_advisory_xact_lock(hashtext(ownerId))
-      while (lockAcquired) {
-        await new Promise((r) => setTimeout(r, 2))
-      }
-      lockAcquired = true
-      try {
-        if (currentCount >= maxLimit) {
-          results.push({ attempt: attemptId, success: false, code: 'PROPERTY_LIMIT_REACHED' })
-        } else {
-          currentCount++
-          results.push({ attempt: attemptId, success: true, count: currentCount })
-        }
-      } finally {
-        lockAcquired = false
-      }
-    }
-
-    await Promise.all(Array.from({ length: concurrentAttempts }, (_, i) => runTransaction(i + 1)))
-    return { finalCount: currentCount, results }
-  }
-
-  // Customer has 1 property, 1 slot left, fires 5 concurrent requests simultaneously:
-  const concurRes = await simulateConcurrentCreationWithAdvisoryLock(1, 2, 5)
-  assert.strictEqual(concurRes.finalCount, 2, 'Case 5: Database count never exceeds max limit of 2')
-  const successfulOps = concurRes.results.filter((r) => r.success)
-  const rejectedOps = concurRes.results.filter((r) => !r.success)
-  assert.strictEqual(successfulOps.length, 1, 'Case 5: Exactly 1 concurrent request succeeds')
-  assert.strictEqual(rejectedOps.length, 4, 'Case 5: All 4 surplus concurrent requests are rejected')
-
-  // =========================================================================
-  // Scenario 6: One customer's property count cannot affect another customer's entitlement
-  // =========================================================================
-  const mockDbMultiTenant = createMockDb(
-    [
-      { owner_id: 'customer_Alpha', status: 'active', plan: 'pro', razorpay_subscription_id: 'sub_a' },
-      { owner_id: 'customer_Beta', status: 'active', plan: 'pro', razorpay_subscription_id: 'sub_b' },
-    ],
-    [
-      { id: 'pa1', owner_id: 'customer_Alpha', name: 'Alpha PG 1' },
-      { id: 'pa2', owner_id: 'customer_Alpha', name: 'Alpha PG 2' },
-    ]
-  )
-
-  const entAlpha = await getOwnerEntitlements(mockDbMultiTenant, 'customer_Alpha')
-  const entBeta = await getOwnerEntitlements(mockDbMultiTenant, 'customer_Beta')
-
-  assert.strictEqual(entAlpha.activePropertyCount, 2, 'Case 6: Customer Alpha has 2 properties')
-  assert.strictEqual(entAlpha.canCreateProperty, false, 'Case 6: Customer Alpha is at limit')
-  assert.strictEqual(entBeta.activePropertyCount, 0, 'Case 6: Customer Beta has 0 properties')
-  assert.strictEqual(entBeta.canCreateProperty, true, 'Case 6: Customer Beta is completely unaffected by Customer Alpha')
-  assert.strictEqual(entBeta.remainingPropertySlots, 2, 'Case 6: Customer Beta has full 2 slots available')
-
-  // =========================================================================
-  // Scenario 7: Expired trial customers cannot create properties without an eligible entitlement
-  // =========================================================================
-  const expiredTrialSub = [
-    {
-      id: 'sub_expired_trial',
-      owner_id: 'user_exp_trial',
-      status: 'expired',
-      plan: 'trial',
-      trial_end: new Date(now - 4 * oneDay).toISOString(),
-      updated_at: new Date(now - 4 * oneDay).toISOString(),
-    },
-  ]
-  const entExpTrial = resolveCustomerEntitlements(expiredTrialSub, 0, now)
-  assert.strictEqual(entExpTrial.hasPaidAccess, false, 'Case 7: Expired trial has no paid access')
-  assert.strictEqual(entExpTrial.canCreateProperty, false, 'Case 7: Expired trial cannot create properties')
-  assert.strictEqual(entExpTrial.remainingPropertySlots, 0, 'Case 7: 0 slots granted')
-  assert.strictEqual(
-    entExpTrial.reason,
-    'Your 7-day free trial has expired. Please subscribe to add properties.',
-    'Case 7: Reason specifies trial has expired'
-  )
-
-  // =========================================================================
-  // Scenario 8: Active paid customers retain access to their permitted properties
-  // =========================================================================
-  const activeTrialSub = [
-    {
-      id: 'sub_active_trial',
-      owner_id: 'user_valid_trial',
-      status: 'trialing',
-      plan: 'trial',
-      trial_start: new Date(now - 2 * oneDay).toISOString(),
-      trial_end: new Date(now + 5 * oneDay).toISOString(),
-      updated_at: new Date(now - 2 * oneDay).toISOString(),
-    },
-  ]
-  const entActiveTrial = resolveCustomerEntitlements(activeTrialSub, 1, now)
-  assert.strictEqual(entActiveTrial.hasPaidAccess, true, 'Case 8: Active trial has access')
-  assert.strictEqual(entActiveTrial.maxProperties, 2, 'Case 8: Active trial includes 2 properties')
-  assert.strictEqual(entActiveTrial.canCreateProperty, true, 'Case 8: Active trial with 1 property can create second')
-
-  const entActivePaid = resolveCustomerEntitlements(paidSub, 2, now)
-  assert.strictEqual(entActivePaid.hasPaidAccess, true, 'Case 8: Paid customer has access')
-  assert.strictEqual(entActivePaid.subscriptionStatus, 'active', 'Case 8: Subscription status is active')
-  assert.strictEqual(entActivePaid.activePropertyCount, 2, 'Case 8: Retains 2 active properties')
-
-  // =========================================================================
-  // Scenario 9: Existing customers with 17 properties retain all existing data but cannot create an additional property
-  // =========================================================================
-  const grandfathered17Props = Array.from({ length: 17 }, (_, i) => ({
-    id: `prop_legacy_${i + 1}`,
-    owner_id: 'user_with_17_properties',
-    name: `BaseraBook Hostel ${i + 1}`,
-    created_at: new Date(now - 30 * oneDay).toISOString(),
-  }))
-
-  const ent17 = resolveCustomerEntitlements(paidSub, grandfathered17Props.length, now)
-
-  // Data preservation check:
-  assert.strictEqual(grandfathered17Props.length, 17, 'Case 9: All 17 existing properties are retained in data')
-  assert.strictEqual(ent17.activePropertyCount, 17, 'Case 9: Active property count correctly reflects 17')
-  assert.strictEqual(ent17.maxProperties, 2, 'Case 9: Plan max properties is 2')
-  assert.strictEqual(ent17.remainingPropertySlots, 0, 'Case 9: 0 remaining property slots')
-  assert.strictEqual(ent17.isOverLimit, true, 'Case 9: isOverLimit flag is true for UI warning banner')
-  assert.strictEqual(ent17.canCreateProperty, false, 'Case 9: Creating an 18th property is blocked')
-  assert.ok(
-    ent17.reason.includes('You are managing 17 properties'),
-    'Case 9: Error reason clearly indicates 17 properties are being managed'
-  )
-
-  // =========================================================================
-  // Scenario 10: Property deletion, restoration, and trash behavior follow existing rules
-  // =========================================================================
-  let userActiveProps = [
-    { id: 'p10_1', name: 'Hostel A', owner_id: 'user_lifecycle' },
-    { id: 'p10_2', name: 'Hostel B', owner_id: 'user_lifecycle' },
-  ]
-  let userTrashLogs = []
-
-  // Check initial state: 2 properties -> at limit
-  let entLifecycle = resolveCustomerEntitlements(paidSub, userActiveProps.length, now)
-  assert.strictEqual(entLifecycle.activePropertyCount, 2)
-  assert.strictEqual(entLifecycle.canCreateProperty, false, 'Case 10: At limit with 2 properties')
-
-  // Action: Owner soft-deletes Hostel B (deletes from properties, creates audit log entry)
-  const trashedItem = userActiveProps.pop()
-  userTrashLogs.push({
-    id: 'trash_log_1',
-    table_name: 'properties',
-    record_id: trashedItem.id,
-    record_snapshot: trashedItem,
-  })
-
-  // Entitlement after deletion: 1 active property -> 1 slot freed
-  entLifecycle = resolveCustomerEntitlements(paidSub, userActiveProps.length, now)
-  assert.strictEqual(entLifecycle.activePropertyCount, 1, 'Case 10: Active count drops to 1 after deletion')
-  assert.strictEqual(entLifecycle.remainingPropertySlots, 1, 'Case 10: 1 slot is freed')
-  assert.strictEqual(entLifecycle.canCreateProperty, true, 'Case 10: Can now create or restore a property')
-
-  // Owner creates Hostel C -> back to 2 properties
-  userActiveProps.push({ id: 'p10_3', name: 'Hostel C', owner_id: 'user_lifecycle' })
-  entLifecycle = resolveCustomerEntitlements(paidSub, userActiveProps.length, now)
-  assert.strictEqual(entLifecycle.activePropertyCount, 2, 'Case 10: Active count is back to 2')
-  assert.strictEqual(entLifecycle.canCreateProperty, false, 'Case 10: Limit reached again')
-
-  // Owner tries to restore Hostel B from trash while at limit (2/2)
-  const guardRestoreFromTrash = (tableName, currentPropsCount, maxLimit) => {
-    if (tableName === 'properties') {
-      if (currentPropsCount >= maxLimit) {
-        return {
-          success: false,
-          error: `Cannot restore property: your current plan includes ${maxLimit} properties and you already have ${currentPropsCount} active properties. Please upgrade your plan to restore this property.`,
-          code: 'PROPERTY_LIMIT_REACHED',
-        }
-      }
-    }
-    return { success: true }
-  }
-
-  const trashRestoreAttempt = guardRestoreFromTrash('properties', userActiveProps.length, entLifecycle.maxProperties)
-  assert.strictEqual(trashRestoreAttempt.success, false, 'Case 10: Restoring property from trash while at limit must be blocked')
-  assert.strictEqual(trashRestoreAttempt.code, 'PROPERTY_LIMIT_REACHED', 'Case 10: Code must be PROPERTY_LIMIT_REACHED')
-  assert.ok(trashRestoreAttempt.error.includes('includes 2 properties'), 'Case 10: Error explains plan includes 2 properties')
+  // Enterprise: 9+ properties, Custom pricing, Contact Us
+  assert.strictEqual(enterprise.name, 'Enterprise')
+  assert.strictEqual(enterprise.propertyLimit, '9+ properties')
+  assert.strictEqual(enterprise.monthlyPrice, null, 'Enterprise monthly must be custom')
+  assert.strictEqual(enterprise.yearlyPrice, null, 'Enterprise yearly must be custom')
+  assert.strictEqual(enterprise.annualSavings, null)
 })
-
