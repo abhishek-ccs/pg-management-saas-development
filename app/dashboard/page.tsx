@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient, ensureFreshSession } from '@/lib/supabase/client'
+import { resolveAuthoritativeSubscription } from '@/lib/subscription'
 import {
   createTenantAction,
   updateTenantAction,
@@ -672,12 +673,14 @@ export default function DashboardPage() {
                 setTrialEnd(null)
                 setShowPricingModal(false)
                 flash('🎉 Subscription activated successfully!')
+                void fetchDashboardData()
               } else if (verifyData.status === 'trialing') {
                 setSubscriptionStatus('trialing')
                 setSubscriptionPlan(verifyData.plan || dashboardBillingCycle)
                 setIsTrialExpired(false)
                 setShowPricingModal(false)
                 flash('✔ Subscription mandate authorized! Your first payment will start when your trial concludes.')
+                void fetchDashboardData()
               } else {
                 flash(verifyData.error || `Subscription status is ${verifyData.status}.`)
               }
@@ -713,20 +716,16 @@ export default function DashboardPage() {
   // ----------------------------------------------------------------------------
   // Real Database Fetching from Supabase
   // ----------------------------------------------------------------------------
-  useEffect(() => {
-    let isMounted = true
+  async function fetchDashboardData() {
+    try {
+      setLoading(true)
+      const { data: authData } = await supabase.auth.getUser()
+      if (!authData.user) {
+        router.push('/login?next=/dashboard')
+        return
+      }
 
-    async function fetchDashboardData() {
-      try {
-        setLoading(true)
-        const { data: authData } = await supabase.auth.getUser()
-        if (!authData.user) {
-          router.push('/login?next=/dashboard')
-          return
-        }
-
-        const user = authData.user
-        if (!isMounted) return
+      const user = authData.user
 
         setUserId(user.id)
         setUserEmail(user.email ?? '')
@@ -745,7 +744,7 @@ export default function DashboardPage() {
           complaintRes,
           profileRes,
         ] = await Promise.all([
-          supabase.from('subscriptions').select('trial_start,trial_end,status,plan').eq('owner_id', user.id).maybeSingle(),
+          supabase.from('subscriptions').select('*').eq('owner_id', user.id).order('updated_at', { ascending: false }),
           supabase.from('properties').select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url').eq('owner_id', user.id).order('created_at', { ascending: true }),
           supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
           supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
@@ -756,8 +755,6 @@ export default function DashboardPage() {
           supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
           supabase.from('profiles').select('upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
         ])
-
-        if (!isMounted) return
 
         // Saved Payment Options (UPI ID, payment link, QR Code image)
         const loadedUpi = profileRes?.data?.upi_id || propRes?.data?.[0]?.upi_id || ''
@@ -770,21 +767,15 @@ export default function DashboardPage() {
           qrCodeUrl: loadedQr,
         })
 
-        // Subscription & Trial status from database row
-        if (subRes.data) {
-          setTrialStart(subRes.data.trial_start || null)
-          setTrialEnd(subRes.data.trial_end || null)
-          setSubscriptionStatus(subRes.data.status || 'trialing')
-          setSubscriptionPlan(subRes.data.plan || 'trial')
-          if (subRes.data.status === 'active') {
-            setIsTrialExpired(false)
-          } else if (subRes.data.status === 'expired') {
-            setIsTrialExpired(true)
-          } else if (subRes.data.trial_end) {
-            const remainingMs = new Date(subRes.data.trial_end).getTime() - Date.now()
-            setIsTrialExpired(remainingMs <= 0)
-          }
-        }
+        // Authoritative Subscription & Paid Access Resolution
+        const subRecords = Array.isArray(subRes?.data) ? subRes.data : subRes?.data ? [subRes.data] : []
+        const authSub = resolveAuthoritativeSubscription(subRecords)
+
+        setTrialStart(authSub.trialStart)
+        setTrialEnd(authSub.trialEnd)
+        setSubscriptionStatus(authSub.status)
+        setSubscriptionPlan(authSub.plan)
+        setIsTrialExpired(authSub.isTrialExpired)
 
         // Multiple properties handling
         const propList = (propRes.data || []).map((p: any) => ({
@@ -948,15 +939,13 @@ export default function DashboardPage() {
       } catch (err) {
         console.error('Failed to load dashboard records:', err)
       } finally {
-        if (isMounted) setLoading(false)
+        setLoading(false)
       }
     }
 
+  useEffect(() => {
     void fetchDashboardData()
-    return () => {
-      isMounted = false
-    }
-  }, [supabase, router])
+  }, [])
 
   const loadTrashRecords = async () => {
     setIsLoadingTrash(true)
@@ -3191,46 +3180,74 @@ export default function DashboardPage() {
           </nav>
         </div>
 
-        {/* Sidebar Trial Callout */}
+        {/* Sidebar Subscription / Trial Callout */}
         <div className="p-4 border-t border-[#ebe4da] bg-white">
           <div className="rounded-2xl border border-[#ebe4da] bg-[#fbf8f4] p-4 text-xs">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="flex items-center gap-1.5 font-bold text-[#8b5a2b]">
-                <Sparkles className="size-3.5" />
-                7-Day Free Trial
-              </span>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                  isTrialExpired
-                    ? 'bg-[#ffebe8] text-[#b95c3c]'
-                    : isEndingSoon
-                    ? 'bg-[#fff4e5] text-[#b46b1a]'
-                    : 'bg-[#f4ede4] text-[#8b5a2b]'
-                }`}
-              >
-                {isTrialExpired
-                  ? 'Expired'
-                  : hoursRemaining !== null && hoursRemaining < 48
-                  ? `${hoursRemaining}h left`
-                  : daysRemaining !== null
-                  ? `${daysRemaining}d left`
-                  : 'Active'}
-              </span>
-            </div>
-            <p className="mb-1 font-semibold text-[#2c221e]">
-              {isTrialExpired ? 'Trial concluded.' : 'Active 7-day trial.'}
-            </p>
-            <p className="mb-3 text-[11px] leading-4 text-[#7d756d]">
-              {isTrialExpired
-                ? 'Upgrade anytime to continue adding business records.'
-                : 'Full workspace access with real database isolation.'}
-            </p>
-            <button
-              onClick={() => setShowPricingModal(true)}
-              className="w-full rounded-xl bg-[#8b5a2b] py-2 text-center text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
-            >
-              View Plans & Upgrade
-            </button>
+            {subscriptionStatus === 'active' ? (
+              <>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 font-bold text-[#236b4e]">
+                    <CheckCircle2 className="size-3.5 text-[#236b4e]" />
+                    {subscriptionPlan === 'yearly' || subscriptionPlan === 'pro' ? 'Growth Pro (Yearly)' : 'Growth (Monthly)'}
+                  </span>
+                  <span className="rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-2 py-0.5 text-[10px] font-bold text-[#236b4e]">
+                    Active
+                  </span>
+                </div>
+                <p className="mb-1 font-semibold text-[#2c221e]">
+                  Full Access Active
+                </p>
+                <p className="mb-3 text-[11px] leading-4 text-[#7d756d]">
+                  Unlimited properties, rooms, beds, rent tracking, and digital receipts.
+                </p>
+                <button
+                  onClick={() => setShowPricingModal(true)}
+                  className="w-full rounded-xl border border-[#d8c2aa] bg-white py-2 text-center text-xs font-semibold text-[#8b5a2b] shadow-2xs hover:bg-[#faf6f1] transition-colors"
+                >
+                  Manage Subscription
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 font-bold text-[#8b5a2b]">
+                    <Sparkles className="size-3.5" />
+                    7-Day Free Trial
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      isTrialExpired
+                        ? 'bg-[#ffebe8] text-[#b95c3c]'
+                        : isEndingSoon
+                        ? 'bg-[#fff4e5] text-[#b46b1a]'
+                        : 'bg-[#f4ede4] text-[#8b5a2b]'
+                    }`}
+                  >
+                    {isTrialExpired
+                      ? 'Expired'
+                      : hoursRemaining !== null && hoursRemaining < 48
+                      ? `${hoursRemaining}h left`
+                      : daysRemaining !== null
+                      ? `${daysRemaining}d left`
+                      : 'Active'}
+                  </span>
+                </div>
+                <p className="mb-1 font-semibold text-[#2c221e]">
+                  {isTrialExpired ? 'Trial concluded.' : 'Active 7-day trial.'}
+                </p>
+                <p className="mb-3 text-[11px] leading-4 text-[#7d756d]">
+                  {isTrialExpired
+                    ? 'Upgrade anytime to continue adding business records.'
+                    : 'Full workspace access with real database isolation.'}
+                </p>
+                <button
+                  onClick={() => setShowPricingModal(true)}
+                  className="w-full rounded-xl bg-[#8b5a2b] py-2 text-center text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+                >
+                  View Plans & Upgrade
+                </button>
+              </>
+            )}
           </div>
         </div>
       </aside>
@@ -3291,21 +3308,28 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-              {/* Header Trial Pill (Matches Reference Image) */}
-              <div className="hidden md:flex items-center gap-2 rounded-full border border-[#e5dcd0] bg-[#faf6f1] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
-                <span
-                  className={`size-2 rounded-full ${
-                    isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#8b5a2b]'
-                  }`}
-                />
-                <span>
-                  {isTrialExpired
-                    ? 'Trial Ended'
-                    : hoursRemaining !== null && hoursRemaining < 48
-                    ? `Trial: ${hoursRemaining}h remaining`
-                    : `Trial: ${daysRemaining ?? 7}d remaining`}
-                </span>
-              </div>
+              {/* Header Subscription / Trial Pill */}
+              {subscriptionStatus === 'active' ? (
+                <div className="hidden md:flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-3.5 py-1.5 text-xs font-semibold text-emerald-800 shadow-2xs">
+                  <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Growth Pro · Active</span>
+                </div>
+              ) : (
+                <div className="hidden md:flex items-center gap-2 rounded-full border border-[#e5dcd0] bg-[#faf6f1] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
+                  <span
+                    className={`size-2 rounded-full ${
+                      isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#8b5a2b]'
+                    }`}
+                  />
+                  <span>
+                    {isTrialExpired
+                      ? 'Trial Ended'
+                      : hoursRemaining !== null && hoursRemaining < 48
+                      ? `Trial: ${hoursRemaining}h remaining`
+                      : `Trial: ${daysRemaining ?? 7}d remaining`}
+                  </span>
+                </div>
+              )}
 
               {/* Discreet Admin Console Button for Verified Super Admins */}
               {isSuperAdminUser && (
@@ -3665,6 +3689,7 @@ export default function DashboardPage() {
               isEndingSoon={isEndingSoon}
               isTrialExpired={isTrialExpired}
               subscriptionPlan={subscriptionPlan}
+              subscriptionStatus={subscriptionStatus}
               onEditProperty={() => {
                 setEditingPropertyId(property.id)
                 setShowPropertyModal(true)
@@ -7767,6 +7792,7 @@ function SettingsTab({
   isEndingSoon,
   isTrialExpired,
   subscriptionPlan,
+  subscriptionStatus = 'trialing',
   ownerPaymentDetails = { upiId: '', paymentLink: '', qrCodeUrl: '' },
   setOwnerPaymentDetails,
   onSavePaymentDetails,
@@ -8064,43 +8090,71 @@ function SettingsTab({
       </div>
 
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1.5 font-bold text-[#8b5a2b]">
-                <Sparkles className="size-4" />
-                7-Day Free Trial
-              </span>
-              <span
-                className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                  isTrialExpired
-                    ? 'bg-[#ffebe8] text-[#b95c3c]'
-                    : isEndingSoon
-                    ? 'bg-[#fff4e5] text-[#b46b1a]'
-                    : 'bg-[#faf3ea] text-[#8b5a2b]'
-                }`}
-              >
-                {isTrialExpired
-                  ? 'Expired'
-                  : hoursRemaining !== null && hoursRemaining < 48
-                  ? `${hoursRemaining}h remaining`
-                  : `${daysRemaining ?? 7} days remaining`}
-              </span>
+        {subscriptionStatus === 'active' ? (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 font-bold text-emerald-700">
+                  <CheckCircle2 className="size-4 text-emerald-600" />
+                  Growth Pro Subscription
+                </span>
+                <span className="rounded-md px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  Active
+                </span>
+              </div>
+              <p className="mt-2 text-sm font-semibold text-[#3d3934]">
+                Your BaseraBook paid subscription is verified and active.
+              </p>
+              <p className="mt-1 text-xs text-[#74798a]">
+                All premium features, multi-property management, and automated rent collection tools are unlocked.
+              </p>
             </div>
-            <p className="mt-2 text-sm font-semibold text-[#3d3934]">
-              {isTrialExpired ? 'Your 7-day trial period has ended.' : 'Your 7-day free trial is currently active.'}
-            </p>
-            <p className="mt-1 text-xs text-[#74798a]">
-              Historical records are retained safely. Upgrade anytime to continue day-to-day operations.
-            </p>
+            <button
+              onClick={onViewPlans}
+              className="self-start sm:self-center shrink-0 rounded-xl border border-[#d8c2aa] bg-[#faf7f2] px-4 py-2.5 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors"
+            >
+              Manage / View Plans
+            </button>
           </div>
-          <button
-            onClick={onViewPlans}
-            className="self-start sm:self-center shrink-0 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
-          >
-            Upgrade Plan
-          </button>
-        </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 font-bold text-[#8b5a2b]">
+                  <Sparkles className="size-4" />
+                  7-Day Free Trial
+                </span>
+                <span
+                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                    isTrialExpired
+                      ? 'bg-[#ffebe8] text-[#b95c3c]'
+                      : isEndingSoon
+                      ? 'bg-[#fff4e5] text-[#b46b1a]'
+                      : 'bg-[#faf3ea] text-[#8b5a2b]'
+                  }`}
+                >
+                  {isTrialExpired
+                    ? 'Expired'
+                    : hoursRemaining !== null && hoursRemaining < 48
+                    ? `${hoursRemaining}h remaining`
+                    : `${daysRemaining ?? 7} days remaining`}
+                </span>
+              </div>
+              <p className="mt-2 text-sm font-semibold text-[#3d3934]">
+                {isTrialExpired ? 'Your 7-day trial period has ended.' : 'Your 7-day free trial is currently active.'}
+              </p>
+              <p className="mt-1 text-xs text-[#74798a]">
+                Historical records are retained safely. Upgrade anytime to continue day-to-day operations.
+              </p>
+            </div>
+            <button
+              onClick={onViewPlans}
+              className="self-start sm:self-center shrink-0 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
+            >
+              Upgrade Plan
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">

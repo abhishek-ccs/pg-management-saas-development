@@ -39,6 +39,7 @@ import {
 import { applySecurityHeaders } from '../lib/security/headers.ts'
 import { NextResponse } from 'next/server'
 import { CANONICAL_SITE_URL, getSiteUrl, constructMetadata } from '../lib/site.ts'
+import { resolveAuthoritativeSubscription } from '../lib/subscription.ts'
 import nextConfig from '../next.config.mjs'
 
 test('1. Support Email & Mailto URL Generation', () => {
@@ -1694,4 +1695,154 @@ test('40. Razorpay Subscription Activation: Trial Eligibility & Immediate Charge
   assert.strictEqual(mapVerifiedStatus('created').allowed, false)
   assert.strictEqual(mapVerifiedStatus('pending').allowed, false)
   assert.strictEqual(mapVerifiedStatus('halted').allowed, false)
+})
+
+test('41. Razorpay-to-BaseraBook Subscription Synchronization & Authority Engine', () => {
+  const now = Date.now()
+  const oneDay = 86400000
+
+  // 1. Expired trial + verified active subscription = paid access
+  const res1 = resolveAuthoritativeSubscription([
+    {
+      id: 'sub_row_1',
+      owner_id: 'user_123',
+      status: 'active',
+      plan: 'pro',
+      razorpay_subscription_id: 'sub_active_rzp_1',
+      trial_end: new Date(now - 7 * oneDay).toISOString(),
+      updated_at: new Date(now).toISOString(),
+    }
+  ], now)
+  assert.strictEqual(res1.hasPaidAccess, true, 'Case 1: Expired trial with active subscription must have paid access')
+  assert.strictEqual(res1.isTrialExpired, false, 'Case 1: Must NOT be marked as trial expired')
+  assert.strictEqual(res1.status, 'active')
+  assert.strictEqual(res1.trialEnd, null, 'Case 1: trialEnd must be cleared for active subscription')
+
+  // 2. Expired trial + no active subscription = restricted
+  const res2 = resolveAuthoritativeSubscription([
+    {
+      id: 'sub_row_2',
+      owner_id: 'user_123',
+      status: 'expired',
+      plan: 'trial',
+      trial_end: new Date(now - 2 * oneDay).toISOString(),
+      updated_at: new Date(now - 2 * oneDay).toISOString(),
+    }
+  ], now)
+  assert.strictEqual(res2.hasPaidAccess, false, 'Case 2: Expired trial without active subscription must be restricted')
+  assert.strictEqual(res2.isTrialExpired, true, 'Case 2: Must be marked as trial expired')
+  assert.strictEqual(res2.status, 'expired')
+
+  // 3. Active subscription with null trial_end = paid access
+  const res3 = resolveAuthoritativeSubscription([
+    {
+      id: 'sub_row_3',
+      owner_id: 'user_123',
+      status: 'active',
+      plan: 'yearly',
+      razorpay_subscription_id: 'sub_active_null_trial',
+      trial_end: null,
+      updated_at: new Date(now).toISOString(),
+    }
+  ], now)
+  assert.strictEqual(res3.hasPaidAccess, true, 'Case 3: Active subscription with null trial_end must have paid access')
+  assert.strictEqual(res3.isTrialExpired, false, 'Case 3: Must NOT be marked as trial expired')
+  assert.strictEqual(res3.status, 'active')
+
+  // 4. Authenticated subscription with a past trial end = no automatic paid access
+  const res4 = resolveAuthoritativeSubscription([
+    {
+      id: 'sub_row_4',
+      owner_id: 'user_123',
+      status: 'authenticated',
+      plan: 'pro',
+      razorpay_subscription_id: 'sub_auth_only',
+      trial_end: new Date(now - 3 * oneDay).toISOString(),
+      updated_at: new Date(now).toISOString(),
+    }
+  ], now)
+  assert.strictEqual(res4.hasPaidAccess, false, 'Case 4: Authenticated subscription with past trial must NOT grant automatic paid access')
+  assert.strictEqual(res4.isTrialExpired, true, 'Case 4: Past trial should be expired')
+  assert.strictEqual(res4.status, 'expired')
+
+  // 5. Active subscription belonging to a different user = no access for requesting user
+  const currentUserId = 'user_alice'
+  const multiUserRows = [
+    {
+      id: 'sub_bob',
+      owner_id: 'user_bob',
+      status: 'active',
+      plan: 'pro',
+      razorpay_subscription_id: 'sub_bob_paid',
+    },
+    {
+      id: 'sub_alice',
+      owner_id: 'user_alice',
+      status: 'expired',
+      plan: 'trial',
+      trial_end: new Date(now - 5 * oneDay).toISOString(),
+    }
+  ]
+  const aliceOnlyRows = multiUserRows.filter(r => r.owner_id === currentUserId)
+  const res5 = resolveAuthoritativeSubscription(aliceOnlyRows, now)
+  assert.strictEqual(res5.hasPaidAccess, false, 'Case 5: Active subscription of another user must not grant access to current user')
+  assert.strictEqual(res5.isTrialExpired, true, 'Case 5: Current user remains expired')
+
+  // 6. Old authenticated record plus current active record = correct active subscription wins
+  const multiRecordsSameUser = [
+    {
+      id: 'sub_old_auth',
+      owner_id: 'user_123',
+      status: 'authenticated',
+      plan: 'trial',
+      trial_end: new Date(now - 10 * oneDay).toISOString(),
+      updated_at: new Date(now - 10 * oneDay).toISOString(),
+    },
+    {
+      id: 'sub_new_active',
+      owner_id: 'user_123',
+      status: 'active',
+      plan: 'yearly',
+      razorpay_subscription_id: 'sub_new_active_rzp',
+      trial_end: null,
+      updated_at: new Date(now).toISOString(),
+    }
+  ]
+  const res6 = resolveAuthoritativeSubscription(multiRecordsSameUser, now)
+  assert.strictEqual(res6.hasPaidAccess, true, 'Case 6: Active subscription must win over older authenticated record')
+  assert.strictEqual(res6.status, 'active', 'Case 6: Status must be active')
+  assert.strictEqual(res6.plan, 'yearly', 'Case 6: Plan must be yearly')
+  assert.strictEqual(res6.isTrialExpired, false)
+
+  // Order-independence check: active record wins even if older record comes first or last
+  const res6Reversed = resolveAuthoritativeSubscription([...multiRecordsSameUser].reverse(), now)
+  assert.strictEqual(res6Reversed.hasPaidAccess, true, 'Case 6 (reversed): Order must not prevent active record from winning')
+  assert.strictEqual(res6Reversed.status, 'active')
+
+  // 7. Dashboard refresh does not revert a verified active customer to expired
+  let dashboardState = {
+    hasPaidAccess: false,
+    subscriptionStatus: 'expired',
+    isTrialExpired: true,
+  }
+  const fetchedAfterRefresh = [
+    {
+      id: 'sub_123',
+      owner_id: 'user_123',
+      status: 'active',
+      plan: 'growth',
+      razorpay_subscription_id: 'sub_test_verified_123',
+      trial_end: null,
+      updated_at: new Date().toISOString(),
+    }
+  ]
+  const refreshedAuth = resolveAuthoritativeSubscription(fetchedAfterRefresh, now)
+  dashboardState = {
+    hasPaidAccess: refreshedAuth.hasPaidAccess,
+    subscriptionStatus: refreshedAuth.status,
+    isTrialExpired: refreshedAuth.isTrialExpired,
+  }
+  assert.strictEqual(dashboardState.hasPaidAccess, true, 'Case 7: Dashboard refresh preserves paid access')
+  assert.strictEqual(dashboardState.subscriptionStatus, 'active', 'Case 7: Dashboard refresh preserves active status')
+  assert.strictEqual(dashboardState.isTrialExpired, false, 'Case 7: Dashboard refresh does not revert to expired')
 })

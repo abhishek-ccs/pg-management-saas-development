@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 import { verifyWebhookSignature } from '@/lib/razorpay'
+import { persistSubscriptionToDatabase } from '@/lib/subscription'
 
 export const runtime = 'nodejs'
 
@@ -60,12 +61,12 @@ export async function POST(req: NextRequest) {
 
       if (!targetOwnerId) {
         try {
-          const { data: foundSub } = await admin
+          const { data: foundSubs } = await admin
             .from('subscriptions')
             .select('owner_id')
             .eq('razorpay_subscription_id', subscriptionId)
-            .maybeSingle()
-          targetOwnerId = foundSub?.owner_id
+            .limit(1)
+          targetOwnerId = foundSubs?.[0]?.owner_id
         } catch {
           // Ignore
         }
@@ -143,22 +144,21 @@ export async function POST(req: NextRequest) {
             updateData.razorpay_payment_id = paymentId
           }
 
-          const { error: updateErr } = await admin
-            .from('subscriptions')
-            .update(updateData)
-            .eq('owner_id', targetOwnerId)
-
-          if (updateErr) {
-            // Fallback for baseline columns
-            await admin
-              .from('subscriptions')
-              .update({ status: newStatus, updated_at: new Date().toISOString() })
-              .eq('owner_id', targetOwnerId)
-          }
-
-          console.log(
-            `✔ Webhook updated subscription: user=${targetOwnerId}, status=${newStatus}, event=${eventType}`
+          const { success: persistOk, error: persistErr } = await persistSubscriptionToDatabase(
+            admin,
+            targetOwnerId,
+            updateData
           )
+
+          if (persistOk) {
+            console.log(
+              `✔ Webhook updated subscription: user=${targetOwnerId}, status=${newStatus}, event=${eventType}`
+            )
+          } else {
+            console.error(
+              `❌ Webhook failed to persist subscription: user=${targetOwnerId}, error=${persistErr}`
+            )
+          }
         }
       }
     }

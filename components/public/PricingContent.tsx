@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Check, ShieldCheck, Sparkles, HelpCircle, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { resolveAuthoritativeSubscription } from '@/lib/subscription'
 import { useI18n } from '@/lib/i18n'
 import {
   PRICING_CONFIG,
@@ -37,12 +38,13 @@ export function PricingContent() {
       const user = data?.user
       setHasSession(!!user)
       if (user) {
-        const { data: sub } = await supabase
+        const { data: subs } = await supabase
           .from('subscriptions')
-          .select('status')
+          .select('*')
           .eq('owner_id', user.id)
-          .maybeSingle()
-        if (sub?.status === 'active') {
+          .order('updated_at', { ascending: false })
+        const resolved = resolveAuthoritativeSubscription(subs)
+        if (resolved.hasPaidAccess && resolved.status === 'active') {
           setIsSubscribed(true)
         }
       }

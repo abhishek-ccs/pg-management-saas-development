@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { getRazorpayInstance, getRazorpayPlanId, SubscriptionPlanType } from '@/lib/razorpay'
+import {
+  resolveAuthoritativeSubscription,
+  persistSubscriptionToDatabase,
+} from '@/lib/subscription'
 
 export const runtime = 'nodejs'
 
@@ -29,29 +33,30 @@ export async function POST(req: NextRequest) {
     const razorpay = getRazorpayInstance()
 
     // 3. Inspect existing subscription state in Supabase to determine trial eligibility
-    const { data: existingSub } = await supabase
+    const { data: existingRows } = await supabase
       .from('subscriptions')
       .select('*')
       .eq('owner_id', user.id)
-      .maybeSingle()
+      .order('updated_at', { ascending: false })
 
     const nowMs = Date.now()
-    const trialEndMs = existingSub?.trial_end ? new Date(existingSub.trial_end).getTime() : 0
-    const hasActivePaidSub = existingSub?.status === 'active' || Boolean(existingSub?.razorpay_payment_id)
-    const isTrialExpired = (trialEndMs > 0 && trialEndMs <= nowMs) || existingSub?.status === 'expired'
+    const resolvedState = resolveAuthoritativeSubscription(existingRows, nowMs)
+    const hasActivePaidSub = resolvedState.status === 'active'
+    const isTrialExpired = resolvedState.isTrialExpired
 
     // Free trial eligibility law:
-    // - Customers whose trial has expired or who already had a paid subscription must be charged immediately.
+    // - Customers whose trial has expired or who already have a paid subscription must be charged immediately.
     // - Eligible new customers (or active unexpired trial users) preserve their 7-day trial before the first recurring charge.
     let isTrialEligible = false
     let startAt: number | null = null
 
     if (!hasActivePaidSub && !isTrialExpired) {
-      if (!existingSub) {
+      if (!existingRows || existingRows.length === 0) {
         // Brand new customer: eligible for full 7-day trial
         isTrialEligible = true
         startAt = Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60
-      } else if (existingSub.status === 'trialing' && trialEndMs > nowMs) {
+      } else if (resolvedState.status === 'trialing' && resolvedState.trialEnd) {
+        const trialEndMs = new Date(resolvedState.trialEnd).getTime()
         const remainingSeconds = Math.floor((trialEndMs - nowMs) / 1000)
         // Razorpay API requirement: start_at must be at least 15 minutes (900s) in the future
         if (remainingSeconds >= 900) {
@@ -89,11 +94,11 @@ export async function POST(req: NextRequest) {
     try {
       const admin = await createAdminClient()
       const pendingStatus =
-        existingSub?.status === 'active'
+        resolvedState.status === 'active'
           ? 'active'
           : isTrialEligible
           ? 'trialing'
-          : (existingSub?.status || 'expired')
+          : resolvedState.status
 
       const updateData: Record<string, any> = {
         owner_id: user.id,
@@ -104,27 +109,12 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
       }
 
-      if (!existingSub && isTrialEligible && startAt) {
+      if ((!existingRows || existingRows.length === 0) && isTrialEligible && startAt) {
         updateData.trial_start = new Date().toISOString()
         updateData.trial_end = new Date(startAt * 1000).toISOString()
       }
 
-      const { error: upsertErr } = await admin
-        .from('subscriptions')
-        .upsert(updateData, { onConflict: 'owner_id' })
-
-      if (upsertErr) {
-        // Fallback for case where extended columns are not yet executed in Supabase SQL Editor
-        await admin.from('subscriptions').upsert(
-          {
-            owner_id: user.id,
-            plan: planType,
-            status: pendingStatus,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'owner_id' }
-        )
-      }
+      await persistSubscriptionToDatabase(admin, user.id, updateData)
     } catch (dbErr) {
       console.warn('Non-fatal: failed to pre-save pending subscription to DB:', dbErr)
     }

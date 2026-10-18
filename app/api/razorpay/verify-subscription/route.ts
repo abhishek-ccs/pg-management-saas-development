@@ -5,6 +5,7 @@ import {
   verifySubscriptionPaymentSignature,
   SubscriptionPlanType,
 } from '@/lib/razorpay'
+import { persistSubscriptionToDatabase } from '@/lib/subscription'
 
 export const runtime = 'nodejs'
 
@@ -133,21 +134,24 @@ export async function POST(req: NextRequest) {
       updatePayload.trial_end = new Date(rzpSub.start_at * 1000).toISOString()
     }
 
-    const { error: dbError } = await admin
-      .from('subscriptions')
-      .upsert(updatePayload, { onConflict: 'owner_id' })
+    const { success: persistOk, error: persistErr } = await persistSubscriptionToDatabase(
+      admin,
+      user.id,
+      updatePayload
+    )
 
-    if (dbError) {
-      console.warn('Failed to save full subscription row, attempting baseline update:', dbError)
-      // Fallback for baseline table columns
-      await admin.from('subscriptions').upsert(
+    if (!persistOk) {
+      console.error('[VerifySubscription] Database persistence error:', persistErr)
+      return NextResponse.json(
         {
-          owner_id: user.id,
-          plan: targetPlan,
+          error:
+            'Subscription authorized with payment gateway, but database persistence failed. Our system will synchronize automatically via webhook.',
+          warning: persistErr,
           status: normalizedStatus,
-          updated_at: new Date().toISOString(),
+          plan: targetPlan,
+          subscriptionId: razorpay_subscription_id,
         },
-        { onConflict: 'owner_id' }
+        { status: 500 }
       )
     }
 
