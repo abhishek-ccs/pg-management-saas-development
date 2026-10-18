@@ -12,15 +12,15 @@ const baseUrl = 'https://www.baserabook.in'
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
   title: {
-    default: 'BaseraBook | PG Management Software & Rental Property Management',
+    default: 'BaseraBook | Smarter Property Management Starts Here',
     template: '%s | BaseraBook',
   },
   description:
     'BaseraBook — Your Property. Smartly Managed. Modern PG management software, rental property management software, and rent tracking platform for PGs, hostels, apartments, and rental houses. Track rooms, tenants, rent dues, and receipts all in one place.',
   keywords: TARGET_KEYWORDS,
-  authors: [{ name: 'BaseraBook Technologies' }],
-  creator: 'BaseraBook Technologies',
-  publisher: 'BaseraBook Technologies',
+  // authors: [{ name: 'BaseraBook Technologies' }],
+  // creator: 'BaseraBook Technologies',
+  // publisher: 'BaseraBook Technologies',
   formatDetection: {
     email: false,
     address: false,
@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'BaseraBook | Property Management Software & Rental Property Management',
     description:
-      'BaseraBook — Your Property. Smartly Managed. Modern cloud property and rental management software for PGs, hostels, apartments, and houses.',
+      'BaseraBook  — Your Property. Smartly Managed. Modern cloud property and rental management software for PGs, hostels, apartments, and houses.',
     images: ['/icon.svg'],
   },
   robots: {
