@@ -1,18 +1,21 @@
 import type { Metadata } from 'next'
 
+export const CANONICAL_SITE_URL = 'https://baserabook.in'
+
 /**
  * Site URL Resolver
- * Allows zero-hardcoding of fake domains while ensuring canonical tags,
- * Open Graph URLs, sitemaps, and structured data automatically reflect
- * the connected production domain or local development environment.
+ * Enforces https://baserabook.in as the single canonical production domain.
+ * Guards against internal Vercel subdomains (*.vercel.app) or misconfigured
+ * environment variables overriding SEO canonicals.
  */
 export function getSiteUrl(): string {
-  const envUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    'https://baserabook.in'
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL
 
-  return envUrl.replace(/\/$/, '')
+  if (envUrl && !envUrl.includes('vercel.app')) {
+    return envUrl.replace(/\/$/, '')
+  }
+
+  return CANONICAL_SITE_URL
 }
 
 export const SITE_NAME = 'BaseraBook'
@@ -54,7 +57,8 @@ export function constructMetadata({
   ogImage = DEFAULT_OG_IMAGE,
 }: MetadataProps): Metadata {
   const siteUrl = getSiteUrl()
-  const canonicalUrl = path ? `${siteUrl}${path.startsWith('/') ? path : `/${path}`}` : siteUrl
+  const normalizedPath = (!path || path === '/') ? '/' : (path.startsWith('/') ? path : `/${path}`)
+  const canonicalUrl = `${siteUrl}${normalizedPath}`
 
   return {
     title,

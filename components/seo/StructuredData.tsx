@@ -12,7 +12,7 @@ export function StructuredData() {
         '@type': 'Organization',
         '@id': `${baseUrl}/#organization`,
         name: 'BaseraBook Technologies',
-        url: baseUrl,
+        url: `${baseUrl}/`,
         logo: {
           '@type': 'ImageObject',
           url: `${baseUrl}/icon.svg`,
@@ -37,7 +37,7 @@ export function StructuredData() {
         name: 'BaseraBook',
         applicationCategory: 'BusinessApplication',
         operatingSystem: 'All modern web browsers (Chrome, Safari, Firefox, Edge)',
-        url: baseUrl,
+        url: `${baseUrl}/`,
         description:
           'Property management software and rental property management SaaS for PGs, hostels, and apartments with resident records, automated rent receipts, bed availability, and ledgers.',
         publisher: {

@@ -38,6 +38,8 @@ import {
 } from '../lib/tenant-access.ts'
 import { applySecurityHeaders } from '../lib/security/headers.ts'
 import { NextResponse } from 'next/server'
+import { CANONICAL_SITE_URL, getSiteUrl, constructMetadata } from '../lib/site.ts'
+import nextConfig from '../next.config.mjs'
 
 test('1. Support Email & Mailto URL Generation', () => {
   assert.ok(SUPPORT_EMAIL.includes('baserabook.team@gmail.com'), 'Support email must default to baserabook.team@gmail.com')
@@ -1534,5 +1536,39 @@ test('38. Payment Details Form Validation & Reminder Protection Barrier', () => 
   assert.ok(!smsWithBadData.includes('Pay link:'), 'SMS must omit invalid payment link')
 })
 
+test('39. Technical SEO: Canonical Invariant, Vercel Subdomain Redirect, and Metadata Integrity', async () => {
+  // Invariant 1: Preferred canonical domain is strictly https://baserabook.in
+  assert.strictEqual(CANONICAL_SITE_URL, 'https://baserabook.in')
 
+  // Invariant 2: getSiteUrl() unconditionally returns https://baserabook.in
+  assert.strictEqual(getSiteUrl(), 'https://baserabook.in')
 
+  // Invariant 3: getSiteUrl() rejects Vercel subdomains
+  const originalVercel = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  process.env.VERCEL_PROJECT_PRODUCTION_URL = 'pg-management-saas-development-rose.vercel.app'
+  assert.strictEqual(getSiteUrl(), 'https://baserabook.in', 'Must resist vercel.app environment variables')
+  if (originalVercel) {
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = originalVercel
+  } else {
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL
+  }
+
+  // Invariant 4: constructMetadata sets canonical correctly
+  const rootMeta = constructMetadata({ title: 'Home', description: 'Test' })
+  assert.strictEqual(rootMeta.alternates?.canonical, 'https://baserabook.in/')
+  assert.strictEqual(rootMeta.openGraph?.url, 'https://baserabook.in/')
+
+  const subMeta = constructMetadata({ title: 'Pricing', description: 'Test', path: '/pricing' })
+  assert.strictEqual(subMeta.alternates?.canonical, 'https://baserabook.in/pricing')
+  assert.strictEqual(subMeta.openGraph?.url, 'https://baserabook.in/pricing')
+
+  // Invariant 5: next.config.mjs redirects old Vercel subdomain to https://baserabook.in/:path*
+  assert.ok(typeof nextConfig.redirects === 'function', 'nextConfig must define redirects')
+  const redirects = await nextConfig.redirects()
+  const vercelRedirect = redirects.find((r) =>
+    r.has?.some((h) => h.type === 'host' && h.value === 'pg-management-saas-development-rose.vercel.app')
+  )
+  assert.ok(vercelRedirect, 'Must have a redirect for old Vercel deployment host')
+  assert.strictEqual(vercelRedirect.permanent, true, 'Redirect must be HTTP 308 permanent')
+  assert.strictEqual(vercelRedirect.destination, 'https://baserabook.in/:path*', 'Redirect must preserve paths to canonical domain')
+})

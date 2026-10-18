@@ -26,12 +26,12 @@ export const metadata: Metadata = {
     telephone: false,
   },
   alternates: {
-    canonical: baseUrl,
+    canonical: `${baseUrl}/`,
   },
   openGraph: {
     type: 'website',
     locale: 'en_IN',
-    url: baseUrl,
+    url: `${baseUrl}/`,
     siteName: 'BaseraBook Property Management SaaS',
     title: 'BaseraBook | Property Management Software & Rental Property Management',
     description:
