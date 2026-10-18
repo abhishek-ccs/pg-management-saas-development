@@ -115,9 +115,9 @@ export function PricingContent() {
         subscription_id: data.subscriptionId,
         name: 'BaseraBook',
         description:
-          planType === 'yearly'
-            ? 'Yearly Subscription — 7-Day Free Trial'
-            : 'Monthly Subscription — 7-Day Free Trial',
+          data.isTrial
+            ? (planType === 'yearly' ? 'Yearly Subscription — 7-Day Free Trial' : 'Monthly Subscription — 7-Day Free Trial')
+            : (planType === 'yearly' ? 'Yearly Subscription' : 'Monthly Subscription'),
         image: '/favicon.ico',
         prefill: {
           name: data.user?.name || '',

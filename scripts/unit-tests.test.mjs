@@ -1572,3 +1572,126 @@ test('39. Technical SEO: Canonical Invariant, Vercel Subdomain Redirect, and Met
   assert.strictEqual(vercelRedirect.permanent, true, 'Redirect must be HTTP 308 permanent')
   assert.strictEqual(vercelRedirect.destination, 'https://baserabook.in/:path*', 'Redirect must preserve paths to canonical domain')
 })
+
+test('40. Razorpay Subscription Activation: Trial Eligibility & Immediate Charge Invariants', () => {
+  // Helper implementing the exact business rules from /api/razorpay/create-subscription
+  function evaluateTrialEligibility(existingSub, nowMs = Date.now()) {
+    const trialEndMs = existingSub?.trial_end ? new Date(existingSub.trial_end).getTime() : 0
+    const hasActivePaidSub = existingSub?.status === 'active' || Boolean(existingSub?.razorpay_payment_id)
+    const isTrialExpired = (trialEndMs > 0 && trialEndMs <= nowMs) || existingSub?.status === 'expired'
+
+    let isTrialEligible = false
+    let startAt = null
+
+    if (!hasActivePaidSub && !isTrialExpired) {
+      if (!existingSub) {
+        // Brand new customer: eligible for full 7-day trial
+        isTrialEligible = true
+        startAt = Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60
+      } else if (existingSub.status === 'trialing' && trialEndMs > nowMs) {
+        const remainingSeconds = Math.floor((trialEndMs - nowMs) / 1000)
+        // Razorpay API requirement: start_at must be at least 15 minutes (900s) in the future
+        if (remainingSeconds >= 900) {
+          isTrialEligible = true
+          startAt = Math.floor(trialEndMs / 1000)
+        }
+      }
+    }
+
+    const payload = {
+      plan_id: 'plan_123',
+      total_count: 120,
+      quantity: 1,
+    }
+
+    if (isTrialEligible && startAt) {
+      payload.start_at = startAt
+    }
+
+    const pendingStatus =
+      existingSub?.status === 'active'
+        ? 'active'
+        : isTrialEligible
+        ? 'trialing'
+        : (existingSub?.status || 'expired')
+
+    return { isTrialEligible, startAt, payload, pendingStatus }
+  }
+
+  const now = Date.now()
+
+  // Case 1: Expired trial customer (trial_end was yesterday)
+  const expiredSub = {
+    status: 'trialing',
+    trial_start: new Date(now - 8 * 86400000).toISOString(),
+    trial_end: new Date(now - 1 * 86400000).toISOString(),
+    razorpay_subscription_id: null,
+  }
+  const resExpired = evaluateTrialEligibility(expiredSub, now)
+  assert.strictEqual(resExpired.isTrialEligible, false, 'Expired customer must NOT be eligible for trial')
+  assert.strictEqual(resExpired.payload.start_at, undefined, 'start_at MUST NOT be set for expired customers (must charge immediately)')
+  assert.strictEqual(resExpired.pendingStatus, 'trialing', 'Pre-save pending status must NOT be active before payment')
+
+  // Case 2: Explicitly expired status
+  const explicitExpiredSub = {
+    status: 'expired',
+    trial_end: new Date(now - 2 * 86400000).toISOString(),
+  }
+  const resExplicit = evaluateTrialEligibility(explicitExpiredSub, now)
+  assert.strictEqual(resExplicit.isTrialEligible, false)
+  assert.strictEqual(resExplicit.payload.start_at, undefined, 'start_at must be omitted')
+  assert.strictEqual(resExplicit.pendingStatus, 'expired', 'Must preserve expired status until verified')
+
+  // Case 3: Already active paid customer switching/renewing
+  const activePaidSub = {
+    status: 'active',
+    razorpay_payment_id: 'pay_123',
+    razorpay_subscription_id: 'sub_old',
+  }
+  const resActivePaid = evaluateTrialEligibility(activePaidSub, now)
+  assert.strictEqual(resActivePaid.isTrialEligible, false, 'Active paid customer must NOT get a free trial')
+  assert.strictEqual(resActivePaid.payload.start_at, undefined, 'Must charge immediately')
+
+  // Case 4: Brand new customer (no subscription record yet)
+  const resNew = evaluateTrialEligibility(null, now)
+  assert.strictEqual(resNew.isTrialEligible, true, 'Brand new customer is eligible for 7-day trial')
+  assert.ok(resNew.payload.start_at, 'start_at must be set for new customer')
+  assert.strictEqual(resNew.payload.start_at, Math.floor(now / 1000) + 7 * 86400)
+  assert.strictEqual(resNew.pendingStatus, 'trialing')
+
+  // Case 5: Active unexpired trial customer (signed up 2 days ago, 5 days remaining)
+  const activeTrialSub = {
+    status: 'trialing',
+    trial_start: new Date(now - 2 * 86400000).toISOString(),
+    trial_end: new Date(now + 5 * 86400000).toISOString(),
+  }
+  const resActiveTrial = evaluateTrialEligibility(activeTrialSub, now)
+  assert.strictEqual(resActiveTrial.isTrialEligible, true, 'Unexpired trial user is eligible')
+  assert.strictEqual(resActiveTrial.payload.start_at, Math.floor(new Date(activeTrialSub.trial_end).getTime() / 1000), 'start_at must preserve remaining trial end date')
+
+  // Case 6: Trial about to expire in 5 minutes (<15 min Razorpay constraint)
+  const nearExpirySub = {
+    status: 'trialing',
+    trial_end: new Date(now + 5 * 60 * 1000).toISOString(),
+  }
+  const resNearExpiry = evaluateTrialEligibility(nearExpirySub, now)
+  assert.strictEqual(resNearExpiry.payload.start_at, undefined, 'Must omit start_at when < 15 mins left to comply with Razorpay API')
+
+  // Case 7: Verification status mapping
+  function mapVerifiedStatus(rzpStatus) {
+    if (rzpStatus !== 'active' && rzpStatus !== 'authenticated') {
+      return { allowed: false, error: 'Non-activatable status: ' + rzpStatus }
+    }
+    return {
+      allowed: true,
+      status: rzpStatus === 'active' ? 'active' : 'trialing',
+      clearTrialEnd: rzpStatus === 'active',
+    }
+  }
+
+  assert.deepStrictEqual(mapVerifiedStatus('active'), { allowed: true, status: 'active', clearTrialEnd: true })
+  assert.deepStrictEqual(mapVerifiedStatus('authenticated'), { allowed: true, status: 'trialing', clearTrialEnd: false })
+  assert.strictEqual(mapVerifiedStatus('created').allowed, false)
+  assert.strictEqual(mapVerifiedStatus('pending').allowed, false)
+  assert.strictEqual(mapVerifiedStatus('halted').allowed, false)
+})

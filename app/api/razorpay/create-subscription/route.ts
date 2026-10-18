@@ -35,15 +35,31 @@ export async function POST(req: NextRequest) {
       .eq('owner_id', user.id)
       .maybeSingle()
 
-    // If customer already has an active paid subscription, they do not qualify for a second free trial
-    const isAlreadyPaid = existingSub?.status === 'active' && existingSub?.razorpay_subscription_id
-    const isTrialEligible = !isAlreadyPaid
+    const nowMs = Date.now()
+    const trialEndMs = existingSub?.trial_end ? new Date(existingSub.trial_end).getTime() : 0
+    const hasActivePaidSub = existingSub?.status === 'active' || Boolean(existingSub?.razorpay_payment_id)
+    const isTrialExpired = (trialEndMs > 0 && trialEndMs <= nowMs) || existingSub?.status === 'expired'
 
-    // Razorpay Subscriptions: start_at sets the first charge date.
-    // When start_at is in the future, Checkout performs recurring authorization (mandate setup)
-    // without charging the first full recurring payment until the trial expires.
-    const trialDays = 7
-    const startAt = Math.floor(Date.now() / 1000) + trialDays * 24 * 60 * 60
+    // Free trial eligibility law:
+    // - Customers whose trial has expired or who already had a paid subscription must be charged immediately.
+    // - Eligible new customers (or active unexpired trial users) preserve their 7-day trial before the first recurring charge.
+    let isTrialEligible = false
+    let startAt: number | null = null
+
+    if (!hasActivePaidSub && !isTrialExpired) {
+      if (!existingSub) {
+        // Brand new customer: eligible for full 7-day trial
+        isTrialEligible = true
+        startAt = Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60
+      } else if (existingSub.status === 'trialing' && trialEndMs > nowMs) {
+        const remainingSeconds = Math.floor((trialEndMs - nowMs) / 1000)
+        // Razorpay API requirement: start_at must be at least 15 minutes (900s) in the future
+        if (remainingSeconds >= 900) {
+          isTrialEligible = true
+          startAt = Math.floor(trialEndMs / 1000)
+        }
+      }
+    }
 
     const subscriptionPayload: any = {
       plan_id: planId,
@@ -58,7 +74,10 @@ export async function POST(req: NextRequest) {
       },
     }
 
-    if (isTrialEligible) {
+    // Only pass start_at for customers eligible for trial.
+    // For expired trial customers, omitting start_at charges the first payment immediately
+    // during Checkout, transitioning the subscription to 'active' rather than 'authenticated'.
+    if (isTrialEligible && startAt) {
       subscriptionPayload.start_at = startAt
     }
 
@@ -66,20 +85,28 @@ export async function POST(req: NextRequest) {
     const subscription: any = await razorpay.subscriptions.create(subscriptionPayload)
 
     // 5. Track pending subscription in database via service-role admin client
+    // Security & lifecycle invariant: NEVER prematurely mark status as 'active' before payment is verified.
     try {
       const admin = await createAdminClient()
+      const pendingStatus =
+        existingSub?.status === 'active'
+          ? 'active'
+          : isTrialEligible
+          ? 'trialing'
+          : (existingSub?.status || 'expired')
+
       const updateData: Record<string, any> = {
         owner_id: user.id,
         plan: planType,
-        status: isTrialEligible ? 'trialing' : 'active',
+        status: pendingStatus,
         razorpay_subscription_id: subscription.id,
         razorpay_plan_id: planId,
         updated_at: new Date().toISOString(),
       }
 
-      if (isTrialEligible) {
+      if (!existingSub && isTrialEligible && startAt) {
         updateData.trial_start = new Date().toISOString()
-        updateData.trial_end = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000).toISOString()
+        updateData.trial_end = new Date(startAt * 1000).toISOString()
       }
 
       const { error: upsertErr } = await admin
@@ -92,7 +119,7 @@ export async function POST(req: NextRequest) {
           {
             owner_id: user.id,
             plan: planType,
-            status: isTrialEligible ? 'trialing' : 'active',
+            status: pendingStatus,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'owner_id' }

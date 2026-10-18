@@ -132,6 +132,17 @@ export async function POST(req: NextRequest) {
             ).toISOString()
           }
 
+          if (newStatus === 'active') {
+            updateData.trial_end = null
+          } else if (newStatus === 'trialing' && subscriptionEntity?.start_at) {
+            updateData.trial_end = new Date(subscriptionEntity.start_at * 1000).toISOString()
+          }
+
+          const paymentId = payload.payload?.payment?.entity?.id
+          if (paymentId) {
+            updateData.razorpay_payment_id = paymentId
+          }
+
           const { error: updateErr } = await admin
             .from('subscriptions')
             .update(updateData)

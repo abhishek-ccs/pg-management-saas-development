@@ -665,11 +665,22 @@ export default function DashboardPage() {
 
             const verifyData = await verifyRes.json()
             if (verifyRes.ok && verifyData.success) {
-              setSubscriptionStatus(verifyData.status || 'active')
-              setSubscriptionPlan(verifyData.plan || dashboardBillingCycle)
-              setIsTrialExpired(false)
-              setShowPricingModal(false)
-              flash('🎉 Subscription activated successfully!')
+              if (verifyData.status === 'active') {
+                setSubscriptionStatus('active')
+                setSubscriptionPlan(verifyData.plan || dashboardBillingCycle)
+                setIsTrialExpired(false)
+                setTrialEnd(null)
+                setShowPricingModal(false)
+                flash('🎉 Subscription activated successfully!')
+              } else if (verifyData.status === 'trialing') {
+                setSubscriptionStatus('trialing')
+                setSubscriptionPlan(verifyData.plan || dashboardBillingCycle)
+                setIsTrialExpired(false)
+                setShowPricingModal(false)
+                flash('✔ Subscription mandate authorized! Your first payment will start when your trial concludes.')
+              } else {
+                flash(verifyData.error || `Subscription status is ${verifyData.status}.`)
+              }
             } else {
               flash(verifyData.error || 'Payment received, but server verification could not be confirmed.')
             }
@@ -765,9 +776,13 @@ export default function DashboardPage() {
           setTrialEnd(subRes.data.trial_end || null)
           setSubscriptionStatus(subRes.data.status || 'trialing')
           setSubscriptionPlan(subRes.data.plan || 'trial')
-          if (subRes.data.trial_end) {
+          if (subRes.data.status === 'active') {
+            setIsTrialExpired(false)
+          } else if (subRes.data.status === 'expired') {
+            setIsTrialExpired(true)
+          } else if (subRes.data.trial_end) {
             const remainingMs = new Date(subRes.data.trial_end).getTime() - Date.now()
-            setIsTrialExpired(remainingMs <= 0 && subRes.data.status !== 'active')
+            setIsTrialExpired(remainingMs <= 0)
           }
         }
 

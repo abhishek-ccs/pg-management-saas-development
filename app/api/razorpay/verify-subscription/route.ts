@@ -89,12 +89,24 @@ export async function POST(req: NextRequest) {
 
     // 5. Update BaseraBook database status via service-role admin client
     const targetPlan = (planType || rzpSub.notes?.plan_type || 'monthly') as SubscriptionPlanType
-    const normalizedStatus =
-      rzpSub.status === 'active'
-        ? 'active'
-        : rzpSub.status === 'authenticated'
-        ? 'trialing'
-        : 'active'
+
+    // Security & Lifecycle check: Subscription must be confirmed active or authenticated
+    if (rzpSub.status !== 'active' && rzpSub.status !== 'authenticated') {
+      console.warn('Subscription in non-activatable status:', {
+        userId: user.id,
+        subscriptionId: razorpay_subscription_id,
+        rzpStatus: rzpSub.status,
+      })
+      return NextResponse.json(
+        {
+          error: `Subscription payment could not be confirmed. Status with payment provider: ${rzpSub.status}.`,
+          status: rzpSub.status,
+        },
+        { status: 400 }
+      )
+    }
+
+    const normalizedStatus = rzpSub.status === 'active' ? 'active' : 'trialing'
 
     const admin = await createAdminClient()
 
@@ -112,6 +124,13 @@ export async function POST(req: NextRequest) {
     }
     if (rzpSub.current_end) {
       updatePayload.current_period_end = new Date(rzpSub.current_end * 1000).toISOString()
+    }
+
+    // When subscription is active, customer is an active paid subscriber: clear trial_end
+    if (normalizedStatus === 'active') {
+      updatePayload.trial_end = null
+    } else if (normalizedStatus === 'trialing' && rzpSub.start_at) {
+      updatePayload.trial_end = new Date(rzpSub.start_at * 1000).toISOString()
     }
 
     const { error: dbError } = await admin
