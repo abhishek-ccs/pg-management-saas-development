@@ -27,9 +27,10 @@ export async function POST(req: NextRequest) {
     // 2. Parse and validate plan selection
     const body = await req.json().catch(() => ({}))
     const planType: SubscriptionPlanType = body.planType === 'yearly' ? 'yearly' : 'monthly'
+    const planTier: string = body.plan || body.planTier || 'growth'
 
     const keyId = process.env.RAZORPAY_KEY_ID
-    const planId = getRazorpayPlanId(planType)
+    const planId = getRazorpayPlanId(planType, planTier)
     const razorpay = getRazorpayInstance()
 
     // 3. Inspect existing subscription state in Supabase to determine trial eligibility
@@ -75,7 +76,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         user_email: user.email || '',
         plan_type: planType,
-        plan_tier: body.plan || 'growth',
+        plan_tier: planTier,
         app: 'BaseraBook',
       },
     }
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest) {
           ? 'trialing'
           : resolvedState.status
 
-      const targetPlan = body.plan || (planType === 'yearly' ? 'growth' : 'growth')
+      const targetPlan = planTier
 
       const updateData: Record<string, any> = {
         owner_id: user.id,

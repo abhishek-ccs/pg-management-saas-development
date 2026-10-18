@@ -4,18 +4,25 @@
  */
 
 export const PRICING_CONFIG = {
-  monthlyRate: 1699,
-  yearlyRate: 14999,
+  // Base entry rate (Starter: 1–2 properties)
+  monthlyRate: 1099,
+  yearlyRate: 9999,
+  // Growth tier rates (3–5 properties, recommended)
+  growthMonthlyRate: 1799,
+  growthYearlyRate: 17990,
+  // Business tier rates (6–9 properties)
+  businessMonthlyRate: 2799,
+  businessYearlyRate: 27990,
   currency: 'INR',
   currencySymbol: '₹',
   trialDays: 7,
 } as const
 
-// Calculations
-export const ANNUAL_TOTAL_ON_MONTHLY = PRICING_CONFIG.monthlyRate * 12 // ₹20,388
-export const ANNUAL_SAVINGS_AMOUNT = ANNUAL_TOTAL_ON_MONTHLY - PRICING_CONFIG.yearlyRate // ₹5,389
-export const ANNUAL_SAVINGS_PERCENT = Math.round((ANNUAL_SAVINGS_AMOUNT / ANNUAL_TOTAL_ON_MONTHLY) * 100) // 26%
-export const YEARLY_MONTHLY_EQUIVALENT = Math.round(PRICING_CONFIG.yearlyRate / 12) // ₹1,250
+// Calculations (Starter tier baseline savings)
+export const ANNUAL_TOTAL_ON_MONTHLY = PRICING_CONFIG.monthlyRate * 12 // ₹13,188
+export const ANNUAL_SAVINGS_AMOUNT = ANNUAL_TOTAL_ON_MONTHLY - PRICING_CONFIG.yearlyRate // ₹3,189
+export const ANNUAL_SAVINGS_PERCENT = Math.round((ANNUAL_SAVINGS_AMOUNT / ANNUAL_TOTAL_ON_MONTHLY) * 100) // 24%
+export const YEARLY_MONTHLY_EQUIVALENT = Math.round(PRICING_CONFIG.yearlyRate / 12) // ₹833
 
 export function formatINR(amount: number): string {
   return `₹${amount.toLocaleString('en-IN')}`

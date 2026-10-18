@@ -122,6 +122,10 @@ export async function POST(req: NextRequest) {
             updated_at: new Date().toISOString(),
           }
 
+          if (subscriptionEntity?.notes?.plan_tier) {
+            updateData.plan = subscriptionEntity.notes.plan_tier
+          }
+
           if (subscriptionEntity?.current_start) {
             updateData.current_period_start = new Date(
               subscriptionEntity.current_start * 1000

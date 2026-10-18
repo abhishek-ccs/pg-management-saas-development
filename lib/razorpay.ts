@@ -17,19 +17,45 @@ export function getRazorpayInstance(): Razorpay {
   })
 }
 
-export function getRazorpayPlanId(planType: SubscriptionPlanType): string {
-  const planId =
+export type SubscriptionTierType = 'starter' | 'growth' | 'business' | 'enterprise' | string
+
+export const KNOWN_RAZORPAY_PLAN_MAP: Record<string, string> = {
+  starter_monthly: 'plan_TpRGUMBC93C99j',
+  starter_yearly: 'plan_TpRGUbldZHOv7X',
+  growth_monthly: 'plan_TpRGUxerOQTJtX',
+  growth_yearly: 'plan_TpRGVTZfY46Jki',
+  business_monthly: 'plan_TpRGVuFWE8PB2H',
+  business_yearly: 'plan_TpRGW532F4cyqm',
+}
+
+export function getRazorpayPlanId(
+  planType: SubscriptionPlanType,
+  planTier: string = 'growth'
+): string {
+  const normalizedTier = (planTier || 'growth').toLowerCase().trim()
+  const key = `${normalizedTier}_${planType}`
+
+  // 1. Check specific tier environment variable (e.g. RAZORPAY_PLAN_STARTER_MONTHLY)
+  const envVarName = `RAZORPAY_PLAN_${normalizedTier.toUpperCase()}_${planType.toUpperCase()}`
+  const envPlanId = process.env[envVarName]
+  if (envPlanId) return envPlanId
+
+  // 2. Check known static map for active Razorpay plans
+  if (KNOWN_RAZORPAY_PLAN_MAP[key]) {
+    return KNOWN_RAZORPAY_PLAN_MAP[key]
+  }
+
+  // 3. Fallback to general monthly/yearly environment variable for backward compatibility
+  const generalPlanId =
     planType === 'yearly'
       ? process.env.RAZORPAY_YEARLY_PLAN_ID
       : process.env.RAZORPAY_MONTHLY_PLAN_ID
 
-  if (!planId) {
-    throw new Error(
-      `Missing Razorpay plan ID for ${planType} subscription. Please set RAZORPAY_${planType.toUpperCase()}_PLAN_ID.`
-    )
-  }
+  if (generalPlanId) return generalPlanId
 
-  return planId
+  throw new Error(
+    `Missing Razorpay plan ID for ${normalizedTier} (${planType}) subscription. Please set ${envVarName}.`
+  )
 }
 
 /**

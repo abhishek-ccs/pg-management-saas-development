@@ -378,7 +378,7 @@ export function AdminCustomerControls({
                     <span className="capitalize">{tier} Plan</span>
                   </div>
                   <span className="text-[11px] text-[#85899a]">
-                    {tier === 'trial' ? '₹0 / 7 days' : tier === 'monthly' ? '₹1,699 / mo' : '₹14,999 / yr'}
+                    {tier === 'trial' ? '₹0 / 7 days' : tier === 'monthly' ? '₹1,099 / mo (Starter)' : '₹9,999 / yr (Starter)'}
                   </span>
                 </label>
               ))}

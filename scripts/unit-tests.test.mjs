@@ -52,16 +52,16 @@ test('1. Support Email & Mailto URL Generation', () => {
 })
 
 test('2. Canonical Pricing Math & Savings Law', () => {
-  assert.strictEqual(PRICING_CONFIG.monthlyRate, 1699, 'Monthly rate must be ₹1,699')
-  assert.strictEqual(PRICING_CONFIG.yearlyRate, 14999, 'Yearly rate must be ₹14,999')
-  assert.strictEqual(ANNUAL_TOTAL_ON_MONTHLY, 1699 * 12, '12 months should total ₹20,388')
-  assert.strictEqual(ANNUAL_SAVINGS_AMOUNT, 5389, 'Yearly savings must equal ₹5,389')
-  assert.strictEqual(ANNUAL_SAVINGS_PERCENT, 26, 'Savings percentage must equal 26%')
-  assert.strictEqual(YEARLY_MONTHLY_EQUIVALENT, 1250, 'Effective monthly rate must equal ₹1,250/mo')
+  assert.strictEqual(PRICING_CONFIG.monthlyRate, 1099, 'Monthly rate must be ₹1,099')
+  assert.strictEqual(PRICING_CONFIG.yearlyRate, 9999, 'Yearly rate must be ₹9,999')
+  assert.strictEqual(ANNUAL_TOTAL_ON_MONTHLY, 1099 * 12, '12 months should total ₹13,188')
+  assert.strictEqual(ANNUAL_SAVINGS_AMOUNT, 3189, 'Yearly savings must equal ₹3,189')
+  assert.strictEqual(ANNUAL_SAVINGS_PERCENT, 24, 'Savings percentage must equal 24%')
+  assert.strictEqual(YEARLY_MONTHLY_EQUIVALENT, 833, 'Effective monthly rate must equal ₹833/mo')
 
-  assert.equal(formatINR(14999), '₹14,999', 'formatINR should format with Indian thousands separator')
-  assert.ok(getSavingsLabel('en').includes('Save 26%'), 'English savings badge label')
-  assert.ok(getSavingsLabel('hi').includes('26% बचाएं'), 'Hindi savings badge label')
+  assert.equal(formatINR(9999), '₹9,999', 'formatINR should format with Indian thousands separator')
+  assert.ok(getSavingsLabel('en').includes('Save 24%'), 'English savings badge label')
+  assert.ok(getSavingsLabel('hi').includes('24% बचाएं'), 'Hindi savings badge label')
 })
 
 test('3. Real-Time Due Dates & Overdue Status Engine', () => {
@@ -737,16 +737,19 @@ test('21. BaseraBook Branding & Presentation Verification', () => {
 })
 
 test('22. Razorpay Subscription Pricing Invariants & Paise Amounts', () => {
-  const monthlyRate = 1699
-  const yearlyRate = 14999
-  const trialDays = 7
+  // Starter
+  assert.strictEqual(1099 * 100, 109900, 'Starter monthly must be 109,900 paise (₹1,099)')
+  assert.strictEqual(9999 * 100, 999900, 'Starter yearly must be 999,900 paise (₹9,999)')
 
-  const monthlyPaise = monthlyRate * 100
-  const yearlyPaise = yearlyRate * 100
+  // Growth
+  assert.strictEqual(1799 * 100, 179900, 'Growth monthly must be 179,900 paise (₹1,799)')
+  assert.strictEqual(17990 * 100, 1799000, 'Growth yearly must be 1,799,000 paise (₹17,990)')
 
-  assert.strictEqual(monthlyPaise, 169900, 'Monthly plan must be exactly 169,900 paise (₹1,699)')
-  assert.strictEqual(yearlyPaise, 1499900, 'Yearly plan must be exactly 1,499,900 paise (₹14,999)')
-  assert.strictEqual(trialDays, 7, 'Trial period must be exactly 7 days')
+  // Business
+  assert.strictEqual(2799 * 100, 279900, 'Business monthly must be 279,900 paise (₹2,799)')
+  assert.strictEqual(27990 * 100, 2799000, 'Business yearly must be 2,799,000 paise (₹27,990)')
+
+  assert.strictEqual(PRICING_CONFIG.trialDays, 7, 'Trial period must be exactly 7 days')
 })
 
 test('23. Razorpay Subscription Payment Signature Verification', () => {
@@ -1969,4 +1972,66 @@ test('44. Dedicated About Us Page: Metadata, Canonical URL & Footer Navigation',
   assert.ok(aboutEntry, 'Sitemap must contain https://baserabook.in/about entry')
   assert.strictEqual(aboutEntry.priority, 0.8)
 })
+
+test('45. 4-Tier Pricing Across Website, Dashboard, Backend & Checkout', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const { getRazorpayPlanId, KNOWN_RAZORPAY_PLAN_MAP } = await import('../lib/razorpay.ts')
+  const { PLAN_PROPERTY_LIMITS } = await import('../lib/subscription.ts')
+
+  // 1. Verify exact 4 plans exist with exact prices and property limits
+  assert.strictEqual(PRICING_PLANS.length, 4, 'Must have exactly 4 plans')
+  const [starter, growth, business, enterprise] = PRICING_PLANS
+
+  // Starter
+  assert.strictEqual(starter.name, 'Starter')
+  assert.strictEqual(starter.propertyLimit, '1–2 properties')
+  assert.strictEqual(starter.monthlyPrice, 1099)
+  assert.strictEqual(starter.yearlyPrice, 9999)
+  assert.strictEqual(starter.annualSavings, 3189)
+
+  // Growth
+  assert.strictEqual(growth.name, 'Growth')
+  assert.strictEqual(growth.propertyLimit, '3–5 properties')
+  assert.strictEqual(growth.monthlyPrice, 1799)
+  assert.strictEqual(growth.yearlyPrice, 17990)
+  assert.strictEqual(growth.annualSavings, 3598)
+  assert.strictEqual(growth.popular, true)
+
+  // Business
+  assert.strictEqual(business.name, 'Business')
+  assert.strictEqual(business.propertyLimit, '6–9 properties')
+  assert.strictEqual(business.monthlyPrice, 2799)
+  assert.strictEqual(business.yearlyPrice, 27990)
+  assert.strictEqual(business.annualSavings, 5598)
+
+  // Enterprise
+  assert.strictEqual(enterprise.name, 'Enterprise')
+  assert.strictEqual(enterprise.propertyLimit, '9+ properties')
+  assert.strictEqual(enterprise.monthlyPrice, null)
+  assert.strictEqual(enterprise.yearlyPrice, null)
+
+  // 2. Property limits in subscription system
+  assert.strictEqual(PLAN_PROPERTY_LIMITS.starter, 2)
+  assert.strictEqual(PLAN_PROPERTY_LIMITS.growth, 5)
+  assert.strictEqual(PLAN_PROPERTY_LIMITS.business, 9)
+  assert.strictEqual(PLAN_PROPERTY_LIMITS.enterprise, 999)
+
+  // 3. Razorpay plan ID resolution for all 3 billable tiers
+  assert.strictEqual(getRazorpayPlanId('monthly', 'starter'), KNOWN_RAZORPAY_PLAN_MAP.starter_monthly)
+  assert.strictEqual(getRazorpayPlanId('yearly', 'starter'), KNOWN_RAZORPAY_PLAN_MAP.starter_yearly)
+  assert.strictEqual(getRazorpayPlanId('monthly', 'growth'), KNOWN_RAZORPAY_PLAN_MAP.growth_monthly)
+  assert.strictEqual(getRazorpayPlanId('yearly', 'growth'), KNOWN_RAZORPAY_PLAN_MAP.growth_yearly)
+  assert.strictEqual(getRazorpayPlanId('monthly', 'business'), KNOWN_RAZORPAY_PLAN_MAP.business_monthly)
+  assert.strictEqual(getRazorpayPlanId('yearly', 'business'), KNOWN_RAZORPAY_PLAN_MAP.business_yearly)
+
+  // 4. Verify app/dashboard/page.tsx renders 4-tier pricing modal
+  const dashboardContent = fs.readFileSync(path.resolve('app/dashboard/page.tsx'), 'utf-8')
+  assert.ok(dashboardContent.includes('PRICING_PLANS.map'), 'Dashboard must map PRICING_PLANS')
+  assert.ok(dashboardContent.includes('handleUpgradePlan(plan.id)'), 'Dashboard buttons must pass target planId')
+  assert.ok(dashboardContent.includes('maxWidth="max-w-5xl"'), 'Pricing modal must use spacious max-w-5xl')
+  assert.ok(dashboardContent.includes('grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'), 'Modal must use mobile-first 1-column grid')
+  assert.ok(dashboardContent.includes('setDashboardBillingCycle'), 'Dashboard must support monthly/yearly toggle')
+})
+
 

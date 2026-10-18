@@ -42,7 +42,7 @@ const FAQ_ITEMS = [
   {
     category: 'Pricing & Trial',
     q: 'What happens when my free trial period concludes?',
-    a: `When your 7-day trial ends, all your properties, tenant profiles, and ledger history remain completely secure and intact. To continue creating new records and logging payments, you can activate either our Monthly plan (${formatINR(PRICING_CONFIG.monthlyRate)}/mo) or Annual plan (${formatINR(PRICING_CONFIG.yearlyRate)}/yr).`,
+    a: `When your 7-day trial ends, all your properties, tenant profiles, and ledger history remain completely secure and intact. To continue creating new records and logging payments, you can activate any of our plans: Starter (${formatINR(PRICING_CONFIG.monthlyRate)}/mo or ${formatINR(PRICING_CONFIG.yearlyRate)}/yr for 1–2 properties), Growth (${formatINR(PRICING_CONFIG.growthMonthlyRate)}/mo or ${formatINR(PRICING_CONFIG.growthYearlyRate)}/yr for 3–5 properties), or Business (${formatINR(PRICING_CONFIG.businessMonthlyRate)}/mo or ${formatINR(PRICING_CONFIG.businessYearlyRate)}/yr for 6–9 properties).`,
   },
   {
     category: 'Pricing & Trial',

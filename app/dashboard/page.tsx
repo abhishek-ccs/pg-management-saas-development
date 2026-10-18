@@ -28,6 +28,8 @@ import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { useI18n } from '@/lib/i18n'
 import {
   PRICING_CONFIG,
+  PRICING_PLANS,
+  type PricingPlan,
   formatINR,
   getSavingsLabel,
   ANNUAL_SAVINGS_PERCENT,
@@ -630,15 +632,27 @@ export default function DashboardPage() {
     })
   }
 
-  const handleUpgradePlan = async () => {
+  const handleUpgradePlan = async (targetPlanId: string = 'growth') => {
     if (isUpgradingSubscription) return
     setIsUpgradingSubscription(true)
 
     try {
+      const selectedPlanObj =
+        PRICING_PLANS.find((p) => p.id === targetPlanId) ||
+        PRICING_PLANS.find((p) => p.id === 'growth')!
+      const amount =
+        dashboardBillingCycle === 'yearly'
+          ? selectedPlanObj.yearlyPrice
+          : selectedPlanObj.monthlyPrice
+
       const res = await fetch('/api/razorpay/create-subscription', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planType: dashboardBillingCycle }),
+        body: JSON.stringify({
+          planType: dashboardBillingCycle,
+          plan: selectedPlanObj.id,
+          amount,
+        }),
       })
 
       const data = await res.json()
@@ -660,7 +674,7 @@ export default function DashboardPage() {
         key: data.keyId,
         subscription_id: data.subscriptionId,
         name: 'BaseraBook',
-        description: `Growth Pro (${dashboardBillingCycle === 'yearly' ? 'Yearly' : 'Monthly'})`,
+        description: `${selectedPlanObj.name} (${dashboardBillingCycle === 'yearly' ? 'Yearly' : 'Monthly'}) — ${formatINR(amount || 0)}`,
         image: '/favicon.ico',
         prefill: {
           name: userName || data.user?.name || '',
@@ -683,6 +697,7 @@ export default function DashboardPage() {
                 razorpay_subscription_id: paymentResponse.razorpay_subscription_id,
                 razorpay_signature: paymentResponse.razorpay_signature,
                 planType: dashboardBillingCycle,
+                plan: selectedPlanObj.id,
               }),
             })
 
@@ -690,15 +705,15 @@ export default function DashboardPage() {
             if (verifyRes.ok && verifyData.success) {
               if (verifyData.status === 'active') {
                 setSubscriptionStatus('active')
-                setSubscriptionPlan(verifyData.plan || dashboardBillingCycle)
+                setSubscriptionPlan(verifyData.plan || selectedPlanObj.id)
                 setIsTrialExpired(false)
                 setTrialEnd(null)
                 setShowPricingModal(false)
-                flash('🎉 Subscription activated successfully!')
+                flash(`🎉 ${selectedPlanObj.name} plan activated successfully!`)
                 void fetchDashboardData()
               } else if (verifyData.status === 'trialing') {
                 setSubscriptionStatus('trialing')
-                setSubscriptionPlan(verifyData.plan || dashboardBillingCycle)
+                setSubscriptionPlan(verifyData.plan || selectedPlanObj.id)
                 setIsTrialExpired(false)
                 setShowPricingModal(false)
                 flash('✔ Subscription mandate authorized! Your first payment will start when your trial concludes.')
@@ -3203,7 +3218,15 @@ export default function DashboardPage() {
                 <div className="mb-2 flex items-center justify-between">
                   <span className="flex items-center gap-1.5 font-bold text-[#236b4e]">
                     <CheckCircle2 className="size-3.5 text-[#236b4e]" />
-                    {subscriptionPlan === 'yearly' || subscriptionPlan === 'pro' ? 'Growth Pro (Yearly)' : 'Growth (Monthly)'}
+                    {subscriptionPlan === 'starter'
+                      ? 'Starter Plan'
+                      : subscriptionPlan === 'business'
+                      ? 'Business Plan'
+                      : subscriptionPlan === 'enterprise'
+                      ? 'Enterprise Plan'
+                      : subscriptionPlan === 'yearly' || subscriptionPlan === 'pro'
+                      ? 'Growth Plan (Yearly)'
+                      : 'Growth Plan (Monthly)'}
                   </span>
                   <span className="rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-2 py-0.5 text-[10px] font-bold text-[#236b4e]">
                     Active
@@ -5025,34 +5048,25 @@ export default function DashboardPage() {
 
       {/* 16. Subscription / Pricing Modal */}
       {showPricingModal && (
-        <Modal title="BaseraBook Subscription Plans" onClose={() => setShowPricingModal(false)}>
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <p className="text-xs text-[#74798a]">
-                Choose the plan that fits your property scale. Save with annual billing or switch anytime.
-              </p>
-              {/* Billing Cycle Toggle - Yearly as Default */}
-              <div className="inline-flex items-center self-start sm:self-auto rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-1 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setDashboardBillingCycle('yearly')}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all ${
-                    dashboardBillingCycle === 'yearly'
-                      ? 'bg-[#8b5a2b] text-white shadow-xs'
-                      : 'text-[#676b7d] hover:text-[#3d3934]'
-                  }`}
-                >
-                  Yearly
-                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${
-                    dashboardBillingCycle === 'yearly' ? 'bg-[#5f442b] text-[#f7d8ba]' : 'bg-[#eaf5ea] text-[#2e7d32]'
-                  }`}>
-                    Save {ANNUAL_SAVINGS_PERCENT}%
-                  </span>
-                </button>
+        <Modal
+          title="BaseraBook Subscription Plans"
+          maxWidth="max-w-5xl"
+          onClose={() => setShowPricingModal(false)}
+        >
+          <div className="space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#f0ebe3] pb-4">
+              <div>
+                <p className="text-xs sm:text-sm text-[#74798a]">
+                  Select the plan that matches your property scale. Upgrade or switch billing anytime.
+                </p>
+              </div>
+
+              {/* Monthly / Yearly Toggle */}
+              <div className="inline-flex items-center self-start sm:self-auto rounded-xl border border-[#e8dfd4] bg-[#faf7f2] p-1 text-xs shrink-0">
                 <button
                   type="button"
                   onClick={() => setDashboardBillingCycle('monthly')}
-                  className={`rounded-lg px-3 py-1.5 font-medium transition-all ${
+                  className={`rounded-lg px-3.5 py-1.5 font-bold transition-all cursor-pointer ${
                     dashboardBillingCycle === 'monthly'
                       ? 'bg-[#8b5a2b] text-white shadow-xs'
                       : 'text-[#676b7d] hover:text-[#3d3934]'
@@ -5060,84 +5074,154 @@ export default function DashboardPage() {
                 >
                   Monthly
                 </button>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-5">
-                <h4 className="font-bold text-sm">7-Day Free Trial</h4>
-                <p className="text-2xl font-bold mt-1 text-[#8b5a2b]">
-                  ₹0<span className="text-xs font-normal text-[#85899a]"> / 7 days</span>
-                </p>
-                <p className="text-[11px] text-[#85899a] mt-0.5">No credit card required</p>
-                <ul className="mt-3 space-y-1.5 text-xs text-[#676b7d]">
-                  <li>✓ Up to 10 Rooms & Beds</li>
-                  <li>✓ Digital Rent Receipts</li>
-                  <li>✓ WhatsApp Reminders</li>
-                  <li>✓ Electricity Meter Logger</li>
-                </ul>
-              </div>
-
-              <div className="rounded-2xl border-2 border-[#8b5a2b] bg-[#faf7f2] p-5 relative">
-                <div className="absolute top-4 right-4">
-                  <span className="rounded-full bg-[#8b5a2b] px-2.5 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
-                    Recommended
+                <button
+                  type="button"
+                  onClick={() => setDashboardBillingCycle('yearly')}
+                  className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 font-bold transition-all cursor-pointer ${
+                    dashboardBillingCycle === 'yearly'
+                      ? 'bg-[#8b5a2b] text-white shadow-xs'
+                      : 'text-[#676b7d] hover:text-[#3d3934]'
+                  }`}
+                >
+                  Yearly
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${
+                      dashboardBillingCycle === 'yearly'
+                        ? 'bg-[#5f442b] text-[#f7d8ba]'
+                        : 'bg-[#eaf5ea] text-[#2e7d32]'
+                    }`}
+                  >
+                    Save up to ₹5,598/yr
                   </span>
-                </div>
-                <h4 className="font-bold text-sm">Growth Pro</h4>
-                {dashboardBillingCycle === 'yearly' ? (
-                  <div>
-                    <p className="text-2xl font-bold mt-1 text-[#8b5a2b]">
-                      {formatINR(PRICING_CONFIG.yearlyRate)}
-                      <span className="text-xs font-normal text-[#85899a]"> / year</span>
-                    </p>
-                    <p className="text-[11px] font-semibold text-[#2e7d32] mt-0.5">
-                      Save ₹{ANNUAL_SAVINGS_AMOUNT.toLocaleString('en-IN')}/yr (Effective ₹{YEARLY_MONTHLY_EQUIVALENT.toLocaleString('en-IN')}/mo)
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <p className="text-2xl font-bold mt-1 text-[#8b5a2b]">
-                      {formatINR(PRICING_CONFIG.monthlyRate)}
-                      <span className="text-xs font-normal text-[#85899a]"> / month</span>
-                    </p>
-                    <p className="text-[11px] text-[#85899a] mt-0.5">Billed monthly</p>
-                  </div>
-                )}
-                <ul className="mt-3 space-y-1.5 text-xs text-[#676b7d]">
-                  <li>✓ Unlimited Rooms, Beds & Residents</li>
-                  <li>✓ Full Owner Ledger & Soft Deletes</li>
-                  <li>✓ 1-Click WhatsApp & SMS Reminders</li>
-                  <li>✓ Real-Time Overdue Status Badges</li>
-                  <li>
-                    ✓ Priority Support:{' '}
-                    <a
-                      href="mailto:baserabook.team@gmail.com"
-                      className="font-medium text-[#8b5a2b] hover:underline"
-                    >
-                      {SUPPORT_EMAIL}
-                    </a>
-                  </li>
-                </ul>
+                </button>
               </div>
             </div>
 
-            <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <a
-                href={getMailtoSupport('Subscription Inquiry')}
-                className="text-xs font-medium text-[#8b5a2b] hover:underline"
-              >
-                Questions? Email {SUPPORT_EMAIL}
-              </a>
+            {/* 4 Cards Grid - Fully mobile responsive: 1 col on mobile, 2 on tablet, 4 on desktop */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
+              {PRICING_PLANS.map((plan) => {
+                const isYearly = dashboardBillingCycle === 'yearly'
+                const price = isYearly ? plan.yearlyPrice : plan.monthlyPrice
+                const formattedPrice = price !== null ? formatINR(price) : 'Custom'
+                const periodLabel = isYearly ? '/year' : '/month'
+                const isCurrentPlan =
+                  subscriptionStatus === 'active' &&
+                  (subscriptionPlan === plan.id ||
+                    (plan.id === 'growth' &&
+                      (subscriptionPlan === 'yearly' || subscriptionPlan === 'pro')))
+
+                return (
+                  <div
+                    key={plan.id}
+                    className={`flex flex-col justify-between rounded-2xl p-4 sm:p-5 transition-all ${
+                      plan.popular
+                        ? 'border-2 border-[#8b5a2b] bg-[#fffdfa] shadow-md relative'
+                        : 'border border-[#e8dfd4] bg-[#faf7f2] hover:border-[#d8c2aa]'
+                    }`}
+                  >
+                    <div>
+                      {plan.popular && (
+                        <div className="mb-2">
+                          <span className="inline-block rounded-full bg-[#8b5a2b] px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                            Most Popular
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-bold text-base text-[#2c221e]">{plan.name}</h4>
+                      </div>
+
+                      <p className="text-xs font-semibold text-[#8b5a2b] mt-0.5">
+                        {plan.propertyLimit}
+                      </p>
+
+                      <div className="mt-3 mb-2">
+                        {price !== null ? (
+                          <div>
+                            <p className="text-2xl font-extrabold text-[#2c221e] tracking-tight">
+                              {formattedPrice}
+                              <span className="text-xs font-normal text-[#85899a]"> {periodLabel}</span>
+                            </p>
+                            {isYearly && plan.annualSavings ? (
+                              <p className="text-[11px] font-semibold text-[#2e7d32] mt-0.5">
+                                Save {formatINR(plan.annualSavings)}/yr
+                              </p>
+                            ) : (
+                              <p className="text-[11px] text-[#85899a] mt-0.5">Billed monthly</p>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-2xl font-extrabold text-[#2c221e] tracking-tight">
+                              Custom pricing
+                            </p>
+                            <p className="text-[11px] text-[#85899a] mt-0.5">Tailored quote</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <ul className="mt-3 space-y-1.5 text-xs text-[#676b7d] border-t border-[#eee5db] pt-3">
+                        {plan.featuresEn.slice(0, 4).map((f) => (
+                          <li key={f} className="flex items-start gap-1.5">
+                            <span className="text-[#8b5a2b] font-bold shrink-0">✓</span>
+                            <span>{f}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-[#eee5db]">
+                      {plan.id === 'enterprise' ? (
+                        <a
+                          href={getMailtoSupport(
+                            'Enterprise Plan Inquiry',
+                            'Hello BaseraBook Team, I would like to inquire about the Enterprise tier for 9+ properties.'
+                          )}
+                          className="w-full block text-center rounded-xl border border-[#8b5a2b] bg-white px-4 py-2.5 text-xs font-bold text-[#8b5a2b] hover:bg-[#faf7f2] transition-colors"
+                        >
+                          Contact Us
+                        </a>
+                      ) : isCurrentPlan ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full rounded-xl bg-[#e5dfd8] px-4 py-2.5 text-xs font-bold text-[#7d756d] cursor-default"
+                        >
+                          Current Plan
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isUpgradingSubscription}
+                          onClick={() => handleUpgradePlan(plan.id)}
+                          className="w-full rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[#784b20] transition-colors disabled:opacity-60 cursor-pointer"
+                        >
+                          {isUpgradingSubscription ? 'Connecting...' : `Choose ${plan.name}`}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#74798a] border-t border-[#f0ebe3]">
+              <span>
+                Questions or need assistance? Email{' '}
+                <a
+                  href={getMailtoSupport('Subscription Help')}
+                  className="font-semibold text-[#8b5a2b] hover:underline"
+                >
+                  {SUPPORT_EMAIL}
+                </a>
+              </span>
               <button
                 type="button"
-                disabled={isUpgradingSubscription}
-                onClick={handleUpgradePlan}
-                className="rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors disabled:opacity-60 cursor-pointer"
+                onClick={() => setShowPricingModal(false)}
+                className="self-end sm:self-auto rounded-lg px-3 py-1.5 font-medium text-[#74798a] hover:text-[#3d3934] cursor-pointer"
               >
-                {isUpgradingSubscription
-                  ? 'Connecting to payment gateway...'
-                  : `Continue with Growth Pro (${dashboardBillingCycle === 'yearly' ? `${formatINR(PRICING_CONFIG.yearlyRate)}/yr` : `${formatINR(PRICING_CONFIG.monthlyRate)}/mo`})`}
+                Close
               </button>
             </div>
           </div>
@@ -8233,7 +8317,13 @@ function SettingsTab({
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 font-bold text-emerald-700">
                   <CheckCircle2 className="size-4 text-emerald-600" />
-                  Growth Pro Subscription
+                  {subscriptionPlan === 'starter'
+                    ? 'Starter Subscription'
+                    : subscriptionPlan === 'business'
+                    ? 'Business Subscription'
+                    : subscriptionPlan === 'enterprise'
+                    ? 'Enterprise Subscription'
+                    : 'Growth Subscription'}
                 </span>
                 <span className="rounded-md px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800">
                   Active
@@ -8436,10 +8526,10 @@ function Field({ label, name, placeholder, type = 'text', defaultValue, value, o
   )
 }
 
-function Modal({ title, onClose, children }: any) {
+function Modal({ title, onClose, children, maxWidth = 'max-w-lg' }: any) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-2.5 sm:p-4 backdrop-blur-xs overflow-y-auto">
-      <div className="w-full max-w-lg max-h-[92vh] flex flex-col rounded-2xl sm:rounded-3xl border border-[#e8dfd4] bg-white p-4 sm:p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto overflow-hidden">
+      <div className={`w-full ${maxWidth} max-h-[92vh] flex flex-col rounded-2xl sm:rounded-3xl border border-[#e8dfd4] bg-white p-4 sm:p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto overflow-hidden`}>
         <div className="mb-4 flex items-center justify-between border-b border-[#f0f1f4] pb-3 shrink-0">
           <h3 className="text-base font-bold text-[#3d3934]">{title}</h3>
           <button onClick={onClose} aria-label="Close modal" className="rounded-xl p-2 text-[#8b8fa0] hover:bg-[#f7f3ed] hover:text-[#3d3934] transition-colors">

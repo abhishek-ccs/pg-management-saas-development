@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Update BaseraBook database status via service-role admin client
-    const targetPlan = (planType || rzpSub.notes?.plan_type || 'monthly') as SubscriptionPlanType
+    const targetPlan = (body.plan || rzpSub.notes?.plan_tier || planType || rzpSub.notes?.plan_type || 'growth') as string
 
     // Security & Lifecycle check: Subscription must be confirmed active or authenticated
     if (rzpSub.status !== 'active' && rzpSub.status !== 'authenticated') {
