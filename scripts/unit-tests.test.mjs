@@ -1919,3 +1919,54 @@ test('43. Four-Tier Canonical Pricing Plans & Annual Savings Math', () => {
   assert.strictEqual(enterprise.yearlyPrice, null, 'Enterprise yearly must be custom')
   assert.strictEqual(enterprise.annualSavings, null)
 })
+
+test('44. Dedicated About Us Page: Metadata, Canonical URL & Footer Navigation', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  // 1. Verify app/about/page.tsx file existence and content
+  const aboutPath = path.resolve('app/about/page.tsx')
+  assert.ok(fs.existsSync(aboutPath), 'app/about/page.tsx must exist')
+  const aboutContent = fs.readFileSync(aboutPath, 'utf-8')
+
+  // Check key elements in content
+  assert.ok(aboutContent.includes('About BaseraBook'), 'Must contain About BaseraBook header')
+  assert.ok(aboutContent.includes('Our Mission'), 'Must include mission statement section')
+  assert.ok(aboutContent.includes('/signup'), 'Must include CTA link to /signup')
+  assert.ok(aboutContent.includes('PGs & Co-Living'), 'Must include PG accommodation coverage')
+  assert.ok(aboutContent.includes('Student & Working Hostels'), 'Must include hostel coverage')
+  assert.ok(aboutContent.includes('Rental Houses & Flats'), 'Must include rental house coverage')
+  assert.ok(aboutContent.includes('Apartments & Residential Units'), 'Must include apartment coverage')
+  assert.ok(aboutContent.includes('Automated Rent & Payment Tracking'), 'Must include rent tracking pillar')
+  assert.ok(aboutContent.includes('Transparent Electricity Sub-Meter Billing'), 'Must include electricity billing pillar')
+
+  // 2. Verify constructMetadata for /about
+  const metadata = constructMetadata({
+    title: 'About Us | BaseraBook Property Management Software',
+    description:
+      'Learn about BaseraBook — the modern property management SaaS built for PGs, hostels, rental houses, and apartments to streamline rent tracking, utility billing, receipts, and operations.',
+    path: '/about',
+  })
+
+  assert.strictEqual(metadata.title, 'About Us | BaseraBook Property Management Software')
+  assert.strictEqual(metadata.alternates?.canonical, 'https://baserabook.in/about', 'Canonical URL must strictly be https://baserabook.in/about')
+  assert.strictEqual(metadata.openGraph?.url, 'https://baserabook.in/about', 'OG URL must strictly be https://baserabook.in/about')
+  assert.strictEqual(metadata.robots?.index, true, 'Page must be indexable (robots.index: true)')
+  assert.strictEqual(metadata.robots?.follow, true, 'Page links must be followable (robots.follow: true)')
+
+  // 3. Verify PublicFooter contains About Us under Platform
+  const footerContent = fs.readFileSync(path.resolve('components/public/PublicFooter.tsx'), 'utf-8')
+  assert.ok(
+    footerContent.includes('href="/about"') && footerContent.includes('About Us'),
+    'PublicFooter must contain link to /about'
+  )
+
+  // 4. Verify sitemap includes /about
+  const sitemapModule = await import('../app/sitemap.ts')
+  const sitemapFn = sitemapModule.default || sitemapModule
+  const entries = sitemapFn()
+  const aboutEntry = entries.find((e) => e.url === 'https://baserabook.in/about')
+  assert.ok(aboutEntry, 'Sitemap must contain https://baserabook.in/about entry')
+  assert.strictEqual(aboutEntry.priority, 0.8)
+})
+

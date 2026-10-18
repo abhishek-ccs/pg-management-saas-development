@@ -1,7 +1,8 @@
 import type { MetadataRoute } from 'next'
+import { getSiteUrl } from '@/lib/site'
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://www.baserabook.in'
+  const baseUrl = getSiteUrl()
   const currentDate = new Date().toISOString()
 
   return [
@@ -19,6 +20,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
     {
       url: `${baseUrl}/features`,
+      lastModified: currentDate,
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: `${baseUrl}/about`,
       lastModified: currentDate,
       changeFrequency: 'monthly',
       priority: 0.8,

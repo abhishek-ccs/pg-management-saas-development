@@ -32,6 +32,11 @@ export function PublicFooter() {
             </p>
             <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
               <li>
+                <Link href="/about" className="transition-colors hover:text-white hover:underline">
+                  About Us
+                </Link>
+              </li>
+              <li>
                 <Link href="/features" className="transition-colors hover:text-white hover:underline">
                   Features Overview
                 </Link>
