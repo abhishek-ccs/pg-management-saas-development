@@ -77,7 +77,7 @@ export const PLANS: { trial: PlanTier; monthly: PlanTier; yearly: PlanTier } = {
     badgeEn: 'Flexible',
     badgeHi: 'लचीला',
     features: [
-      { textEn: 'Unlimited properties, rooms & beds', textHi: 'असीमित प्रॉपर्टी, कमरे और बिस्तर' },
+      { textEn: 'Up to 2 properties (rooms & beds included)', textHi: '2 प्रॉपर्टी तक (कमरे और बिस्तर शामिल)' },
       { textEn: 'Full rent ledger with soft-delete & restore', textHi: 'सॉफ्ट-डिलीट और पुनर्स्थापना के साथ बहीखाता' },
       { textEn: 'WhatsApp & SMS payment receipt sharing', textHi: 'व्हाट्सएप और एसएमएस रसीद साझाकरण' },
       { textEn: 'Real-time occupancy & collection analytics', textHi: 'वास्तविक समय में अधिभोग व आय रिपोर्ट' },

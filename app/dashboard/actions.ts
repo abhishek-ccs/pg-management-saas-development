@@ -2,6 +2,7 @@
 
 import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { isValidPhone } from '@/lib/validation'
+import { getOwnerEntitlements, type CustomerEntitlement } from '@/lib/subscription'
 
 export interface CreateTenantInput {
   name: string
@@ -802,6 +803,14 @@ export async function restoreTrashRecordAction(trashId: string): Promise<TrashAc
         return { success: false, error: `Could not restore resident: ${insertErr.message}` }
       }
     } else if (entityType === 'property') {
+      const entitlement = await getOwnerEntitlements(supabase, user.id)
+      if (!entitlement.canCreateProperty) {
+        return {
+          success: false,
+          error: `Cannot restore property: your subscription includes up to ${entitlement.maxProperties} properties (${entitlement.activePropertyCount}/${entitlement.maxProperties} currently active). Please upgrade your plan to restore this property.`,
+        }
+      }
+
       const propData = snapshot.property || snapshot
       const { error: insertErr } = await supabase.from('properties').upsert({
         ...propData,
@@ -989,5 +998,151 @@ export async function deleteExpenseAction(expenseId: string): Promise<{ success:
 export async function deletePaymentAction(paymentId: string): Promise<{ success: boolean; error?: string }> {
   const res = await moveToTrashAction({ entityType: 'payment', entityId: paymentId })
   return { success: res.success, error: res.error }
+}
+
+export interface CreatePropertyInput {
+  name: string
+  address?: string
+  contact?: string
+  city?: string
+  rules?: string
+  upiId?: string
+  paymentLink?: string
+  qrCodeUrl?: string
+}
+
+export interface PropertyActionResult {
+  success: boolean
+  error?: string
+  property?: any
+  entitlement?: CustomerEntitlement
+  code?: string
+}
+
+/**
+ * Server Action: Create Property
+ * Enforces authenticated owner isolation, authoritative subscription entitlement check,
+ * and maximum property limit (default 2 properties per subscription).
+ */
+export async function createPropertyAction(input: CreatePropertyInput): Promise<PropertyActionResult> {
+  try {
+    const supabase = await createClient()
+    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+
+    if (authErr || !user) {
+      return { success: false, error: 'Your session has expired. Please sign in again.' }
+    }
+
+    const name = input.name?.trim()
+    if (!name) {
+      return { success: false, error: 'Please provide a valid property name.' }
+    }
+
+    // Server-side Authoritative Entitlement Verification
+    const entitlement = await getOwnerEntitlements(supabase, user.id)
+    if (!entitlement.canCreateProperty) {
+      return {
+        success: false,
+        error: entitlement.reason || `Your plan allows up to ${entitlement.maxProperties} properties. Upgrade your plan to add more properties.`,
+        code: 'PROPERTY_LIMIT_REACHED',
+        entitlement,
+      }
+    }
+
+    const insertPayload: Record<string, any> = {
+      owner_id: user.id,
+      name,
+      address: input.address?.trim() || null,
+      contact_number: input.contact?.trim() || null,
+      city: input.city?.trim() || null,
+      rules: input.rules || null,
+      upi_id: input.upiId?.trim() || null,
+      payment_link: input.paymentLink?.trim() || null,
+      upi_qr_url: input.qrCodeUrl?.trim() || null,
+      updated_at: new Date().toISOString(),
+    }
+
+    const { data: newProp, error: insertErr } = await supabase
+      .from('properties')
+      .insert(insertPayload)
+      .select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url')
+      .single()
+
+    if (insertErr) {
+      if (insertErr.code === 'P0002' || insertErr.message?.includes('Property limit reached')) {
+        return {
+          success: false,
+          error: 'Property limit reached. Your subscription includes up to 2 properties. Please upgrade your plan to add more properties.',
+          code: 'PROPERTY_LIMIT_REACHED',
+        }
+      }
+      return { success: false, error: `Could not save property: ${insertErr.message}` }
+    }
+
+    return {
+      success: true,
+      property: newProp,
+      entitlement: {
+        ...entitlement,
+        activePropertyCount: entitlement.activePropertyCount + 1,
+        remainingPropertySlots: Math.max(0, entitlement.remainingPropertySlots - 1),
+        canCreateProperty: entitlement.activePropertyCount + 1 < entitlement.maxProperties,
+      },
+    }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to create property.' }
+  }
+}
+
+/**
+ * Server Action: Update Property
+ * Updates an existing property record with strict owner isolation.
+ */
+export async function updatePropertyAction(
+  propertyId: string,
+  input: CreatePropertyInput
+): Promise<PropertyActionResult> {
+  try {
+    const supabase = await createClient()
+    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+
+    if (authErr || !user) {
+      return { success: false, error: 'Your session has expired. Please sign in again.' }
+    }
+
+    const name = input.name?.trim()
+    if (!name) {
+      return { success: false, error: 'Please provide a valid property name.' }
+    }
+
+    const updatePayload: Record<string, any> = {
+      name,
+      address: input.address?.trim() || null,
+      contact_number: input.contact?.trim() || null,
+      city: input.city?.trim() || null,
+      rules: input.rules || null,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (input.upiId !== undefined) updatePayload.upi_id = input.upiId?.trim() || null
+    if (input.paymentLink !== undefined) updatePayload.payment_link = input.paymentLink?.trim() || null
+    if (input.qrCodeUrl !== undefined) updatePayload.upi_qr_url = input.qrCodeUrl?.trim() || null
+
+    const { data: updatedProp, error: updateErr } = await supabase
+      .from('properties')
+      .update(updatePayload)
+      .eq('id', propertyId)
+      .eq('owner_id', user.id)
+      .select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url')
+      .single()
+
+    if (updateErr) {
+      return { success: false, error: `Could not update property: ${updateErr.message}` }
+    }
+
+    return { success: true, property: updatedProp }
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to update property.' }
+  }
 }
 

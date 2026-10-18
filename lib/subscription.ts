@@ -35,6 +35,29 @@ export interface AuthoritativeSubscriptionState {
   activeRecord: SubscriptionRecord | null
 }
 
+export const DEFAULT_PROPERTY_LIMIT = 2
+
+export const PLAN_PROPERTY_LIMITS: Record<string, number> = {
+  trial: DEFAULT_PROPERTY_LIMIT,
+  monthly: DEFAULT_PROPERTY_LIMIT,
+  yearly: DEFAULT_PROPERTY_LIMIT,
+  starter: DEFAULT_PROPERTY_LIMIT,
+  growth: DEFAULT_PROPERTY_LIMIT,
+  pro: DEFAULT_PROPERTY_LIMIT,
+}
+
+export interface CustomerEntitlement {
+  hasPaidAccess: boolean
+  subscriptionStatus: 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired'
+  plan: string
+  maxProperties: number
+  activePropertyCount: number
+  remainingPropertySlots: number
+  canCreateProperty: boolean
+  isOverLimit: boolean
+  reason?: string
+}
+
 /**
  * Deterministically resolves the single authoritative subscription state for a customer.
  * 
@@ -134,6 +157,93 @@ export function resolveAuthoritativeSubscription(
     razorpayPaymentId: latest.razorpay_payment_id || null,
     activeRecord: latest,
   }
+}
+
+/**
+ * Resolves the centralized property entitlement for a customer based on their
+ * authoritative subscription state and existing active properties count.
+ */
+export function resolveCustomerEntitlements(
+  recordsOrState: AuthoritativeSubscriptionState | SubscriptionRecord[] | null | undefined,
+  activePropertyCount: number = 0,
+  nowMs: number = Date.now()
+): CustomerEntitlement {
+  const subState: AuthoritativeSubscriptionState =
+    recordsOrState && 'hasPaidAccess' in recordsOrState
+      ? (recordsOrState as AuthoritativeSubscriptionState)
+      : resolveAuthoritativeSubscription(recordsOrState as SubscriptionRecord[], nowMs)
+
+  const configuredLimit = PLAN_PROPERTY_LIMITS[subState.plan] || DEFAULT_PROPERTY_LIMIT
+  const safeCount = Math.max(0, activePropertyCount)
+
+  // RULE 1: If trial expired or no valid paid access, property creation is restricted
+  if (!subState.hasPaidAccess) {
+    return {
+      hasPaidAccess: false,
+      subscriptionStatus: subState.status,
+      plan: subState.plan,
+      maxProperties: configuredLimit,
+      activePropertyCount: safeCount,
+      remainingPropertySlots: 0,
+      canCreateProperty: false,
+      isOverLimit: safeCount > configuredLimit,
+      reason:
+        subState.status === 'expired'
+          ? 'Your 7-day free trial has expired. Please subscribe to add properties.'
+          : `Your subscription is currently ${subState.status}. Please activate your subscription to create new properties.`,
+    }
+  }
+
+  // RULE 2: Valid active subscription or unexpired trial
+  const remainingSlots = Math.max(0, configuredLimit - safeCount)
+  const canCreate = safeCount < configuredLimit
+
+  return {
+    hasPaidAccess: true,
+    subscriptionStatus: subState.status,
+    plan: subState.plan,
+    maxProperties: configuredLimit,
+    activePropertyCount: safeCount,
+    remainingPropertySlots: remainingSlots,
+    canCreateProperty: canCreate,
+    isOverLimit: safeCount > configuredLimit,
+    reason: canCreate
+      ? undefined
+      : safeCount > configuredLimit
+      ? `You are managing ${safeCount} properties, but your current plan includes ${configuredLimit} properties (${safeCount}/${configuredLimit} used). Please upgrade your plan for additional property capacity.`
+      : `Your current plan includes ${configuredLimit} properties (${safeCount}/${configuredLimit} used). Please upgrade your plan for additional property capacity.`,
+  }
+}
+
+/**
+ * Fetches the authoritative subscription and exact count of active properties
+ * for an owner from Supabase, returning their current entitlement.
+ */
+export async function getOwnerEntitlements(
+  supabaseClient: any,
+  ownerId: string,
+  nowMs: number = Date.now()
+): Promise<CustomerEntitlement> {
+  const [subRes, propCountRes] = await Promise.all([
+    supabaseClient
+      .from('subscriptions')
+      .select('*')
+      .eq('owner_id', ownerId)
+      .order('updated_at', { ascending: false }),
+    supabaseClient
+      .from('properties')
+      .select('id', { count: 'exact', head: true })
+      .eq('owner_id', ownerId),
+  ])
+
+  const subRecords = Array.isArray(subRes?.data)
+    ? subRes.data
+    : subRes?.data
+    ? [subRes.data]
+    : []
+
+  const propertyCount = typeof propCountRes?.count === 'number' ? propCountRes.count : 0
+  return resolveCustomerEntitlements(subRecords, propertyCount, nowMs)
 }
 
 /**

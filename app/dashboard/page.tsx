@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient, ensureFreshSession } from '@/lib/supabase/client'
-import { resolveAuthoritativeSubscription } from '@/lib/subscription'
+import { resolveAuthoritativeSubscription, resolveCustomerEntitlements, type CustomerEntitlement } from '@/lib/subscription'
 import {
+  createPropertyAction,
+  updatePropertyAction,
   createTenantAction,
   updateTenantAction,
   deleteTenantAction,
@@ -330,6 +332,26 @@ export default function DashboardPage() {
   const [properties, setProperties] = useState<Property[]>([])
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>('')
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null)
+
+  // Centralized Entitlement State
+  const entitlement: CustomerEntitlement = useMemo(() => {
+    return resolveCustomerEntitlements(
+      {
+        hasPaidAccess: subscriptionStatus === 'active' || (subscriptionStatus === 'trialing' && !isTrialExpired),
+        isTrialExpired,
+        status: subscriptionStatus as any,
+        plan: subscriptionPlan,
+        trialStart,
+        trialEnd,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        razorpaySubscriptionId: null,
+        razorpayPaymentId: null,
+        activeRecord: null,
+      },
+      properties.length
+    )
+  }, [subscriptionStatus, isTrialExpired, subscriptionPlan, trialStart, trialEnd, properties.length])
 
   // Active property derived helper
   const property: Property = useMemo(() => {
@@ -1165,60 +1187,53 @@ export default function DashboardPage() {
     try {
       let targetId = editingPropertyId
       let res
+
       if (targetId) {
-        res = await supabase
-          .from('properties')
-          .update({
-            name,
-            address,
-            contact_number: contact,
-            city,
-            rules: packedRules,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', targetId)
-          .eq('owner_id', userId)
-          .select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url')
-          .single()
+        res = await updatePropertyAction(targetId, {
+          name,
+          address,
+          contact,
+          city,
+          rules: packedRules,
+          upiId: ownerPaymentDetails?.upiId,
+          paymentLink: ownerPaymentDetails?.paymentLink,
+          qrCodeUrl: ownerPaymentDetails?.qrCodeUrl,
+        })
       } else {
-        res = await supabase
-          .from('properties')
-          .insert({
-            owner_id: userId,
-            name,
-            address,
-            contact_number: contact,
-            city,
-            rules: packedRules,
-            upi_id: ownerPaymentDetails?.upiId || null,
-            payment_link: ownerPaymentDetails?.paymentLink || null,
-            upi_qr_url: ownerPaymentDetails?.qrCodeUrl || null,
-            updated_at: new Date().toISOString(),
-          })
-          .select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url')
-          .single()
+        res = await createPropertyAction({
+          name,
+          address,
+          contact,
+          city,
+          rules: packedRules,
+          upiId: ownerPaymentDetails?.upiId,
+          paymentLink: ownerPaymentDetails?.paymentLink,
+          qrCodeUrl: ownerPaymentDetails?.qrCodeUrl,
+        })
       }
 
-      if (res.error) {
-        if (res.error.code === '23505' || res.error.message?.includes('uq_properties_owner')) {
-          flash('Multiple properties requires relaxing the database constraint. Run migration 20261001000001_safe_production_fixes.sql in your Supabase SQL editor.')
+      if (!res.success) {
+        if (res.code === 'PROPERTY_LIMIT_REACHED') {
+          flash(res.error || 'Property limit reached (2 properties included in plan). Please upgrade your plan.')
+          setShowPropertyModal(false)
+          setShowPricingModal(true)
         } else {
-          flash(`Could not save property: ${res.error.message || 'Database error'}`)
+          flash(res.error || 'Could not save property.')
         }
         return
       }
 
-      if (res.data) {
+      if (res.property) {
         const savedProp = {
-          id: res.data.id,
-          name: res.data.name,
-          address: res.data.address || '',
-          contact: res.data.contact_number || '',
-          city: res.data.city || '',
-          rules: res.data.rules || packedRules,
-          upi_id: res.data.upi_id || null,
-          payment_link: res.data.payment_link || null,
-          upi_qr_url: res.data.upi_qr_url || null,
+          id: res.property.id,
+          name: res.property.name,
+          address: res.property.address || '',
+          contact: res.property.contact_number || '',
+          city: res.property.city || '',
+          rules: res.property.rules || packedRules,
+          upi_id: res.property.upi_id || null,
+          payment_link: res.property.payment_link || null,
+          upi_qr_url: res.property.upi_qr_url || null,
         }
         if (targetId) {
           setProperties((prev) => prev.map((p) => (p.id === targetId ? savedProp : p)))
@@ -3288,8 +3303,13 @@ export default function DashboardPage() {
                     value={selectedPropertyId || property.id}
                     onChange={(e) => {
                       if (e.target.value === '__add_new__') {
-                        setEditingPropertyId(null)
-                        setShowPropertyModal(true)
+                        if (!entitlement.canCreateProperty) {
+                          flash(entitlement.reason || 'Property limit reached (2/2 used). Upgrade your plan to add more properties.')
+                          setShowPricingModal(true)
+                        } else {
+                          setEditingPropertyId(null)
+                          setShowPropertyModal(true)
+                        }
                       } else {
                         setSelectedPropertyId(e.target.value)
                       }
@@ -3301,7 +3321,9 @@ export default function DashboardPage() {
                         {p.name}
                       </option>
                     ))}
-                    <option value="__add_new__">+ Add Property...</option>
+                    <option value="__add_new__">
+                      {entitlement.canCreateProperty ? '+ Add Property...' : `+ Add Property (${entitlement.activePropertyCount}/${entitlement.maxProperties})`}
+                    </option>
                   </select>
                 </div>
               )}
@@ -3455,7 +3477,13 @@ export default function DashboardPage() {
               trialStart={trialStart}
               trialEnd={trialEnd}
               userName={userName}
+              entitlement={entitlement}
               onAddProperty={() => {
+                if (!entitlement.canCreateProperty) {
+                  flash(entitlement.reason || 'Property limit reached (2/2 used). Upgrade your plan to add more properties.')
+                  setShowPricingModal(true)
+                  return
+                }
                 setEditingPropertyId(null)
                 setShowPropertyModal(true)
               }}
@@ -3501,6 +3529,11 @@ export default function DashboardPage() {
               selectedPropertyId={selectedPropertyId}
               onSelectProperty={(id: string) => setSelectedPropertyId(id)}
               onAddProperty={() => {
+                if (!entitlement.canCreateProperty) {
+                  flash(entitlement.reason || 'Property limit reached (2/2 used). Upgrade your plan to add more properties.')
+                  setShowPricingModal(true)
+                  return
+                }
                 setEditingPropertyId(null)
                 setShowPropertyModal(true)
               }}
@@ -3512,6 +3545,8 @@ export default function DashboardPage() {
               roomsCount={currentPropertyRooms.length}
               tenantsCount={currentPropertyTenants.filter((t) => t.status !== 'Vacated').length}
               bedsCount={currentPropertyBeds.length}
+              entitlement={entitlement}
+              onViewPlans={() => setShowPricingModal(true)}
             />
           )}
 
@@ -3679,9 +3714,15 @@ export default function DashboardPage() {
               selectedPropertyId={selectedPropertyId || property.id}
               onSelectProperty={(id: string) => setSelectedPropertyId(id)}
               onAddProperty={() => {
+                if (!entitlement.canCreateProperty) {
+                  flash(entitlement.reason || 'Property limit reached (2/2 used). Upgrade your plan to add more properties.')
+                  setShowPricingModal(true)
+                  return
+                }
                 setEditingPropertyId(null)
                 setShowPropertyModal(true)
               }}
+              entitlement={entitlement}
               trialStart={trialStart}
               trialEnd={trialEnd}
               daysRemaining={daysRemaining}
@@ -3736,6 +3777,27 @@ export default function DashboardPage() {
             onClose={() => !isSavingProperty && setShowPropertyModal(false)}
           >
             <form onSubmit={handleSaveProperty} className="flex flex-col gap-4">
+              {!editTarget && !entitlement.canCreateProperty && (
+                <div className="rounded-xl border border-[#ffcfc7] bg-[#fff5f2] p-3 text-xs text-[#8c351e]">
+                  <div className="flex items-center gap-2 font-bold text-[#b95c3c] mb-1">
+                    <AlertTriangle className="size-4 shrink-0" />
+                    <span>Plan Property Limit Reached</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    {entitlement.reason || `Your current plan includes up to ${entitlement.maxProperties} properties (${entitlement.activePropertyCount}/${entitlement.maxProperties} in use). Upgrade your plan to add more properties.`}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPropertyModal(false)
+                      setShowPricingModal(true)
+                    }}
+                    className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-[#8b5a2b] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
+                  >
+                    Upgrade Plan
+                  </button>
+                </div>
+              )}
               <p className="text-xs text-[#74798a]">
                 Please fill in your rental property details. Required fields are marked (<span className="text-[#8b5a2b] font-bold">*</span>).
               </p>
@@ -3781,7 +3843,7 @@ export default function DashboardPage() {
                 />
               </div>
               <button
-                disabled={isSavingProperty}
+                disabled={isSavingProperty || (!editTarget && !entitlement.canCreateProperty)}
                 className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
               >
                 {isSavingProperty && <Loader2 className="size-4 animate-spin" />}
@@ -3789,6 +3851,8 @@ export default function DashboardPage() {
                   ? 'Saving Details...'
                   : editTarget
                   ? 'Save Property Details'
+                  : !entitlement.canCreateProperty
+                  ? 'Property Limit Reached (Upgrade Plan)'
                   : 'Create Property'}
               </button>
             </form>
@@ -5934,6 +5998,7 @@ function OverviewTab({
   onRecordPayment,
   onViewPlans,
   onNavigate,
+  entitlement,
 }: any) {
   // Time-of-day personalized greeting
   const hour = new Date().getHours()
@@ -6099,7 +6164,13 @@ function OverviewTab({
         <MetricCard
           label="Properties"
           value={propertiesCount}
-          note={propertiesCount > 1 ? `${propertiesCount} active locations` : '1 active location'}
+          note={
+            entitlement
+              ? `${propertiesCount} / ${entitlement.maxProperties} properties used`
+              : propertiesCount > 1
+              ? `${propertiesCount} active locations`
+              : '1 active location'
+          }
           Icon={Home}
           i={0}
         />
@@ -6315,24 +6386,82 @@ function PropertyTab({
   roomsCount,
   tenantsCount,
   bedsCount,
+  entitlement,
+  onViewPlans,
 }: any) {
   return (
     <div className="flex flex-col gap-6">
       {/* Top Header & Actions */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h2 className="text-xl font-bold tracking-tight text-[#3d3934]">Rental Properties</h2>
-          <p className="text-xs text-[#85899a]">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h2 className="text-xl font-bold tracking-tight text-[#3d3934]">Rental Properties</h2>
+            {entitlement && (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${
+                  !entitlement.canCreateProperty
+                    ? 'border border-[#f3d9b1] bg-[#fff4e5] text-[#b46b1a]'
+                    : 'border border-[#dcd3c5] bg-[#faf7f2] text-[#8b5a2b]'
+                }`}
+              >
+                <Building2 className="size-3.5" />
+                Properties: {entitlement.activePropertyCount} / {entitlement.maxProperties} used
+                {!entitlement.canCreateProperty && (
+                  <span className="rounded-full bg-[#b46b1a] text-white px-1.5 py-0.2 text-[10px]">
+                    Limit Reached
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-[#85899a] mt-1">
             Manage your properties, branches, and accommodation centers with isolated operational records.
           </p>
         </div>
-        <button
-          onClick={onAddProperty}
-          className="flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
-        >
-          <Plus className="size-4" /> Add New Property
-        </button>
+        <div className="flex items-center gap-2.5">
+          {entitlement && !entitlement.canCreateProperty && (
+            <button
+              onClick={onViewPlans}
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-[#d8c2aa] bg-[#faf7f2] px-3.5 py-2.5 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors"
+            >
+              <Sparkles className="size-3.5 text-[#8b5a2b]" /> Upgrade Plan
+            </button>
+          )}
+          <button
+            onClick={onAddProperty}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
+          >
+            <Plus className="size-4" /> Add New Property
+          </button>
+        </div>
       </div>
+
+      {/* Plan Property Limit Warning / Info Banner */}
+      {entitlement && !entitlement.canCreateProperty && (
+        <div className="rounded-2xl border border-[#f3d9b1] bg-[#fff9f0] p-4 text-xs text-[#8c571e]">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="size-4 shrink-0 text-[#b46b1a] mt-0.5" />
+              <div>
+                <p className="font-bold text-[#7a4812]">
+                  Subscription Property Limit: {entitlement.activePropertyCount} of {entitlement.maxProperties} slots in use
+                </p>
+                <p className="mt-0.5 text-[#8c571e]">
+                  {entitlement.isOverLimit
+                    ? `You currently have ${entitlement.activePropertyCount} active properties. All your existing properties, rooms, tenants, and payment records remain fully preserved and operational. Creating additional properties requires an upgraded subscription plan.`
+                    : `Your current subscription plan includes up to ${entitlement.maxProperties} properties. To create a third property or expand your portfolio, please upgrade your plan.`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onViewPlans}
+              className="self-start sm:self-center shrink-0 rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
+            >
+              Upgrade Plan
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Multiple Properties Switcher Cards (when owner has >1 properties) */}
       {properties.length > 1 && (
@@ -7804,6 +7933,7 @@ function SettingsTab({
   paymentSuccessMessage = '',
   onViewPlans,
   onSignOut,
+  entitlement,
 }: any) {
   const isPaymentConfigured = Boolean(
     (ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid) ||
@@ -8007,7 +8137,14 @@ function SettingsTab({
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-bold text-[#3d3934]">Properties & Locations</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-bold text-[#3d3934]">Properties & Locations</h3>
+              {entitlement && (
+                <span className="rounded-full bg-[#faf3ea] px-2.5 py-0.5 text-[11px] font-bold text-[#8b5a2b] border border-[#e8dfd4]">
+                  {entitlement.activePropertyCount} / {entitlement.maxProperties} Used
+                </span>
+              )}
+            </div>
             <p className="text-xs text-[#85899a]">
               Manage multi-branch hostels, apartments, societies, and PG properties.
             </p>
