@@ -1846,3 +1846,37 @@ test('41. Razorpay-to-BaseraBook Subscription Synchronization & Authority Engine
   assert.strictEqual(dashboardState.subscriptionStatus, 'active', 'Case 7: Dashboard refresh preserves active status')
   assert.strictEqual(dashboardState.isTrialExpired, false, 'Case 7: Dashboard refresh does not revert to expired')
 })
+
+test('42. Google Analytics 4: Measurement ID & CSP Allowlist Invariant', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  // Verify Root Layout has GA4 tag with exact Measurement ID G-9CQRHQFVSE
+  const layoutContent = fs.readFileSync(path.resolve('app/layout.tsx'), 'utf-8')
+  assert.ok(
+    layoutContent.includes('G-9CQRHQFVSE'),
+    'app/layout.tsx must contain Google Analytics Measurement ID G-9CQRHQFVSE'
+  )
+  assert.ok(
+    layoutContent.includes('https://www.googletagmanager.com/gtag/js?id=G-9CQRHQFVSE'),
+    'app/layout.tsx must load gtag.js with G-9CQRHQFVSE'
+  )
+  assert.ok(
+    layoutContent.includes("gtag('config', 'G-9CQRHQFVSE')"),
+    'app/layout.tsx must configure G-9CQRHQFVSE'
+  )
+
+  // Verify Security Headers CSP allows Google Analytics domains
+  const dummyRes = NextResponse.next()
+  const secureRes = applySecurityHeaders(dummyRes, '/')
+  const csp = secureRes.headers.get('Content-Security-Policy') || ''
+
+  assert.ok(
+    csp.includes('https://www.googletagmanager.com'),
+    'Content-Security-Policy must allow https://www.googletagmanager.com in script-src/img-src'
+  )
+  assert.ok(
+    csp.includes('https://*.google-analytics.com'),
+    'Content-Security-Policy must allow https://*.google-analytics.com in connect-src/img-src'
+  )
+})

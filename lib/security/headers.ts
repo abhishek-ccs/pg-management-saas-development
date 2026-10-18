@@ -10,11 +10,11 @@ export function applySecurityHeaders(response: NextResponse, pathname: string = 
   // 1. Strict Content Security Policy
   const cspHeader = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://checkout.razorpay.com https://js.stripe.com https://va.vercel-scripts.com",
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://checkout.razorpay.com https://js.stripe.com https://va.vercel-scripts.com https://www.googletagmanager.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' data: https://fonts.gstatic.com",
-    "img-src 'self' data: blob: https://*.supabase.co https://images.unsplash.com",
-    "connect-src 'self' https://*.supabase.co https://api.razorpay.com https://api.stripe.com https://*.sentry.io https://vitals.vercel-insights.com",
+    "img-src 'self' data: blob: https://*.supabase.co https://images.unsplash.com https://www.googletagmanager.com https://*.google-analytics.com",
+    "connect-src 'self' https://*.supabase.co https://api.razorpay.com https://api.stripe.com https://*.sentry.io https://vitals.vercel-insights.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
     "frame-src 'self' https://api.razorpay.com https://js.stripe.com",
     "object-src 'none'",
     "base-uri 'self'",

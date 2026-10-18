@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/next'
 import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner'
 import { StructuredData } from '@/components/seo/StructuredData'
@@ -91,6 +92,23 @@ export default function RootLayout({
         <StructuredData />
       </head>
       <body className="antialiased font-sans text-[#403a34] bg-[#fbf8f3]">
+        {/* Google tag (gtag.js) */}
+        <Script
+          strategy="afterInteractive"
+          src="https://www.googletagmanager.com/gtag/js?id=G-9CQRHQFVSE"
+        />
+        <Script
+          id="google-analytics"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', 'G-9CQRHQFVSE');
+            `,
+          }}
+        />
         {/* WCAG 2.2 AA: Skip to main content keyboard accessibility link */}
         <a
           href="#main-content"
