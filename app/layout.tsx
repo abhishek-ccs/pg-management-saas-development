@@ -4,10 +4,10 @@ import { Analytics } from '@vercel/analytics/next'
 import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner'
 import { StructuredData } from '@/components/seo/StructuredData'
 import { I18nProvider } from '@/lib/i18n'
-import { getSiteUrl, TARGET_KEYWORDS } from '@/lib/site'
+import { TARGET_KEYWORDS } from '@/lib/site'
 import './globals.css'
 
-const baseUrl = getSiteUrl()
+const baseUrl = 'https://www.baserabook.in'
 
 export const metadata: Metadata = {
   metadataBase: new URL(baseUrl),
