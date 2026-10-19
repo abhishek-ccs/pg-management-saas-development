@@ -102,6 +102,14 @@ export async function POST(req: NextRequest) {
       total_count: planType === 'yearly' ? 10 : 120, // 10 years or 120 months
       quantity: 1,
       customer_notify: 1,
+      ...(user.email
+        ? {
+            notify_info: {
+              notify_email: user.email.trim().toLowerCase(),
+              ...(customerPhone ? { notify_phone: customerPhone } : {}),
+            },
+          }
+        : {}),
       notes: {
         user_id: user.id,
         user_email: user.email || '',
@@ -123,15 +131,13 @@ export async function POST(req: NextRequest) {
     const subscription: any = await razorpay.subscriptions.create(subscriptionPayload)
 
     // 5. Track pending subscription in database via service-role admin client
-    // Security & lifecycle invariant: NEVER prematurely mark status as 'active' before payment is verified.
+    // Security & lifecycle invariant: NEVER prematurely mark status as 'active' or 'trialing' before
+    // payment/mandate authorization is verified server-side.
     try {
       const admin = await createAdminClient()
-      const pendingStatus =
-        resolvedState.status === 'active'
-          ? 'active'
-          : isTrialEligible
-          ? 'trialing'
-          : resolvedState.status
+      // Preserve existing active status if user already has an active subscription;
+      // otherwise, set status to 'created' (pending authorization).
+      const pendingStatus = resolvedState.status === 'active' ? 'active' : 'created'
 
       const targetPlan = planTier
 
@@ -142,11 +148,6 @@ export async function POST(req: NextRequest) {
         razorpay_subscription_id: subscription.id,
         razorpay_plan_id: planId,
         updated_at: new Date().toISOString(),
-      }
-
-      if ((!existingRows || existingRows.length === 0) && isTrialEligible && startAt) {
-        updateData.trial_start = new Date().toISOString()
-        updateData.trial_end = new Date(startAt * 1000).toISOString()
       }
 
       await persistSubscriptionToDatabase(admin, user.id, updateData)

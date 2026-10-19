@@ -140,6 +140,7 @@ export async function POST(req: NextRequest) {
           if (newStatus === 'active') {
             updateData.trial_end = null
           } else if (newStatus === 'trialing' && subscriptionEntity?.start_at) {
+            updateData.trial_start = new Date().toISOString()
             updateData.trial_end = new Date(subscriptionEntity.start_at * 1000).toISOString()
           }
 

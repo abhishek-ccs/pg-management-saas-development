@@ -24,7 +24,7 @@ export interface SubscriptionRecord {
 export interface AuthoritativeSubscriptionState {
   hasPaidAccess: boolean
   isTrialExpired: boolean
-  status: 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired'
+  status: 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired' | 'created'
   plan: 'monthly' | 'yearly' | 'pro' | 'growth' | 'starter' | 'trial' | string
   trialStart: string | null
   trialEnd: string | null
@@ -50,7 +50,7 @@ export const PLAN_PROPERTY_LIMITS: Record<string, number> = {
 
 export interface CustomerEntitlement {
   hasPaidAccess: boolean
-  subscriptionStatus: 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired'
+  subscriptionStatus: 'active' | 'trialing' | 'past_due' | 'canceled' | 'expired' | 'created'
   plan: string
   maxProperties: number
   activePropertyCount: number
@@ -145,11 +145,12 @@ export function resolveAuthoritativeSubscription(
   const latest = sorted[0]
   const isPastDue = latest.status === 'past_due'
   const isCanceled = latest.status === 'canceled'
+  const isCreated = latest.status === 'created'
 
   return {
     hasPaidAccess: false,
     isTrialExpired: true,
-    status: isPastDue ? 'past_due' : isCanceled ? 'canceled' : 'expired',
+    status: isPastDue ? 'past_due' : isCanceled ? 'canceled' : isCreated ? 'created' : 'expired',
     plan: latest.plan || 'trial',
     trialStart: latest.trial_start || null,
     trialEnd: latest.trial_end || null,
@@ -204,8 +205,14 @@ export function resolveTrialSchedule(
     }
   }
 
-  // Case 2: Brand new customer with zero prior subscription rows
-  if (!existingRows || existingRows.length === 0) {
+  // Filter out pending unconfirmed rows (e.g. status === 'created') when inspecting historical trials.
+  // If a user previously clicked checkout and abandoned without authorizing, they are still a brand new customer!
+  const confirmedRows = (existingRows || []).filter(
+    (r) => r.status && r.status !== 'created'
+  )
+
+  // Case 2: Brand new customer with zero confirmed subscription rows
+  if (confirmedRows.length === 0) {
     const startAt = Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60
     return {
       isTrialEligible: true,
@@ -280,7 +287,9 @@ export function resolveCustomerEntitlements(
       canCreateProperty: false,
       isOverLimit: safeCount > configuredLimit,
       reason:
-        subState.status === 'expired'
+        subState.status === 'created'
+          ? 'Please complete checkout authorization to activate your subscription.'
+          : subState.status === 'expired'
           ? 'Your 7-day free trial has expired. Please subscribe to add properties.'
           : `Your subscription is currently ${subState.status}. Please activate your subscription to create new properties.`,
     }

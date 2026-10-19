@@ -283,3 +283,175 @@ export async function sendOtpEmail({ to, otp, purpose, name, from, replyTo }: Se
   })
 }
 
+export interface SendSubscriptionEmailOptions {
+  to: string
+  customerName?: string
+  planName: string
+  billingInterval: 'month' | 'year' | 'monthly' | 'yearly'
+  amount: number
+  isTrial: boolean
+  trialEnd?: string | null
+  subscriptionId?: string
+  from?: string
+  replyTo?: string
+}
+
+/**
+ * Sends a direct customer-facing subscription confirmation email to the authenticated user's email.
+ * Dispatched immediately upon verified subscription or trial mandate authorization.
+ */
+export async function sendSubscriptionActivatedEmail({
+  to,
+  customerName,
+  planName,
+  billingInterval,
+  amount,
+  isTrial,
+  trialEnd,
+  subscriptionId,
+  from,
+  replyTo,
+}: SendSubscriptionEmailOptions) {
+  const sender = from || DEFAULT_EMAIL_FROM
+  const supportContact = replyTo || DEFAULT_EMAIL_REPLY_TO
+  const greeting = customerName ? `Hello ${customerName},` : 'Hello,'
+  const intervalLabel =
+    billingInterval === 'yearly' || billingInterval === 'year' ? 'Yearly' : 'Monthly'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.baserabook.in'
+
+  const formattedTrialDate = trialEnd
+    ? new Date(trialEnd).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+    : null
+
+  const subject = isTrial
+    ? `🎉 Welcome to BaseraBook 7-Day Free Trial — ${planName} Plan Active`
+    : `🎉 BaseraBook Subscription Confirmed — ${planName} Plan Active`
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${subject}</title>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #faf7f2; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #2c221e;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #faf7f2; padding: 40px 16px;">
+        <tr>
+          <td align="center">
+            <table role="presentation" width="100%" style="max-width: 580px; background-color: #ffffff; border: 1px solid #e8dfd4; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 20px rgba(70, 50, 30, 0.04);">
+              <!-- Brand Header -->
+              <tr>
+                <td style="background-color: #8b5a2b; padding: 24px 32px; text-align: left;">
+                  <span style="font-size: 22px; font-weight: 700; color: #ffffff; letter-spacing: -0.02em;">BaseraBook</span>
+                  <span style="display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: #f4e8dc; margin-top: 2px;">Your Property. Smartly Managed.</span>
+                </td>
+              </tr>
+
+              <!-- Content Body -->
+              <tr>
+                <td style="padding: 32px 32px 24px 32px;">
+                  <h1 style="font-size: 20px; font-weight: 700; color: #2c221e; margin: 0 0 12px 0;">
+                    ${isTrial ? 'Your 7-Day Free Trial is Active!' : 'Your Subscription is Active!'}
+                  </h1>
+                  <p style="font-size: 14px; line-height: 22px; color: #555a6c; margin: 0 0 20px 0;">
+                    ${greeting}
+                  </p>
+                  <p style="font-size: 14px; line-height: 22px; color: #555a6c; margin: 0 0 24px 0;">
+                    ${isTrial
+                      ? `Thank you for activating your 7-day free trial on the <strong>${planName}</strong> plan. You have unrestricted access to all features included in your plan until <strong>${formattedTrialDate}</strong>.`
+                      : `Thank you for subscribing to BaseraBook on the <strong>${planName}</strong> plan. Your payment has been authorized and your workspace is fully unlocked.`}
+                  </p>
+
+                  <!-- Plan Details Box -->
+                  <div style="background-color: #faf7f2; border: 1px solid #dec2a5; border-radius: 14px; padding: 20px; margin: 0 0 24px 0;">
+                    <table role="presentation" width="100%" style="font-size: 13px; color: #4a4038; border-collapse: collapse;">
+                      <tr>
+                        <td style="padding: 6px 0; color: #7d756d;">Plan Tier</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #2c221e;">${planName} (${intervalLabel})</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 6px 0; color: #7d756d;">Status</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #166534;">
+                          ${isTrial ? '7-Day Free Trial (Active)' : 'Active Subscriber'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 6px 0; color: #7d756d;">Plan Price</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #2c221e;">₹${amount.toLocaleString('en-IN')}/${intervalLabel.toLowerCase()}</td>
+                      </tr>
+                      ${isTrial && formattedTrialDate ? `
+                      <tr>
+                        <td style="padding: 6px 0; color: #7d756d;">Trial Ends On</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #8b5a2b;">${formattedTrialDate}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 6px 0; color: #7d756d;">First Charge</td>
+                        <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #7d756d;">Only after trial ends</td>
+                      </tr>
+                      ` : ''}
+                      ${subscriptionId ? `
+                      <tr style="border-top: 1px solid #ebd8c5;">
+                        <td style="padding: 10px 0 0 0; color: #9c8e80; font-size: 11px;">Subscription ID</td>
+                        <td style="padding: 10px 0 0 0; text-align: right; font-family: monospace; font-size: 11px; color: #7d756d;">${subscriptionId}</td>
+                      </tr>
+                      ` : ''}
+                    </table>
+                  </div>
+
+                  <!-- CTA Button -->
+                  <div style="text-align: center; margin: 28px 0;">
+                    <a href="${appUrl}/dashboard" style="display: inline-block; background-color: #8b5a2b; color: #ffffff; font-weight: 600; font-size: 14px; text-decoration: none; padding: 14px 28px; border-radius: 12px; box-shadow: 0 2px 8px rgba(139, 90, 43, 0.25);">
+                      Open Your BaseraBook Dashboard →
+                    </a>
+                  </div>
+
+                  <p style="font-size: 13px; line-height: 20px; color: #7d756d; margin: 0;">
+                    Have questions or need assistance setting up your properties? Contact our support team anytime at <a href="mailto:${supportContact}" style="color: #8b5a2b; text-decoration: underline;">${supportContact}</a>.
+                  </p>
+                </td>
+              </tr>
+
+              <!-- Footer -->
+              <tr>
+                <td style="background-color: #faf7f2; border-top: 1px solid #ebe4da; padding: 20px 32px; text-align: center;">
+                  <p style="font-size: 11px; color: #9c8e80; margin: 0 0 4px 0;">
+                    © ${new Date().getFullYear()} BaseraBook Technologies · All rights reserved.
+                  </p>
+                  <p style="font-size: 10px; color: #b0a498; margin: 0;">
+                    This is an automated customer confirmation. You are receiving this because of your subscription to BaseraBook.
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `
+
+  const plainText = `${subject}\n\n${greeting}\n\n` +
+    (isTrial
+      ? `Your 7-day free trial on the ${planName} plan (${intervalLabel}) is now active until ${formattedTrialDate || '7 days'}.\n` +
+        `Plan Price: ₹${amount.toLocaleString('en-IN')}/${intervalLabel.toLowerCase()}.\n` +
+        `No charge will be made until your trial period concludes.`
+      : `Your ${planName} plan (${intervalLabel}) subscription is now active.\n` +
+        `Amount: ₹${amount.toLocaleString('en-IN')}/${intervalLabel.toLowerCase()}.`) +
+    (subscriptionId ? `\nSubscription ID: ${subscriptionId}` : '') +
+    `\n\nAccess your dashboard: ${appUrl}/dashboard\n\nSupport: ${supportContact}`
+
+  return sendEmail({
+    to,
+    from: sender,
+    replyTo: supportContact,
+    subject,
+    html,
+    text: plainText,
+  })
+}
+

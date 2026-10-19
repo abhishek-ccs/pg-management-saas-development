@@ -6,6 +6,7 @@ import {
   SubscriptionPlanType,
 } from '@/lib/razorpay'
 import { persistSubscriptionToDatabase } from '@/lib/subscription'
+import { sendSubscriptionActivatedEmail } from '@/lib/email/client'
 
 export const runtime = 'nodejs'
 
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
     if (normalizedStatus === 'active') {
       updatePayload.trial_end = null
     } else if (normalizedStatus === 'trialing' && rzpSub.start_at) {
+      updatePayload.trial_start = new Date().toISOString()
       updatePayload.trial_end = new Date(rzpSub.start_at * 1000).toISOString()
     }
 
@@ -153,6 +155,46 @@ export async function POST(req: NextRequest) {
         },
         { status: 500 }
       )
+    }
+
+    // 6. Send transactional confirmation email directly to the customer's authenticated email address
+    if (user.email) {
+      try {
+        const planPrices: Record<string, { monthly: number; yearly: number }> = {
+          starter: { monthly: 1099, yearly: 9999 },
+          growth: { monthly: 1799, yearly: 17990 },
+          business: { monthly: 2799, yearly: 27990 },
+        }
+        const effectiveInterval = planType === 'yearly' ? 'yearly' : 'monthly'
+        const effectiveAmount =
+          planPrices[targetPlan]?.[effectiveInterval] ||
+          (effectiveInterval === 'yearly' ? 17990 : 1799)
+        const customerName =
+          (typeof user.user_metadata?.full_name === 'string'
+            ? user.user_metadata.full_name.trim()
+            : '') || user.email.split('@')[0]
+
+        const planDisplayNames: Record<string, string> = {
+          starter: 'Starter',
+          growth: 'Growth',
+          business: 'Business',
+          enterprise: 'Enterprise',
+        }
+        const formattedPlanName = planDisplayNames[targetPlan] || targetPlan.toUpperCase()
+
+        await sendSubscriptionActivatedEmail({
+          to: user.email,
+          customerName,
+          planName: formattedPlanName,
+          billingInterval: effectiveInterval,
+          amount: effectiveAmount,
+          isTrial: normalizedStatus === 'trialing',
+          trialEnd: updatePayload.trial_end || null,
+          subscriptionId: razorpay_subscription_id,
+        })
+      } catch (emailErr) {
+        console.warn('Non-fatal: failed to dispatch customer subscription confirmation email:', emailErr)
+      }
     }
 
     return NextResponse.json({

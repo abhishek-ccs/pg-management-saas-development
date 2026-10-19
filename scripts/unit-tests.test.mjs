@@ -1616,9 +1616,7 @@ test('40. Razorpay Subscription Activation: Trial Eligibility & Immediate Charge
     const pendingStatus =
       existingSub?.status === 'active'
         ? 'active'
-        : isTrialEligible
-        ? 'trialing'
-        : (existingSub?.status || 'expired')
+        : 'created'
 
     return { isTrialEligible, startAt, payload, pendingStatus }
   }
@@ -1635,7 +1633,7 @@ test('40. Razorpay Subscription Activation: Trial Eligibility & Immediate Charge
   const resExpired = evaluateTrialEligibility(expiredSub, now)
   assert.strictEqual(resExpired.isTrialEligible, false, 'Expired customer must NOT be eligible for trial')
   assert.strictEqual(resExpired.payload.start_at, undefined, 'start_at MUST NOT be set for expired customers (must charge immediately)')
-  assert.strictEqual(resExpired.pendingStatus, 'trialing', 'Pre-save pending status must NOT be active before payment')
+  assert.strictEqual(resExpired.pendingStatus, 'created', 'Pre-save pending status must NOT grant premature access')
 
   // Case 2: Explicitly expired status
   const explicitExpiredSub = {
@@ -1645,7 +1643,7 @@ test('40. Razorpay Subscription Activation: Trial Eligibility & Immediate Charge
   const resExplicit = evaluateTrialEligibility(explicitExpiredSub, now)
   assert.strictEqual(resExplicit.isTrialEligible, false)
   assert.strictEqual(resExplicit.payload.start_at, undefined, 'start_at must be omitted')
-  assert.strictEqual(resExplicit.pendingStatus, 'expired', 'Must preserve expired status until verified')
+  assert.strictEqual(resExplicit.pendingStatus, 'created', 'Pre-save pending status must be created')
 
   // Case 3: Already active paid customer switching/renewing
   const activePaidSub = {
@@ -1656,13 +1654,14 @@ test('40. Razorpay Subscription Activation: Trial Eligibility & Immediate Charge
   const resActivePaid = evaluateTrialEligibility(activePaidSub, now)
   assert.strictEqual(resActivePaid.isTrialEligible, false, 'Active paid customer must NOT get a free trial')
   assert.strictEqual(resActivePaid.payload.start_at, undefined, 'Must charge immediately')
+  assert.strictEqual(resActivePaid.pendingStatus, 'active', 'Active paid subscriber preserves active status during upgrade')
 
   // Case 4: Brand new customer (no subscription record yet)
   const resNew = evaluateTrialEligibility(null, now)
   assert.strictEqual(resNew.isTrialEligible, true, 'Brand new customer is eligible for 7-day trial')
   assert.ok(resNew.payload.start_at, 'start_at must be set for new customer')
   assert.strictEqual(resNew.payload.start_at, Math.floor(now / 1000) + 7 * 86400)
-  assert.strictEqual(resNew.pendingStatus, 'trialing')
+  assert.strictEqual(resNew.pendingStatus, 'created', 'Pre-save pending status must be created, NEVER premature trialing')
 
   // Case 5: Active unexpired trial customer (signed up 2 days ago, 5 days remaining)
   const activeTrialSub = {

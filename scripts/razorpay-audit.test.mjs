@@ -657,3 +657,162 @@ test('AUDIT 13: Payment Safety & Lifecycle Invariants', () => {
   }
 })
 
+test('AUDIT 14: Zero Premature Paid Access on Pending/Created Subscription State', () => {
+  // Security Invariant: Displaying QR code or opening Checkout saves a record in 'created' status.
+  // The system must NEVER grant paid access or property slots on 'created' status.
+  const pendingCheckoutRecord = [
+    {
+      owner_id: 'user_test_pending_qr',
+      plan: 'growth',
+      status: 'created',
+      razorpay_subscription_id: 'sub_test_pending_123',
+      razorpay_plan_id: 'plan_TpRGUxerOQTJtX',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ]
+
+  const authState = resolveAuthoritativeSubscription(pendingCheckoutRecord)
+  assert.equal(authState.hasPaidAccess, false, 'Created status must NEVER have paid access')
+  assert.equal(authState.status, 'created', 'Status must be accurately identified as created')
+  assert.equal(authState.isTrialExpired, true, 'Access must remain restricted until authorization')
+
+  const entitlement = resolveCustomerEntitlements(pendingCheckoutRecord, 0)
+  assert.equal(entitlement.hasPaidAccess, false, 'Pending customer must not have paid access')
+  assert.equal(entitlement.canCreateProperty, false, 'Pending customer must not be able to create properties')
+  assert.equal(entitlement.remainingPropertySlots, 0, 'Remaining property slots must be 0')
+  assert.ok(
+    entitlement.reason?.includes('complete checkout authorization'),
+    `Reason must instruct customer to complete checkout, got: ${entitlement.reason}`
+  )
+})
+
+test('AUDIT 15: Trial Eligibility Preservation for Abandoned / Created Checkout Sessions', () => {
+  const nowMs = Date.now()
+
+  // 1. A new customer who opened Checkout (saving 'created') and then closed/abandoned it
+  const abandonedCheckoutRows = [
+    {
+      owner_id: 'user_abandoned_checkout',
+      plan: 'starter',
+      status: 'created',
+      razorpay_subscription_id: 'sub_abandoned_abc',
+      created_at: new Date(nowMs - 3600000).toISOString(), // 1 hour ago
+      updated_at: new Date(nowMs - 3600000).toISOString(),
+    },
+  ]
+
+  // When they return to the pricing page, they must NOT be punished as "trial_expired".
+  // They are STILL a brand new customer who has never had an active trial or paid subscription!
+  const scheduleForAbandoned = resolveTrialSchedule(abandonedCheckoutRows, nowMs)
+  assert.equal(
+    scheduleForAbandoned.isTrialEligible,
+    true,
+    'Customer with abandoned created checkout must still be eligible for 7-day trial'
+  )
+  assert.equal(
+    scheduleForAbandoned.chargeImmediate,
+    false,
+    'Must NOT charge immediate for brand new customer who previously abandoned checkout'
+  )
+  assert.equal(
+    scheduleForAbandoned.reason,
+    'brand_new_customer',
+    'Must classify as brand_new_customer'
+  )
+  assert.ok(
+    scheduleForAbandoned.startAt && scheduleForAbandoned.startAt > Math.floor(nowMs / 1000) + 6 * 86400,
+    'startAt must be ~7 days in future'
+  )
+
+  // 2. In contrast, an actual customer whose trial was authenticated and is now expired
+  const expiredTrialRows = [
+    {
+      owner_id: 'user_expired_trial',
+      plan: 'growth',
+      status: 'trialing',
+      trial_start: new Date(nowMs - 10 * 86400000).toISOString(), // 10 days ago
+      trial_end: new Date(nowMs - 3 * 86400000).toISOString(),   // 3 days ago
+      created_at: new Date(nowMs - 10 * 86400000).toISOString(),
+      updated_at: new Date(nowMs - 10 * 86400000).toISOString(),
+    },
+  ]
+
+  const scheduleForExpired = resolveTrialSchedule(expiredTrialRows, nowMs)
+  assert.equal(
+    scheduleForExpired.isTrialEligible,
+    false,
+    'Customer with genuinely expired trial must NOT receive repeat trial'
+  )
+  assert.equal(
+    scheduleForExpired.chargeImmediate,
+    true,
+    'Expired trial customer must be charged immediately upon new checkout'
+  )
+  assert.equal(
+    scheduleForExpired.reason,
+    'trial_expired',
+    'Must classify as trial_expired'
+  )
+})
+
+test('AUDIT 16: Customer Notification Routing & Anti-Cross-Contamination Invariant', () => {
+  // Invariant: Customer subscription creation payload MUST route customer notifications
+  // strictly to the authenticated customer's email and phone via notify_info,
+  // NEVER falling back to the website owner's email or phone.
+  const customerUser = {
+    id: 'cust-uuid-friend-1234',
+    email: 'friend.customer@example.com',
+  }
+  const customerPhone = '+919876543210'
+  const planId = 'plan_TpRGUMBC93C99j'
+
+  function buildSubscriptionPayload(user, phone, plan) {
+    return {
+      plan_id: plan,
+      total_count: 120,
+      quantity: 1,
+      customer_notify: 1,
+      ...(user.email
+        ? {
+            notify_info: {
+              notify_email: user.email.trim().toLowerCase(),
+              ...(phone ? { notify_phone: phone } : {}),
+            },
+          }
+        : {}),
+      notes: {
+        user_id: user.id,
+        user_email: user.email || '',
+        user_phone: phone,
+        app: 'BaseraBook',
+      },
+    }
+  }
+
+  const payload = buildSubscriptionPayload(customerUser, customerPhone, planId)
+
+  // Verify notify_info
+  assert.ok(payload.notify_info, 'Payload must include notify_info for customer notification routing')
+  assert.equal(
+    payload.notify_info.notify_email,
+    'friend.customer@example.com',
+    'notify_email must match customer email'
+  )
+  assert.equal(
+    payload.notify_info.notify_phone,
+    '+919876543210',
+    'notify_phone must match customer phone'
+  )
+
+  // Verify notes isolation
+  assert.equal(payload.notes.user_id, 'cust-uuid-friend-1234')
+  assert.equal(payload.notes.user_email, 'friend.customer@example.com')
+  assert.equal(payload.notes.user_phone, '+919876543210')
+
+  // Verify website owner email is NEVER present in customer payload
+  const ownerEmail = 'abhishekrawat67320@gmail.com'
+  assert.notEqual(payload.notify_info.notify_email, ownerEmail)
+  assert.notEqual(payload.notes.user_email, ownerEmail)
+})
+
