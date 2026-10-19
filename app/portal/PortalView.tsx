@@ -565,8 +565,13 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
 
       {/* Official Receipt Modal */}
       {selectedReceipt && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-4 backdrop-blur-xs overflow-y-auto">
-          <div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Payment Receipt"
+          className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto"
+        >
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto overscroll-contain rounded-3xl border border-[#e8dfd4] bg-white p-5 sm:p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto">
             <div className="mb-4 flex items-center justify-between border-b border-[#f0f1f4] pb-3">
               <h3 className="text-base font-bold text-[#3d3934]">Payment Receipt</h3>
               <button
@@ -629,8 +634,13 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
 
       {/* QR Code Modal for Resident */}
       {showQrModal && paymentOptions?.qrCodeUrl && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-4 backdrop-blur-xs overflow-y-auto">
-          <div className="w-full max-w-sm rounded-3xl border border-[#e8dfd4] bg-white p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto text-center">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Scan UPI QR Code"
+          className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto"
+        >
+          <div className="w-full max-w-sm max-h-[92vh] overflow-y-auto overscroll-contain rounded-3xl border border-[#e8dfd4] bg-white p-5 sm:p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto text-center">
             <div className="flex items-center justify-between border-b border-[#f0f1f4] pb-3">
               <h3 className="text-base font-bold text-[#3d3934]">Scan UPI QR Code</h3>
               <button

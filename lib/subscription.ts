@@ -161,6 +161,96 @@ export function resolveAuthoritativeSubscription(
   }
 }
 
+export interface SubscriptionScheduleResult {
+  isTrialEligible: boolean
+  startAt: number | null
+  chargeImmediate: boolean
+  remainingTrialSeconds: number
+  reason:
+    | 'brand_new_customer'
+    | 'active_trial_preserved'
+    | 'trial_expired'
+    | 'active_paid_subscription'
+    | 'trial_window_sub_15m'
+}
+
+/**
+ * Deterministically calculates trial eligibility and scheduled start_at timestamp
+ * for Razorpay subscriptions according to BaseraBook's 7-day trial policy:
+ * 
+ * Invariants:
+ * 1. Brand-new customers (zero prior subscription rows) receive a full 7-day trial.
+ * 2. Customers with an active unexpired trial preserve their original trial end date.
+ *    (They NEVER receive a reset or repeat 7 days).
+ * 3. Expired trial customers, past_due, canceled, or customers with < 15 minutes left
+ *    on their trial (Razorpay minimum start_at window) are charged immediately (start_at = null).
+ * 4. Active paid subscribers upgrading / changing plans are charged immediately (start_at = null).
+ */
+export function resolveTrialSchedule(
+  existingRows: SubscriptionRecord[] | null | undefined,
+  nowMs: number = Date.now()
+): SubscriptionScheduleResult {
+  const resolvedState = resolveAuthoritativeSubscription(existingRows, nowMs)
+  const hasActivePaidSub = resolvedState.status === 'active'
+
+  // Case 1: Active paid subscriber upgrading or changing plans
+  if (hasActivePaidSub) {
+    return {
+      isTrialEligible: false,
+      startAt: null,
+      chargeImmediate: true,
+      remainingTrialSeconds: 0,
+      reason: 'active_paid_subscription',
+    }
+  }
+
+  // Case 2: Brand new customer with zero prior subscription rows
+  if (!existingRows || existingRows.length === 0) {
+    const startAt = Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60
+    return {
+      isTrialEligible: true,
+      startAt,
+      chargeImmediate: false,
+      remainingTrialSeconds: 7 * 24 * 60 * 60,
+      reason: 'brand_new_customer',
+    }
+  }
+
+  // Case 3: Customer with an active unexpired trial
+  if (resolvedState.status === 'trialing' && resolvedState.trialEnd) {
+    const trialEndMs = new Date(resolvedState.trialEnd).getTime()
+    const remainingSeconds = Math.max(0, Math.floor((trialEndMs - nowMs) / 1000))
+    // Razorpay API requirement: start_at must be at least 15 minutes (900s) in the future
+    if (remainingSeconds >= 900) {
+      return {
+        isTrialEligible: true,
+        startAt: Math.floor(trialEndMs / 1000),
+        chargeImmediate: false,
+        remainingTrialSeconds: remainingSeconds,
+        reason: 'active_trial_preserved',
+      }
+    } else {
+      return {
+        isTrialEligible: false,
+        startAt: null,
+        chargeImmediate: true,
+        remainingTrialSeconds: remainingSeconds,
+        reason: 'trial_window_sub_15m',
+      }
+    }
+  }
+
+  // Case 4: Expired trial, canceled, or past_due: charge immediately, no repeat trial
+  return {
+    isTrialEligible: false,
+    startAt: null,
+    chargeImmediate: true,
+    remainingTrialSeconds: 0,
+    reason: 'trial_expired',
+  }
+}
+
+
 /**
  * Resolves the centralized property entitlement for a customer based on their
  * authoritative subscription state and existing active properties count.

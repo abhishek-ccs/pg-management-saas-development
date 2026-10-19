@@ -4,6 +4,7 @@ import { getRazorpayInstance, getRazorpayPlanId, SubscriptionPlanType } from '@/
 import {
   resolveAuthoritativeSubscription,
   persistSubscriptionToDatabase,
+  resolveTrialSchedule,
 } from '@/lib/subscription'
 
 export const runtime = 'nodejs'
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 2. Parse and validate plan selection
+    // 2. Parse and validate plan selection and customer phone
     const body = await req.json().catch(() => ({}))
     const planType: SubscriptionPlanType = body.planType === 'yearly' ? 'yearly' : 'monthly'
     const planTier: string = body.plan || body.planTier || 'growth'
@@ -32,6 +33,56 @@ export async function POST(req: NextRequest) {
     const keyId = process.env.RAZORPAY_KEY_ID
     const planId = getRazorpayPlanId(planType, planTier)
     const razorpay = getRazorpayInstance()
+
+    // Fetch user profile from Supabase profiles table
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('phone, full_name')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    // Customer phone prefill logic:
+    // Only populate with the current authenticated customer's phone from:
+    // 1. Explicitly provided body.phone from checkout confirmation
+    // 2. Supabase Auth user.phone
+    // 3. Supabase Auth user.user_metadata.phone
+    // 4. Supabase public.profiles.phone
+    // NEVER use the website owner's phone or any hardcoded fallback.
+    const providedPhone = typeof body.phone === 'string' ? body.phone.trim() : ''
+    const customerPhone = (
+      providedPhone ||
+      user.phone ||
+      user.user_metadata?.phone ||
+      profile?.phone ||
+      ''
+    ).trim()
+
+    // Persist explicitly provided customer phone to profiles if not previously stored
+    if (providedPhone && !profile?.phone) {
+      try {
+        await supabase
+          .from('profiles')
+          .update({ phone: providedPhone, updated_at: new Date().toISOString() })
+          .eq('id', user.id)
+      } catch (phoneErr) {
+        console.warn('Non-fatal: failed to update customer profile phone:', phoneErr)
+      }
+    }
+
+    const customerName = (
+      (typeof user.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : '') ||
+      (profile?.full_name || '').trim() ||
+      user.email?.split('@')[0] ||
+      ''
+    ).trim()
+
+    // Canonical plan pricing in INR
+    const planPrices: Record<string, { monthly: number; yearly: number }> = {
+      starter: { monthly: 1099, yearly: 9999 },
+      growth: { monthly: 1799, yearly: 17990 },
+      business: { monthly: 2799, yearly: 27990 },
+    }
+    const resolvedAmount = planPrices[planTier]?.[planType] || (planType === 'yearly' ? 17990 : 1799)
 
     // 3. Inspect existing subscription state in Supabase to determine trial eligibility
     const { data: existingRows } = await supabase
@@ -42,30 +93,9 @@ export async function POST(req: NextRequest) {
 
     const nowMs = Date.now()
     const resolvedState = resolveAuthoritativeSubscription(existingRows, nowMs)
-    const hasActivePaidSub = resolvedState.status === 'active'
-    const isTrialExpired = resolvedState.isTrialExpired
-
-    // Free trial eligibility law:
-    // - Customers whose trial has expired or who already have a paid subscription must be charged immediately.
-    // - Eligible new customers (or active unexpired trial users) preserve their 7-day trial before the first recurring charge.
-    let isTrialEligible = false
-    let startAt: number | null = null
-
-    if (!hasActivePaidSub && !isTrialExpired) {
-      if (!existingRows || existingRows.length === 0) {
-        // Brand new customer: eligible for full 7-day trial
-        isTrialEligible = true
-        startAt = Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60
-      } else if (resolvedState.status === 'trialing' && resolvedState.trialEnd) {
-        const trialEndMs = new Date(resolvedState.trialEnd).getTime()
-        const remainingSeconds = Math.floor((trialEndMs - nowMs) / 1000)
-        // Razorpay API requirement: start_at must be at least 15 minutes (900s) in the future
-        if (remainingSeconds >= 900) {
-          isTrialEligible = true
-          startAt = Math.floor(trialEndMs / 1000)
-        }
-      }
-    }
+    const trialSchedule = resolveTrialSchedule(existingRows, nowMs)
+    const isTrialEligible = trialSchedule.isTrialEligible
+    const startAt = trialSchedule.startAt
 
     const subscriptionPayload: any = {
       plan_id: planId,
@@ -75,6 +105,7 @@ export async function POST(req: NextRequest) {
       notes: {
         user_id: user.id,
         user_email: user.email || '',
+        user_phone: customerPhone,
         plan_type: planType,
         plan_tier: planTier,
         app: 'BaseraBook',
@@ -123,18 +154,23 @@ export async function POST(req: NextRequest) {
       console.warn('Non-fatal: failed to pre-save pending subscription to DB:', dbErr)
     }
 
-    // 6. Return only the safe public identifiers needed to launch Razorpay Checkout
+    // 6. Return safe public identifiers and disclosure details needed to launch Razorpay Checkout
     return NextResponse.json({
       subscriptionId: subscription.id,
       keyId,
       planType,
-      plan: body.plan || 'growth',
+      plan: planTier,
       isTrial: isTrialEligible,
-      amount: body.amount || (planType === 'yearly' ? 17990 : 1799),
+      trialEnd: isTrialEligible && startAt ? new Date(startAt * 1000).toISOString() : null,
+      amount: resolvedAmount,
+      billingInterval: planType === 'yearly' ? 'year' : 'month',
+      chargeImmediate: trialSchedule.chargeImmediate,
+      reason: trialSchedule.reason,
       user: {
         id: user.id,
         email: user.email,
-        name: user.user_metadata?.full_name || '',
+        name: customerName,
+        phone: customerPhone,
       },
     })
   } catch (error: any) {

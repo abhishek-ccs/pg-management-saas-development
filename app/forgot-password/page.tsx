@@ -18,7 +18,7 @@ import {
   RotateCw,
   ShieldCheck,
 } from 'lucide-react'
-import { isValidEmail } from '@/lib/validation'
+import { isValidEmail, validatePassword } from '@/lib/validation'
 
 export default function ForgotPasswordPage() {
   const router = useRouter()
@@ -107,8 +107,9 @@ export default function ForgotPasswordPage() {
       return
     }
 
-    if (newPassword.length < 6) {
-      setError('New password must be at least 6 characters long.')
+    const passValidation = validatePassword(newPassword)
+    if (!passValidation.valid) {
+      setError(passValidation.error || 'New password must be at least 12 characters and include uppercase, lowercase, numbers, and symbols.')
       return
     }
 
@@ -296,9 +297,10 @@ export default function ForgotPasswordPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={12}
+                    maxLength={128}
                     autoComplete="new-password"
-                    placeholder="At least 6 characters"
+                    placeholder="At least 12 characters"
                     className="w-full rounded-xl border border-[#e4e6ec] bg-white pl-10 pr-11 py-2.5 text-sm font-normal text-[#2c221e] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
                   />
                   <button
@@ -309,6 +311,17 @@ export default function ForgotPasswordPage() {
                   >
                     {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                   </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[11px] text-[#85899a]">
+                  <span className={newPassword.length >= 12 && newPassword.length <= 128 ? 'text-[#1e7e34] font-medium' : ''}>
+                    ✓ 12–128 chars
+                  </span>
+                  <span className={/[A-Z]/.test(newPassword) && /[a-z]/.test(newPassword) ? 'text-[#1e7e34] font-medium' : ''}>
+                    ✓ Upper & Lowercase
+                  </span>
+                  <span className={/[0-9]/.test(newPassword) && /[^A-Za-z0-9]/.test(newPassword) ? 'text-[#1e7e34] font-medium' : ''}>
+                    ✓ Number & Symbol
+                  </span>
                 </div>
               </label>
 

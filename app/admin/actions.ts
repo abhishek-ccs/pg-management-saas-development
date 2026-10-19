@@ -11,6 +11,7 @@ import {
   createAdminClient,
   writeAudit,
 } from '@/lib/supabase/server'
+import { validatePassword } from '@/lib/validation'
 
 export async function toggleCustomerStatus(id: string, newStatus: 'active' | 'suspended') {
   const success = await suspendProfile(id, newStatus)
@@ -62,20 +63,11 @@ export async function completeAdminSecuritySetup(newPassword: string, totpCode: 
     return { success: false, error: 'Unauthorized.' }
   }
 
-  if (!newPassword || newPassword.length < 12) {
-    return { success: false, error: 'Password must be at least 12 characters long.' }
-  }
-
-  // Basic complexity check
-  const hasUpper = /[A-Z]/.test(newPassword)
-  const hasLower = /[a-z]/.test(newPassword)
-  const hasNumber = /[0-9]/.test(newPassword)
-  const hasSpecial = /[^A-Za-z0-9]/.test(newPassword)
-
-  if (!hasUpper || !hasLower || !hasNumber || !hasSpecial) {
+  const passValidation = validatePassword(newPassword)
+  if (!passValidation.valid) {
     return {
       success: false,
-      error: 'Password must include uppercase, lowercase, numbers, and special symbols.',
+      error: passValidation.error || 'Password must include uppercase, lowercase, numbers, and special symbols.',
     }
   }
 

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ShieldAlert, KeyRound, Smartphone, Check, Loader2, AlertTriangle, ArrowRight } from 'lucide-react'
 import { completeAdminSecuritySetup } from '../actions'
+import { validatePassword } from '@/lib/validation'
 
 export default function AdminSetupSecurityPage() {
   const router = useRouter()
@@ -15,14 +16,16 @@ export default function AdminSetupSecurityPage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
-  // Validation indicators
-  const is12Chars = newPassword.length >= 12
-  const hasUpper = /[A-Z]/.test(newPassword)
-  const hasLower = /[a-z]/.test(newPassword)
-  const hasNumber = /[0-9]/.test(newPassword)
-  const hasSpecial = /[^A-Za-z0-9]/.test(newPassword)
+  // Unified validation indicators
+  const passValidation = validatePassword(newPassword)
+  const is12Chars = passValidation.rules.minLength && passValidation.rules.maxLength
+  const hasUpper = passValidation.rules.hasUppercase
+  const hasLower = passValidation.rules.hasLowercase
+  const hasNumber = passValidation.rules.hasNumber
+  const hasSpecial = passValidation.rules.hasSpecial
+  const isNotCommon = passValidation.rules.notCommon
   const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword
-  const isPasswordValid = is12Chars && hasUpper && hasLower && hasNumber && hasSpecial && passwordsMatch
+  const isPasswordValid = passValidation.valid && passwordsMatch
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()

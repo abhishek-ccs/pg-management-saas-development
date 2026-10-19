@@ -323,6 +323,12 @@ export default function DashboardPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState('')
   const [userEmail, setUserEmail] = useState('')
+  const [userPhone, setUserPhone] = useState('')
+  const [phoneInput, setPhoneInput] = useState('')
+  const [confirmingPlanUpgrade, setConfirmingPlanUpgrade] = useState<{
+    plan: PricingPlan
+    cycle: 'yearly' | 'monthly'
+  } | null>(null)
   const [trialStart, setTrialStart] = useState<string | null>(null)
   const [trialEnd, setTrialEnd] = useState<string | null>(null)
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>('trial')
@@ -632,7 +638,17 @@ export default function DashboardPage() {
     })
   }
 
-  const handleUpgradePlan = async (targetPlanId: string = 'growth') => {
+  const handleUpgradePlan = async (targetPlanId: string = 'growth', customerPhoneOverride?: string) => {
+    // Step 1: Open plan confirmation modal before launching payment gateway
+    if (!customerPhoneOverride && !confirmingPlanUpgrade) {
+      const selected = PRICING_PLANS.find((p) => p.id === targetPlanId)
+      if (selected) {
+        setPhoneInput(userPhone)
+        setConfirmingPlanUpgrade({ plan: selected, cycle: dashboardBillingCycle })
+        return
+      }
+    }
+
     if (isUpgradingSubscription) return
     setIsUpgradingSubscription(true)
 
@@ -645,6 +661,8 @@ export default function DashboardPage() {
           ? selectedPlanObj.yearlyPrice
           : selectedPlanObj.monthlyPrice
 
+      const phoneToSend = (customerPhoneOverride || phoneInput || userPhone || '').trim()
+
       const res = await fetch('/api/razorpay/create-subscription', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -652,6 +670,7 @@ export default function DashboardPage() {
           planType: dashboardBillingCycle,
           plan: selectedPlanObj.id,
           amount,
+          phone: phoneToSend,
         }),
       })
 
@@ -670,6 +689,13 @@ export default function DashboardPage() {
         return
       }
 
+      // Close confirmation dialog before launching checkout
+      setConfirmingPlanUpgrade(null)
+
+      // Only pass contact if customer has provided or verified a phone number.
+      // NEVER use any developer or website owner fallback.
+      const effectivePhone = (phoneToSend || data.user?.phone || userPhone || '').trim()
+
       const options = {
         key: data.keyId,
         subscription_id: data.subscriptionId,
@@ -679,6 +705,7 @@ export default function DashboardPage() {
         prefill: {
           name: userName || data.user?.name || '',
           email: userEmail || data.user?.email || '',
+          ...(effectivePhone ? { contact: effectivePhone } : {}),
         },
         theme: {
           color: '#8b5a2b',
@@ -790,8 +817,12 @@ export default function DashboardPage() {
           supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
           supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,period_start,period_end,calculation_type,split_breakdown').eq('owner_id', user.id).order('reading_date', { ascending: false }),
           supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('profiles').select('upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
+          supabase.from('profiles').select('phone,upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
         ])
+
+        const loadedPhone = (user.phone || user.user_metadata?.phone || profileRes?.data?.phone || '').trim()
+        setUserPhone(loadedPhone)
+        setPhoneInput(loadedPhone)
 
         // Saved Payment Options (UPI ID, payment link, QR Code image)
         const loadedUpi = profileRes?.data?.upi_id || propRes?.data?.[0]?.upi_id || ''
@@ -3143,7 +3174,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#faf8f5] text-[#2c221e] font-sans">
+    <div className="min-h-screen overflow-x-hidden bg-[#faf8f5] text-[#2c221e] font-sans">
       {/* Toast Notification */}
       {notice && (
         <div className="fixed right-5 top-5 z-50 flex items-center gap-2 rounded-xl bg-[#202536] px-4 py-3 text-xs font-semibold text-white shadow-xl transition-all animate-in fade-in slide-in-from-top-2">
@@ -5222,6 +5253,134 @@ export default function DashboardPage() {
                 className="self-end sm:self-auto rounded-lg px-3 py-1.5 font-medium text-[#74798a] hover:text-[#3d3934] cursor-pointer"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Plan Upgrade & Checkout Confirmation Modal */}
+      {confirmingPlanUpgrade && (
+        <Modal
+          title="Confirm Subscription Plan"
+          maxWidth="max-w-md"
+          onClose={() => !isUpgradingSubscription && setConfirmingPlanUpgrade(null)}
+        >
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-base text-[#2c221e]">
+                    {confirmingPlanUpgrade.plan.name} Plan
+                  </h4>
+                  <p className="text-xs font-semibold text-[#8b5a2b]">
+                    {confirmingPlanUpgrade.plan.propertyLimit}
+                  </p>
+                </div>
+                <span className="rounded-full bg-[#f4ede3] px-2.5 py-1 text-[11px] font-semibold text-[#8b5a2b] capitalize">
+                  {confirmingPlanUpgrade.cycle} Billing
+                </span>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-[#e8dfd4] flex items-baseline justify-between">
+                <span className="text-xs text-[#776d62]">Total Amount:</span>
+                <div className="text-right">
+                  <span className="text-2xl font-bold text-[#2c221e]">
+                    {formatINR(
+                      confirmingPlanUpgrade.cycle === 'yearly'
+                        ? confirmingPlanUpgrade.plan.yearlyPrice!
+                        : confirmingPlanUpgrade.plan.monthlyPrice!
+                    )}
+                  </span>
+                  <span className="text-xs text-[#776d62]">
+                    {confirmingPlanUpgrade.cycle === 'yearly' ? ' / year' : ' / month'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Trial Eligibility & Immediate Charge Disclosure */}
+            {isTrialExpired ? (
+              <div className="rounded-xl bg-[#fff8ed] p-3 text-xs text-[#a35200] border border-[#f0c38a] flex items-start gap-2">
+                <AlertCircle className="size-4 shrink-0 mt-0.5 text-[#d97706]" />
+                <div>
+                  <p className="font-bold text-[#b45309]">Trial Period Expired — Immediate Billing</p>
+                  <p className="mt-0.5 text-[#92400e]">
+                    Your 7-day free trial has expired. You will be charged{' '}
+                    <strong>
+                      {formatINR(
+                        confirmingPlanUpgrade.cycle === 'yearly'
+                          ? confirmingPlanUpgrade.plan.yearlyPrice!
+                          : confirmingPlanUpgrade.plan.monthlyPrice!
+                      )}
+                    </strong>{' '}
+                    immediately upon authorization for 1 {confirmingPlanUpgrade.cycle === 'yearly' ? 'year' : 'month'} of access.
+                  </p>
+                </div>
+              </div>
+            ) : subscriptionStatus === 'trialing' && trialEnd ? (
+              <div className="rounded-xl bg-[#f0f9f2] p-3 text-xs text-[#1e7e34] border border-[#d2e7d6] flex items-start gap-2">
+                <ShieldCheck className="size-4 shrink-0 mt-0.5 text-[#1e7e34]" />
+                <div>
+                  <p className="font-bold text-[#1e7e34]">7-Day Free Trial Active</p>
+                  <p className="mt-0.5">
+                    Your trial remains active until{' '}
+                    {new Date(trialEnd).toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                    . You will only be charged after your trial concludes.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-[#f0f9f2] p-3 text-xs text-[#1e7e34] border border-[#d2e7d6] flex items-start gap-2">
+                <ShieldCheck className="size-4 shrink-0 mt-0.5 text-[#1e7e34]" />
+                <div>
+                  <p className="font-bold text-[#1e7e34]">7-Day Free Trial Included</p>
+                  <p className="mt-0.5">
+                    Eligible accounts will not be charged today. Your first charge will occur after 7 days.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Customer Contact Phone Number */}
+            <div>
+              <label className="block text-xs font-semibold text-[#57534e] mb-1">
+                Contact Phone Number {userPhone ? '(verified)' : '(for payment updates & receipts)'}
+              </label>
+              <input
+                type="tel"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                placeholder="Enter 10-digit mobile number"
+                className="w-full rounded-xl border border-[#e8dfd4] bg-white px-3 py-2 text-xs text-[#2c221e] placeholder:text-[#a8a29e] focus:border-[#8b5a2b] focus:outline-hidden"
+              />
+              <p className="mt-1 text-[11px] text-[#8b8277]">
+                {phoneInput
+                  ? 'Payment receipts and subscription notifications will be sent to this number.'
+                  : 'If omitted, you can enter your contact number directly on the payment screen.'}
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={isUpgradingSubscription}
+                onClick={() => handleUpgradePlan(confirmingPlanUpgrade.plan.id, phoneInput)}
+                className="w-full rounded-xl bg-[#8b5a2b] py-2.5 text-center text-xs font-bold text-white shadow-xs hover:bg-[#784b20] transition-colors disabled:opacity-60 cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isUpgradingSubscription ? 'Connecting to Payment Gateway...' : 'Proceed to Razorpay Checkout'}
+              </button>
+              <button
+                type="button"
+                disabled={isUpgradingSubscription}
+                onClick={() => setConfirmingPlanUpgrade(null)}
+                className="w-full rounded-xl border border-[#e8dfd4] bg-white py-2 text-center text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] transition-colors cursor-pointer"
+              >
+                Cancel
               </button>
             </div>
           </div>
@@ -8528,15 +8687,20 @@ function Field({ label, name, placeholder, type = 'text', defaultValue, value, o
 
 function Modal({ title, onClose, children, maxWidth = 'max-w-lg' }: any) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-2.5 sm:p-4 backdrop-blur-xs overflow-y-auto">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={typeof title === 'string' ? title : 'Modal dialog'}
+      className="fixed inset-0 z-50 grid place-items-center bg-[#202536]/40 p-2.5 sm:p-4 backdrop-blur-xs overflow-y-auto"
+    >
       <div className={`w-full ${maxWidth} max-h-[92vh] flex flex-col rounded-2xl sm:rounded-3xl border border-[#e8dfd4] bg-white p-4 sm:p-6 shadow-2xl animate-in fade-in zoom-in-95 my-auto overflow-hidden`}>
         <div className="mb-4 flex items-center justify-between border-b border-[#f0f1f4] pb-3 shrink-0">
           <h3 className="text-base font-bold text-[#3d3934]">{title}</h3>
-          <button onClick={onClose} aria-label="Close modal" className="rounded-xl p-2 text-[#8b8fa0] hover:bg-[#f7f3ed] hover:text-[#3d3934] transition-colors">
+          <button onClick={onClose} aria-label="Close modal" className="rounded-xl p-2 text-[#8b8fa0] hover:bg-[#f7f3ed] hover:text-[#3d3934] transition-colors cursor-pointer">
             <X className="size-4" />
           </button>
         </div>
-        <div className="overflow-y-auto pr-1">
+        <div className="overflow-y-auto overscroll-contain pr-1">
           {children}
         </div>
       </div>

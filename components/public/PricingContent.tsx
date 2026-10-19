@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Check, ShieldCheck, Sparkles, HelpCircle, AlertCircle, X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { resolveAuthoritativeSubscription } from '@/lib/subscription'
+import { resolveAuthoritativeSubscription, AuthoritativeSubscriptionState } from '@/lib/subscription'
 import { useI18n } from '@/lib/i18n'
 import { PRICING_PLANS, PricingPlan, formatINR } from '@/lib/pricing'
 
@@ -13,6 +13,10 @@ export function PricingContent() {
   const router = useRouter()
   const [hasSession, setHasSession] = useState<boolean | null>(null)
   const [isSubscribed, setIsSubscribed] = useState(false)
+  const [subState, setSubState] = useState<AuthoritativeSubscriptionState | null>(null)
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [customerPhoneInput, setCustomerPhoneInput] = useState('')
+  const [customerName, setCustomerName] = useState('')
   // Requirement 2: Default selection: Monthly
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly')
   const [confirmingPlan, setConfirmingPlan] = useState<{
@@ -50,12 +54,25 @@ export function PricingContent() {
       const user = data?.user
       setHasSession(!!user)
       if (user) {
-        const { data: subs } = await supabase
-          .from('subscriptions')
-          .select('*')
-          .eq('owner_id', user.id)
-          .order('updated_at', { ascending: false })
+        const [{ data: subs }, { data: profile }] = await Promise.all([
+          supabase
+            .from('subscriptions')
+            .select('*')
+            .eq('owner_id', user.id)
+            .order('updated_at', { ascending: false }),
+          supabase
+            .from('profiles')
+            .select('phone, full_name')
+            .eq('id', user.id)
+            .maybeSingle(),
+        ])
         const resolved = resolveAuthoritativeSubscription(subs)
+        setSubState(resolved)
+        const phone = (user.phone || user.user_metadata?.phone || profile?.phone || '').trim()
+        setCustomerPhone(phone)
+        setCustomerPhoneInput(phone)
+        const name = (user.user_metadata?.full_name || profile?.full_name || user.email?.split('@')[0] || '').trim()
+        setCustomerName(name)
         if (resolved.hasPaidAccess && resolved.status === 'active') {
           setIsSubscribed(true)
         }
@@ -118,6 +135,7 @@ export function PricingContent() {
 
     try {
       const amount = cycle === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice
+      const phoneToSend = (customerPhoneInput || customerPhone || '').trim()
 
       // Create server-side subscription on Razorpay
       const res = await fetch('/api/razorpay/create-subscription', {
@@ -127,6 +145,7 @@ export function PricingContent() {
           planType: cycle,
           plan: plan.id,
           amount,
+          phone: phoneToSend,
         }),
       })
 
@@ -145,6 +164,10 @@ export function PricingContent() {
       // Close pre-checkout confirmation modal before opening checkout popup
       setConfirmingPlan(null)
 
+      // Only pass contact if customer has provided/verified a phone number.
+      // NEVER use any developer or website owner fallback.
+      const effectivePhone = (phoneToSend || data.user?.phone || customerPhone || '').trim()
+
       // Open Razorpay Checkout modal
       const options = {
         key: data.keyId,
@@ -153,8 +176,9 @@ export function PricingContent() {
         description: `${plan.name} (${cycle === 'yearly' ? 'Yearly' : 'Monthly'}) — ${formatINR(amount || 0)}`,
         image: '/favicon.ico',
         prefill: {
-          name: data.user?.name || '',
+          name: data.user?.name || customerName || '',
           email: data.user?.email || '',
+          ...(effectivePhone ? { contact: effectivePhone } : {}),
         },
         theme: {
           color: '#8b5a2b',
@@ -455,9 +479,9 @@ export function PricingContent() {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs overflow-y-auto"
         >
-          <div className="w-full max-w-md rounded-3xl border border-[#e8dfd4] bg-white p-6 sm:p-7 shadow-2xl animate-in fade-in zoom-in-95">
+          <div className="w-full max-w-md max-h-[92vh] overflow-y-auto overscroll-contain rounded-3xl border border-[#e8dfd4] bg-white p-5 sm:p-7 shadow-2xl animate-in fade-in zoom-in-95 my-auto">
             <div className="flex items-center justify-between pb-4 border-b border-[#f0e8dc]">
               <div>
                 <h2 className="text-base font-bold text-[#2c221e]">Confirm Subscription Plan</h2>
@@ -507,10 +531,66 @@ export function PricingContent() {
               )}
             </div>
 
-            <div className="mt-4 rounded-xl bg-[#f0f9f2] p-3 text-xs text-[#1e7e34] border border-[#d2e7d6] flex items-start gap-2">
-              <ShieldCheck className="size-4 shrink-0 mt-0.5 text-[#1e7e34]" />
-              <p>
-                <strong>7-Day Free Trial included.</strong> Eligible accounts will not be charged until the 7-day trial concludes. Cancel anytime with 1 click.
+            {/* Trial Eligibility & Immediate Charge Disclosure */}
+            {(() => {
+              const isNewCustomer = !subState || !subState.activeRecord
+              const isTrialActive = subState?.status === 'trialing' && !subState.isTrialExpired
+              const isTrialEligible = isNewCustomer || isTrialActive
+              const isTrialExpired = !isTrialEligible && !isSubscribed
+
+              if (isTrialExpired) {
+                return (
+                  <div className="mt-4 rounded-xl bg-[#fff8ed] p-3 text-xs text-[#a35200] border border-[#f0c38a] flex items-start gap-2">
+                    <AlertCircle className="size-4 shrink-0 mt-0.5 text-[#d97706]" />
+                    <div>
+                      <p className="font-bold text-[#b45309]">Trial Period Expired — Immediate Billing</p>
+                      <p className="mt-0.5 text-[#92400e]">
+                        Your 7-day free trial has expired. Selecting this plan will charge{' '}
+                        <strong>
+                          {formatINR(
+                            confirmingPlan.cycle === 'yearly'
+                              ? confirmingPlan.plan.yearlyPrice!
+                              : confirmingPlan.plan.monthlyPrice!
+                          )}
+                        </strong>{' '}
+                        immediately for 1 {confirmingPlan.cycle === 'yearly' ? 'year' : 'month'} of {confirmingPlan.plan.name} access.
+                      </p>
+                    </div>
+                  </div>
+                )
+              }
+
+              return (
+                <div className="mt-4 rounded-xl bg-[#f0f9f2] p-3 text-xs text-[#1e7e34] border border-[#d2e7d6] flex items-start gap-2">
+                  <ShieldCheck className="size-4 shrink-0 mt-0.5 text-[#1e7e34]" />
+                  <div>
+                    <p className="font-bold text-[#1e7e34]">7-Day Free Trial Included</p>
+                    <p className="mt-0.5">
+                      {isTrialActive && subState?.trialEnd
+                        ? `Your active trial remains valid until ${new Date(subState.trialEnd).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}. Your first recurring charge of ${formatINR(confirmingPlan.cycle === 'yearly' ? confirmingPlan.plan.yearlyPrice! : confirmingPlan.plan.monthlyPrice!)} occurs only after your trial concludes.`
+                        : `Eligible new accounts will not be charged today. Your first charge of ${formatINR(confirmingPlan.cycle === 'yearly' ? confirmingPlan.plan.yearlyPrice! : confirmingPlan.plan.monthlyPrice!)} occurs after 7 days. Cancel anytime with 1 click.`}
+                    </p>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Customer Contact Number (Verified or User Provided) */}
+            <div className="mt-4 pt-1">
+              <label className="block text-xs font-semibold text-[#57534e] mb-1">
+                Contact Phone Number {customerPhone ? '(verified)' : '(for payment updates & receipts)'}
+              </label>
+              <input
+                type="tel"
+                value={customerPhoneInput}
+                onChange={(e) => setCustomerPhoneInput(e.target.value)}
+                placeholder="Enter 10-digit mobile number"
+                className="w-full rounded-xl border border-[#e8dfd4] bg-white px-3 py-2 text-xs text-[#2c221e] placeholder:text-[#a8a29e] focus:border-[#8b5a2b] focus:outline-hidden"
+              />
+              <p className="mt-1 text-[11px] text-[#8b8277]">
+                {customerPhoneInput
+                  ? 'Payment receipts and subscription notifications will be sent to this mobile number.'
+                  : 'If omitted, you can enter your contact number directly on the payment screen.'}
               </p>
             </div>
 

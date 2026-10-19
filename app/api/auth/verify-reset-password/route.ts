@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
-import { isValidEmail } from '@/lib/validation'
+import { isValidEmail, validatePassword } from '@/lib/validation'
 import { verifyOtp } from '@/lib/security/otp-store'
 import { checkSharedRateLimit, ROUTE_LIMITS } from '@/lib/security/rate-limiter'
 import { logger } from '@/lib/logger'
@@ -46,9 +46,10 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6 || newPassword.length > 72) {
+    const passValidation = validatePassword(newPassword)
+    if (!passValidation.valid) {
       return NextResponse.json(
-        { success: false, error: 'New password must be between 6 and 72 characters.' },
+        { success: false, error: passValidation.error || 'Password does not meet security requirements.' },
         { status: 400 }
       )
     }

@@ -2034,4 +2034,98 @@ test('45. 4-Tier Pricing Across Website, Dashboard, Backend & Checkout', async (
   assert.ok(dashboardContent.includes('setDashboardBillingCycle'), 'Dashboard must support monthly/yearly toggle')
 })
 
+test('46. Password Policy Invariants: 12-128 chars, Complexity, Compromised Reject & Parity Law', async () => {
+  const { validatePassword, COMMON_COMPROMISED_PASSWORDS } = await import('../lib/validation.ts')
+
+  // 1. Min length rejection (< 12)
+  const short1 = validatePassword('Short1!Ab')
+  assert.strictEqual(short1.valid, false)
+  assert.strictEqual(short1.rules.minLength, false)
+  assert.ok(short1.error?.includes('at least 12 characters'))
+
+  // 2. Max length rejection (> 128)
+  const longPass = 'A1!' + 'a'.repeat(126) // 129 chars
+  const tooLong = validatePassword(longPass)
+  assert.strictEqual(tooLong.valid, false)
+  assert.strictEqual(tooLong.rules.maxLength, false)
+  assert.ok(tooLong.error?.includes('cannot exceed 128 characters'))
+
+  // 3. Uppercase requirement
+  const noUpper = validatePassword('nouppercase123!@#')
+  assert.strictEqual(noUpper.valid, false)
+  assert.strictEqual(noUpper.rules.hasUppercase, false)
+  assert.ok(noUpper.error?.includes('uppercase'))
+
+  // 4. Lowercase requirement
+  const noLower = validatePassword('NOLOWERCASE123!@#')
+  assert.strictEqual(noLower.valid, false)
+  assert.strictEqual(noLower.rules.hasLowercase, false)
+  assert.ok(noLower.error?.includes('lowercase'))
+
+  // 5. Number requirement
+  const noNumber = validatePassword('NoNumberHere!@#$')
+  assert.strictEqual(noNumber.valid, false)
+  assert.strictEqual(noNumber.rules.hasNumber, false)
+  assert.ok(noNumber.error?.includes('number'))
+
+  // 6. Special character requirement
+  const noSpecial = validatePassword('NoSpecialChar123456')
+  assert.strictEqual(noSpecial.valid, false)
+  assert.strictEqual(noSpecial.rules.hasSpecial, false)
+  assert.ok(noSpecial.error?.includes('special character'))
+
+  // 7. Rejection of known common/compromised passwords
+  for (const common of ['Password123!', 'Welcome12345!', 'Staynest2026!']) {
+    const res = validatePassword(common)
+    assert.strictEqual(res.valid, false, `Should reject compromised password: ${common}`)
+    assert.strictEqual(res.rules.notCommon, false)
+    assert.ok(res.error?.includes('too common') || res.error?.includes('at least 12'))
+  }
+
+  // 8. Rejection of repetitive characters
+  const repetitive = validatePassword('AAAAAAAAAAAA!1')
+  assert.strictEqual(repetitive.valid, false)
+
+  // 9. Acceptance of compliant strong passwords
+  const strong1 = validatePassword('BaseraBook#2026Secure!')
+  assert.strictEqual(strong1.valid, true)
+  assert.strictEqual(strong1.error, undefined)
+  assert.strictEqual(strong1.rules.minLength, true)
+  assert.strictEqual(strong1.rules.maxLength, true)
+  assert.strictEqual(strong1.rules.hasUppercase, true)
+  assert.strictEqual(strong1.rules.hasLowercase, true)
+  assert.strictEqual(strong1.rules.hasNumber, true)
+  assert.strictEqual(strong1.rules.hasSpecial, true)
+  assert.strictEqual(strong1.rules.notCommon, true)
+
+  const strong2 = validatePassword('Correct-Horse-Battery-Staple-99!')
+  assert.strictEqual(strong2.valid, true)
+
+  // 10. Frontend and Backend Parity Verification:
+  // Verify that all auth entry points import and use validatePassword
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  const signupRoute = fs.readFileSync(path.resolve('app/api/auth/signup-otp/route.ts'), 'utf-8')
+  assert.ok(signupRoute.includes('validatePassword(password)'), 'signup-otp must validate password')
+
+  const resetRoute = fs.readFileSync(path.resolve('app/api/auth/verify-reset-password/route.ts'), 'utf-8')
+  assert.ok(resetRoute.includes('validatePassword(newPassword)'), 'verify-reset-password must validate password')
+
+  const adminActions = fs.readFileSync(path.resolve('app/admin/actions.ts'), 'utf-8')
+  assert.ok(adminActions.includes('validatePassword(newPassword)'), 'admin actions must validate password')
+
+  const signupUi = fs.readFileSync(path.resolve('app/signup/page.tsx'), 'utf-8')
+  assert.ok(signupUi.includes('validatePassword'), 'signup UI must import validatePassword')
+
+  const forgotUi = fs.readFileSync(path.resolve('app/forgot-password/page.tsx'), 'utf-8')
+  assert.ok(forgotUi.includes('validatePassword'), 'forgot-password UI must import validatePassword')
+
+  // 11. Security Audit: Zero plaintext logging in auth routes
+  assert.ok(!signupRoute.includes('console.log(') || !signupRoute.includes('console.log(password'), 'Must not log password')
+  assert.ok(!resetRoute.includes('console.log(') || !resetRoute.includes('console.log(newPassword'), 'Must not log newPassword')
+  assert.ok(!adminActions.includes('console.log(') || !adminActions.includes('console.log(newPassword'), 'Must not log admin password')
+})
+
+
 

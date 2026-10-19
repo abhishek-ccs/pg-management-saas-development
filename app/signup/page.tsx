@@ -19,7 +19,7 @@ import {
   User,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { isValidEmail, getSafeRedirectPath } from '@/lib/validation'
+import { isValidEmail, getSafeRedirectPath, validatePassword } from '@/lib/validation'
 
 export default function SignupPage() {
   const router = useRouter()
@@ -79,8 +79,9 @@ export default function SignupPage() {
       return
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.')
+    const passValidation = validatePassword(password)
+    if (!passValidation.valid) {
+      setError(passValidation.error || 'Password must be at least 12 characters and include uppercase, lowercase, numbers, and symbols.')
       setLoading(false)
       return
     }
@@ -268,20 +269,31 @@ export default function SignupPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    minLength={6}
-                    placeholder="Minimum 6 characters"
+                    minLength={12}
+                    maxLength={128}
+                    placeholder="Minimum 12 characters"
                     className="w-full rounded-xl border border-[#e4e6ec] bg-white pl-10 pr-11 py-2.5 text-sm font-normal text-[#2c221e] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
                   />
                   <button
                     type="button"
                     onClick={() => setShow(!show)}
-                    aria-label="Toggle password visibility"
+                    aria-label={show ? 'Hide password' : 'Show password'}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#999daa] hover:text-[#555a6c] transition-colors p-1"
                   >
                     {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                   </button>
                 </div>
-                <span className="text-[11px] text-[#85899a]">Must be at least 6 characters long.</span>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[11px] text-[#85899a]">
+                  <span className={password.length >= 12 && password.length <= 128 ? 'text-[#1e7e34] font-medium' : ''}>
+                    ✓ 12–128 chars
+                  </span>
+                  <span className={/[A-Z]/.test(password) && /[a-z]/.test(password) ? 'text-[#1e7e34] font-medium' : ''}>
+                    ✓ Upper & Lowercase
+                  </span>
+                  <span className={/[0-9]/.test(password) && /[^A-Za-z0-9]/.test(password) ? 'text-[#1e7e34] font-medium' : ''}>
+                    ✓ Number & Symbol
+                  </span>
+                </div>
               </label>
 
               {error && (

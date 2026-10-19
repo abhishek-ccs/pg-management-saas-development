@@ -94,7 +94,7 @@ export default function RootLayout({
       <head>
         <StructuredData />
       </head>
-      <body className="antialiased font-sans text-[#403a34] bg-[#fbf8f3]">
+      <body className="antialiased font-sans text-[#403a34] bg-[#fbf8f3] min-h-screen overflow-x-hidden selection:bg-[#8b5a2b]/20 selection:text-[#2c221e]">
         {/* Google tag (gtag.js) */}
         <Script
           strategy="afterInteractive"

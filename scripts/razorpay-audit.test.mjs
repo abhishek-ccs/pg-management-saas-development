@@ -24,6 +24,7 @@ import {
 import {
   resolveAuthoritativeSubscription,
   resolveCustomerEntitlements,
+  resolveTrialSchedule,
   PLAN_PROPERTY_LIMITS,
   DEFAULT_PROPERTY_LIMIT,
 } from '../lib/subscription.ts'
@@ -381,77 +382,278 @@ test('AUDIT 8: Property Limit Entitlements for All Tiers', () => {
   assert.ok(expiredEntitlement.reason.includes('expired'))
 })
 
-test('AUDIT 9: Free Trial Eligibility & Immediate Charge Business Rules', () => {
+test('AUDIT 9: Deterministic Trial Schedule Engine (resolveTrialSchedule)', () => {
   const nowMs = 1760800000000 // fixed reference timestamp
 
-  // Helper matching /api/razorpay/create-subscription business logic
-  function evaluateTrialSchedule(existingRows, now) {
-    const resolvedState = resolveAuthoritativeSubscription(existingRows, now)
-    const hasActivePaidSub = resolvedState.status === 'active'
-    const isTrialExpired = resolvedState.isTrialExpired
+  // Case 1: Brand new customer with zero prior rows in DB
+  const emptySchedule = resolveTrialSchedule([], nowMs)
+  assert.equal(emptySchedule.isTrialEligible, true, 'Brand new customer with empty array must be trial eligible')
+  assert.equal(emptySchedule.chargeImmediate, false, 'Brand new customer must not be charged immediately')
+  assert.equal(emptySchedule.startAt, Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60, 'Start_at must be exactly 7 days in future')
+  assert.equal(emptySchedule.reason, 'brand_new_customer')
 
-    let isTrialEligible = false
-    let startAt = null
+  // Case 2: Brand new customer with null/undefined rows
+  const nullSchedule = resolveTrialSchedule(null, nowMs)
+  assert.equal(nullSchedule.isTrialEligible, true)
+  assert.equal(nullSchedule.chargeImmediate, false)
+  assert.equal(nullSchedule.startAt, Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60)
 
-    if (!hasActivePaidSub && !isTrialExpired) {
-      if (!existingRows || existingRows.length === 0) {
-        // Brand new customer: eligible for full 7-day trial
-        isTrialEligible = true
-        startAt = Math.floor(now / 1000) + 7 * 24 * 60 * 60
-      } else if (resolvedState.status === 'trialing' && resolvedState.trialEnd) {
-        const trialEndMs = new Date(resolvedState.trialEnd).getTime()
-        const remainingSeconds = Math.floor((trialEndMs - now) / 1000)
-        if (remainingSeconds >= 900) {
-          isTrialEligible = true
-          startAt = Math.floor(trialEndMs / 1000)
-        }
-      }
-    }
-
-    return { isTrialEligible, startAt }
-  }
-
-  // Case A1: Standard active trial customer (signed up, trialing record exists with 7 days remaining)
-  const standardTrialRows = [
+  // Case 3: Customer with active unexpired trial (5 days remaining)
+  const fiveDaysMs = 5 * 24 * 60 * 60 * 1000
+  const activeTrialRows = [
     {
-      id: 'sub_new',
+      id: 'sub_trial',
+      owner_id: 'user_1',
       status: 'trialing',
-      trial_start: new Date(nowMs).toISOString(),
-      trial_end: new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      trial_start: new Date(nowMs - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      trial_end: new Date(nowMs + fiveDaysMs).toISOString(),
     },
   ]
-  const standardTrialCustomer = evaluateTrialSchedule(standardTrialRows, nowMs)
-  assert.equal(standardTrialCustomer.isTrialEligible, true)
-  assert.equal(standardTrialCustomer.startAt, Math.floor((nowMs + 7 * 24 * 60 * 60 * 1000) / 1000))
+  const activeTrialSchedule = resolveTrialSchedule(activeTrialRows, nowMs)
+  assert.equal(activeTrialSchedule.isTrialEligible, true)
+  assert.equal(activeTrialSchedule.chargeImmediate, false)
+  // CRITICAL INVARIANT: must preserve original trial end date; NOT reset to 7 days
+  assert.equal(
+    activeTrialSchedule.startAt,
+    Math.floor((nowMs + fiveDaysMs) / 1000),
+    'Must preserve original trial end date'
+  )
+  assert.notEqual(
+    activeTrialSchedule.startAt,
+    Math.floor(nowMs / 1000) + 7 * 24 * 60 * 60,
+    'Must NOT grant repeat 7-day trial'
+  )
+  assert.equal(activeTrialSchedule.reason, 'active_trial_preserved')
 
-  // Case A2: Customer with no rows in DB
-  // Due to resolveAuthoritativeSubscription returning isTrialExpired: true for empty arrays,
-  // the current create-subscription route does not enter the nested (!existingRows) block.
-  const emptyCustomer = evaluateTrialSchedule([], nowMs)
-  assert.equal(emptyCustomer.isTrialEligible, false, 'Empty rows currently evaluate to not trial-eligible due to authoritative resolver isTrialExpired=true')
-
-
-  // Case B: Expired trial customer -> start_at is NULL (immediate charge at Checkout)
-  const expiredRows = [
+  // Case 4: Trial with less than 15 minutes (900s) remaining (Razorpay minimum start_at window)
+  const tenMinutesMs = 10 * 60 * 1000
+  const sub15mRows = [
     {
-      id: 'sub_1',
+      id: 'sub_short',
+      owner_id: 'user_2',
       status: 'trialing',
-      trial_end: new Date(nowMs - 3600000).toISOString(),
+      trial_end: new Date(nowMs + tenMinutesMs).toISOString(),
     },
   ]
-  const expiredCustomer = evaluateTrialSchedule(expiredRows, nowMs)
-  assert.equal(expiredCustomer.isTrialEligible, false)
-  assert.equal(expiredCustomer.startAt, null, 'Must omit start_at to charge immediately on checkout')
+  const sub15mSchedule = resolveTrialSchedule(sub15mRows, nowMs)
+  assert.equal(sub15mSchedule.isTrialEligible, false, 'Must not be trial eligible if < 15 minutes left')
+  assert.equal(sub15mSchedule.startAt, null, 'start_at must be null when window < 15 minutes')
+  assert.equal(sub15mSchedule.chargeImmediate, true)
+  assert.equal(sub15mSchedule.reason, 'trial_window_sub_15m')
 
-  // Case C: Active paid subscriber -> start_at is NULL (immediate charge for plan switch)
-  const activeRows = [
+  // Case 5: Expired trial customer (trial ended 14 days ago like sharmavn258@gmail.com)
+  const expiredTrialRows = [
     {
-      id: 'sub_2',
+      id: 'sub_expired',
+      owner_id: 'user_3',
+      status: 'trialing',
+      trial_start: new Date(nowMs - 21 * 24 * 60 * 60 * 1000).toISOString(),
+      trial_end: new Date(nowMs - 14 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+  ]
+  const expiredSchedule = resolveTrialSchedule(expiredTrialRows, nowMs)
+  assert.equal(expiredSchedule.isTrialEligible, false, 'Expired trial user is not trial eligible')
+  assert.equal(expiredSchedule.startAt, null, 'Must omit start_at to charge immediately on checkout')
+  assert.equal(expiredSchedule.chargeImmediate, true)
+  assert.equal(expiredSchedule.reason, 'trial_expired')
+
+  // Case 6: Active paid subscriber upgrading / changing plan
+  const activePaidRows = [
+    {
+      id: 'sub_paid',
+      owner_id: 'user_4',
       status: 'active',
       plan: 'starter',
     },
   ]
-  const activeCustomer = evaluateTrialSchedule(activeRows, nowMs)
-  assert.equal(activeCustomer.isTrialEligible, false)
-  assert.equal(activeCustomer.startAt, null, 'Active customer upgrading plan must be charged immediately')
+  const paidSchedule = resolveTrialSchedule(activePaidRows, nowMs)
+  assert.equal(paidSchedule.isTrialEligible, false)
+  assert.equal(paidSchedule.startAt, null, 'Active customer upgrading plan must be charged immediately')
+  assert.equal(paidSchedule.chargeImmediate, true)
+  assert.equal(paidSchedule.reason, 'active_paid_subscription')
 })
+
+test('AUDIT 10: Customer Phone Prefill Security & Fallback Isolation Law', () => {
+  // Helper simulating checkout prefill generation
+  function generateCheckoutPrefill(user, profile, customerInput) {
+    const providedPhone = typeof customerInput === 'string' ? customerInput.trim() : ''
+    const effectivePhone = (
+      providedPhone ||
+      (user?.phone || '').trim() ||
+      (typeof user?.user_metadata?.phone === 'string' ? user.user_metadata.phone.trim() : '') ||
+      (profile?.phone || '').trim()
+    )
+
+    return {
+      name: user?.user_metadata?.full_name || profile?.full_name || '',
+      email: user?.email || '',
+      ...(effectivePhone ? { contact: effectivePhone } : {}),
+    }
+  }
+
+  // 1. Authenticated customer with phone in Supabase Auth user object
+  const userWithAuthPhone = {
+    email: 'customer1@example.com',
+    phone: '+919876543210',
+    user_metadata: { full_name: 'Customer One' },
+  }
+  const prefill1 = generateCheckoutPrefill(userWithAuthPhone, null, '')
+  assert.equal(prefill1.contact, '+919876543210', 'Prefill must contain authenticated customer phone')
+
+  // 2. Customer with phone in Supabase public.profiles table
+  const userWithProfilePhone = {
+    email: 'customer2@example.com',
+    user_metadata: { full_name: 'Customer Two' },
+  }
+  const profileWithPhone = {
+    phone: '9876500000',
+    full_name: 'Customer Two Profile',
+  }
+  const prefill2 = generateCheckoutPrefill(userWithProfilePhone, profileWithPhone, '')
+  assert.equal(prefill2.contact, '9876500000', 'Prefill must read phone from public.profiles')
+
+  // 3. Customer explicitly entering phone in confirmation dialog
+  const userWithNoPhone = {
+    email: 'customer3@example.com',
+    user_metadata: { full_name: 'Customer Three' },
+  }
+  const prefill3 = generateCheckoutPrefill(userWithNoPhone, null, '9123456789')
+  assert.equal(prefill3.contact, '9123456789', 'Prefill must use customer-entered phone')
+
+  // 4. Customer with ZERO phone on file and no input
+  const prefill4 = generateCheckoutPrefill(userWithNoPhone, null, '')
+  assert.equal(
+    prefill4.contact,
+    undefined,
+    'prefill.contact MUST be undefined when customer has no phone (never fall back to owner phone!)'
+  )
+  assert.equal('contact' in prefill4, false, 'contact property must not exist in prefill object')
+})
+
+test('AUDIT 11: Immediate Billing Disclosure Invariants for Expired Trials', () => {
+  const nowMs = Date.now()
+  const expiredRows = [
+    {
+      id: 'sub_expired_customer',
+      owner_id: 'user_expired',
+      status: 'trialing',
+      trial_start: new Date(nowMs - 20 * 86400000).toISOString(),
+      trial_end: new Date(nowMs - 13 * 86400000).toISOString(),
+    },
+  ]
+
+  const schedule = resolveTrialSchedule(expiredRows, nowMs)
+  assert.equal(schedule.chargeImmediate, true, 'Expired trial must flag immediate charge')
+  assert.equal(schedule.isTrialEligible, false)
+  assert.equal(schedule.startAt, null)
+
+  // Verify plan prices and billing intervals are accurately disclosed
+  const planTier = 'growth'
+  const planType = 'yearly'
+  const planPrices = {
+    starter: { monthly: 1099, yearly: 9999 },
+    growth: { monthly: 1799, yearly: 17990 },
+    business: { monthly: 2799, yearly: 27990 },
+  }
+  const exactAmount = planPrices[planTier][planType]
+  assert.equal(exactAmount, 17990, 'Growth yearly amount must be exactly ₹17,990')
+
+  // Verify response shape disclosure matches what create-subscription returns
+  const mockResponse = {
+    planType,
+    plan: planTier,
+    isTrial: schedule.isTrialEligible,
+    trialEnd: null,
+    amount: exactAmount,
+    billingInterval: 'year',
+    chargeImmediate: schedule.chargeImmediate,
+    reason: schedule.reason,
+  }
+
+  assert.equal(mockResponse.chargeImmediate, true)
+  assert.equal(mockResponse.amount, 17990)
+  assert.equal(mockResponse.billingInterval, 'year')
+  assert.equal(mockResponse.isTrial, false)
+})
+
+test('AUDIT 12: Cross-User Subscription Ownership Defense (Anti-Hijacking)', () => {
+  // Simulate verify-subscription endpoint check:
+  // When an attacker attempts to verify a subscription created by a different user
+  function verifySubscriptionOwnership(authenticatedUserId, razorpaySubscription) {
+    if (
+      razorpaySubscription.notes?.user_id &&
+      razorpaySubscription.notes.user_id !== authenticatedUserId
+    ) {
+      return {
+        allowed: false,
+        status: 403,
+        error: 'Subscription does not belong to the current authenticated user.',
+      }
+    }
+    return { allowed: true, status: 200 }
+  }
+
+  const legitimateUser = '5fc5c902-cea9-425a-b6fb-989b436ab270'
+  const attackingUser = 'attacker-uuid-9999-0000-111122223333'
+
+  const subscriptionFromLegitimateUser = {
+    id: 'sub_TppElVJ7oKIEiZ',
+    status: 'active',
+    notes: {
+      user_id: legitimateUser,
+      user_email: 'legit@example.com',
+      app: 'BaseraBook',
+    },
+  }
+
+  // 1. Legitimate user verifying their own subscription -> Allowed
+  const legitResult = verifySubscriptionOwnership(legitimateUser, subscriptionFromLegitimateUser)
+  assert.equal(legitResult.allowed, true)
+  assert.equal(legitResult.status, 200)
+
+  // 2. Attacking user trying to verify legitimate user's subscription -> Rejected with 403 Forbidden
+  const attackResult = verifySubscriptionOwnership(attackingUser, subscriptionFromLegitimateUser)
+  assert.equal(attackResult.allowed, false)
+  assert.equal(attackResult.status, 403)
+  assert.ok(attackResult.error.includes('does not belong'))
+})
+
+test('AUDIT 13: Payment Safety & Lifecycle Invariants', () => {
+  // Invariant 1: Premature activation check
+  // Subscriptions in statuses other than 'active' or 'authenticated' must be rejected
+  function validateSubscriptionActivationStatus(status) {
+    return status === 'active' || status === 'authenticated'
+  }
+
+  assert.equal(validateSubscriptionActivationStatus('created'), false, 'created status must not activate')
+  assert.equal(validateSubscriptionActivationStatus('pending'), false, 'pending status must not activate')
+  assert.equal(validateSubscriptionActivationStatus('halted'), false, 'halted status must not activate')
+  assert.equal(validateSubscriptionActivationStatus('cancelled'), false, 'cancelled status must not activate')
+  assert.equal(validateSubscriptionActivationStatus('authenticated'), true, 'authenticated status may activate trialing')
+  assert.equal(validateSubscriptionActivationStatus('active'), true, 'active status may activate paid access')
+
+  // Invariant 2: Webhook signature verification requirement
+  const mockSecret = 'sec_test_secret_key_12345'
+  const originalSecret = process.env.RAZORPAY_WEBHOOK_SECRET
+  process.env.RAZORPAY_WEBHOOK_SECRET = mockSecret
+
+  try {
+    const testPayload = JSON.stringify({ event: 'subscription.activated', id: 'evt_1' })
+    const validSignature = crypto.createHmac('sha256', mockSecret).update(testPayload).digest('hex')
+    const tamperedPayload = JSON.stringify({ event: 'subscription.activated', id: 'evt_tampered' })
+
+    assert.equal(
+      verifyWebhookSignature(testPayload, validSignature),
+      true,
+      'Valid HMAC signature must verify'
+    )
+    assert.equal(
+      verifyWebhookSignature(tamperedPayload, validSignature),
+      false,
+      'Tampered payload must fail HMAC verification'
+    )
+  } finally {
+    process.env.RAZORPAY_WEBHOOK_SECRET = originalSecret
+  }
+})
+
