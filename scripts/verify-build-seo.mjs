@@ -53,7 +53,7 @@ for (const file of files) {
     }
   } else if (file === 'robots.txt.body') {
     console.log(`  Content:\n${content.trim().split('\n').map(l => '    ' + l).join('\n')}`)
-    if (content.includes('https://baserabook.in/sitemap.xml')) {
+    if (content.includes('https://www.baserabook.in/sitemap.xml')) {
       console.log(`  ✔ Correct sitemap reference in robots.txt`)
     } else {
       console.log(`  ❌ Incorrect sitemap in robots.txt`)

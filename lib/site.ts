@@ -1,10 +1,10 @@
 import type { Metadata } from 'next'
 
-export const CANONICAL_SITE_URL = 'https://baserabook.in'
+export const CANONICAL_SITE_URL = 'https://www.baserabook.in'
 
 /**
  * Site URL Resolver
- * Enforces https://baserabook.in as the single canonical production domain.
+ * Enforces https://www.baserabook.in as the single canonical production domain.
  * Guards against internal Vercel subdomains (*.vercel.app) or misconfigured
  * environment variables overriding SEO canonicals.
  */
@@ -12,7 +12,11 @@ export function getSiteUrl(): string {
   const envUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL
 
   if (envUrl && !envUrl.includes('vercel.app')) {
-    return envUrl.replace(/\/$/, '')
+    const cleaned = envUrl.replace(/\/$/, '')
+    if (cleaned === 'https://baserabook.in' || cleaned === 'http://baserabook.in') {
+      return CANONICAL_SITE_URL
+    }
+    return cleaned
   }
 
   return CANONICAL_SITE_URL

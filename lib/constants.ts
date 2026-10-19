@@ -20,5 +20,5 @@ export function getMailtoSupport(
 }
 
 export const APP_NAME = 'BaseraBook'
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://baserabook.in'
+export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.baserabook.in'
 

@@ -117,7 +117,7 @@ export async function sendWelcomeEmail(to: string, ownerName: string) {
           Your 7-day unrestricted free trial is now active. You can immediately set up your property profile, configure rooms and units, and onboard residents.
         </p>
         <div style="margin: 28px 0;">
-          <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://baserabook.in'}/dashboard" style="display: inline-block; background-color: #9a7651; color: #ffffff; font-weight: 600; font-size: 13px; text-decoration: none; padding: 12px 24px; border-radius: 10px;">
+          <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://www.baserabook.in'}/dashboard" style="display: inline-block; background-color: #9a7651; color: #ffffff; font-weight: 600; font-size: 13px; text-decoration: none; padding: 12px 24px; border-radius: 10px;">
             Open Your Dashboard →
           </a>
         </div>

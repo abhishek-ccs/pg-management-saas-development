@@ -1542,16 +1542,16 @@ test('38. Payment Details Form Validation & Reminder Protection Barrier', () => 
 })
 
 test('39. Technical SEO: Canonical Invariant, Vercel Subdomain Redirect, and Metadata Integrity', async () => {
-  // Invariant 1: Preferred canonical domain is strictly https://baserabook.in
-  assert.strictEqual(CANONICAL_SITE_URL, 'https://baserabook.in')
+  // Invariant 1: Preferred canonical domain is strictly https://www.baserabook.in
+  assert.strictEqual(CANONICAL_SITE_URL, 'https://www.baserabook.in')
 
-  // Invariant 2: getSiteUrl() unconditionally returns https://baserabook.in
-  assert.strictEqual(getSiteUrl(), 'https://baserabook.in')
+  // Invariant 2: getSiteUrl() unconditionally returns https://www.baserabook.in
+  assert.strictEqual(getSiteUrl(), 'https://www.baserabook.in')
 
   // Invariant 3: getSiteUrl() rejects Vercel subdomains
   const originalVercel = process.env.VERCEL_PROJECT_PRODUCTION_URL
   process.env.VERCEL_PROJECT_PRODUCTION_URL = 'pg-management-saas-development-rose.vercel.app'
-  assert.strictEqual(getSiteUrl(), 'https://baserabook.in', 'Must resist vercel.app environment variables')
+  assert.strictEqual(getSiteUrl(), 'https://www.baserabook.in', 'Must resist vercel.app environment variables')
   if (originalVercel) {
     process.env.VERCEL_PROJECT_PRODUCTION_URL = originalVercel
   } else {
@@ -1560,14 +1560,14 @@ test('39. Technical SEO: Canonical Invariant, Vercel Subdomain Redirect, and Met
 
   // Invariant 4: constructMetadata sets canonical correctly
   const rootMeta = constructMetadata({ title: 'Home', description: 'Test' })
-  assert.strictEqual(rootMeta.alternates?.canonical, 'https://baserabook.in/')
-  assert.strictEqual(rootMeta.openGraph?.url, 'https://baserabook.in/')
+  assert.strictEqual(rootMeta.alternates?.canonical, 'https://www.baserabook.in/')
+  assert.strictEqual(rootMeta.openGraph?.url, 'https://www.baserabook.in/')
 
   const subMeta = constructMetadata({ title: 'Pricing', description: 'Test', path: '/pricing' })
-  assert.strictEqual(subMeta.alternates?.canonical, 'https://baserabook.in/pricing')
-  assert.strictEqual(subMeta.openGraph?.url, 'https://baserabook.in/pricing')
+  assert.strictEqual(subMeta.alternates?.canonical, 'https://www.baserabook.in/pricing')
+  assert.strictEqual(subMeta.openGraph?.url, 'https://www.baserabook.in/pricing')
 
-  // Invariant 5: next.config.mjs redirects old Vercel subdomain to https://baserabook.in/:path*
+  // Invariant 5: next.config.mjs redirects old Vercel subdomain to https://www.baserabook.in/:path*
   assert.ok(typeof nextConfig.redirects === 'function', 'nextConfig must define redirects')
   const redirects = await nextConfig.redirects()
   const vercelRedirect = redirects.find((r) =>
@@ -1575,7 +1575,7 @@ test('39. Technical SEO: Canonical Invariant, Vercel Subdomain Redirect, and Met
   )
   assert.ok(vercelRedirect, 'Must have a redirect for old Vercel deployment host')
   assert.strictEqual(vercelRedirect.permanent, true, 'Redirect must be HTTP 308 permanent')
-  assert.strictEqual(vercelRedirect.destination, 'https://baserabook.in/:path*', 'Redirect must preserve paths to canonical domain')
+  assert.strictEqual(vercelRedirect.destination, 'https://www.baserabook.in/:path*', 'Redirect must preserve paths to canonical domain')
 })
 
 test('40. Razorpay Subscription Activation: Trial Eligibility & Immediate Charge Invariants', () => {
@@ -1952,8 +1952,8 @@ test('44. Dedicated About Us Page: Metadata, Canonical URL & Footer Navigation',
   })
 
   assert.strictEqual(metadata.title, 'About Us | BaseraBook Property Management Software')
-  assert.strictEqual(metadata.alternates?.canonical, 'https://baserabook.in/about', 'Canonical URL must strictly be https://baserabook.in/about')
-  assert.strictEqual(metadata.openGraph?.url, 'https://baserabook.in/about', 'OG URL must strictly be https://baserabook.in/about')
+  assert.strictEqual(metadata.alternates?.canonical, 'https://www.baserabook.in/about', 'Canonical URL must strictly be https://www.baserabook.in/about')
+  assert.strictEqual(metadata.openGraph?.url, 'https://www.baserabook.in/about', 'OG URL must strictly be https://www.baserabook.in/about')
   assert.strictEqual(metadata.robots?.index, true, 'Page must be indexable (robots.index: true)')
   assert.strictEqual(metadata.robots?.follow, true, 'Page links must be followable (robots.follow: true)')
 
@@ -1968,8 +1968,8 @@ test('44. Dedicated About Us Page: Metadata, Canonical URL & Footer Navigation',
   const sitemapModule = await import('../app/sitemap.ts')
   const sitemapFn = sitemapModule.default || sitemapModule
   const entries = sitemapFn()
-  const aboutEntry = entries.find((e) => e.url === 'https://baserabook.in/about')
-  assert.ok(aboutEntry, 'Sitemap must contain https://baserabook.in/about entry')
+  const aboutEntry = entries.find((e) => e.url === 'https://www.baserabook.in/about')
+  assert.ok(aboutEntry, 'Sitemap must contain https://www.baserabook.in/about entry')
   assert.strictEqual(aboutEntry.priority, 0.8)
 })
 

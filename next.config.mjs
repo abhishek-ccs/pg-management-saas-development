@@ -13,7 +13,7 @@ const nextConfig = {
       },
     ],
   },
-  // Redirect old Vercel project subdomain to official canonical domain
+  // Redirect old Vercel project subdomain and apex domain to official canonical domain
   async redirects() {
     return [
       {
@@ -24,7 +24,18 @@ const nextConfig = {
             value: 'pg-management-saas-development-rose.vercel.app',
           },
         ],
-        destination: 'https://baserabook.in/:path*',
+        destination: 'https://www.baserabook.in/:path*',
+        permanent: true,
+      },
+      {
+        source: '/:path*',
+        has: [
+          {
+            type: 'host',
+            value: 'baserabook.in',
+          },
+        ],
+        destination: 'https://www.baserabook.in/:path*',
         permanent: true,
       },
     ]

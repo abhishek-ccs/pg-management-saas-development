@@ -12,7 +12,7 @@ const sitemapEntries = sitemapFn()
 assert(Array.isArray(sitemapEntries), 'sitemap() must return an array')
 assert(sitemapEntries.length >= 9, 'sitemap() must contain all public routes')
 
-const EXPECTED_DOMAIN = 'https://baserabook.in'
+const EXPECTED_DOMAIN = 'https://www.baserabook.in'
 const FORBIDDEN_DOMAINS = [
   'pg-management-saas-development-rose.vercel.app',
   'vercel.app',
@@ -36,8 +36,8 @@ const robotsOutput = robotsFn()
 assert(robotsOutput.sitemap, 'robots() must define a sitemap')
 assert.equal(
   robotsOutput.sitemap,
-  'https://baserabook.in/sitemap.xml',
-  'robots.txt sitemap reference must be exactly "https://baserabook.in/sitemap.xml"'
+  'https://www.baserabook.in/sitemap.xml',
+  'robots.txt sitemap reference must be exactly "https://www.baserabook.in/sitemap.xml"'
 )
 
 for (const forbidden of FORBIDDEN_DOMAINS) {
@@ -51,7 +51,7 @@ assert(allDisallows.includes('/dashboard'), 'robots must disallow /dashboard')
 assert(allDisallows.includes('/admin'), 'robots must disallow /admin')
 assert(allDisallows.includes('/console'), 'robots must disallow /console')
 assert(allDisallows.includes('/api/'), 'robots must disallow /api/')
-console.log('✔ robots.txt correctly points to https://baserabook.in/sitemap.xml and enforces privacy rules.')
+console.log('✔ robots.txt correctly points to https://www.baserabook.in/sitemap.xml and enforces privacy rules.')
 
 // 3. Test getSiteUrl resilience against Vercel auto-injected subdomains
 console.log('\n3. Verifying getSiteUrl() resolution...')
@@ -69,8 +69,8 @@ try {
   const resolved = getSiteUrl()
   assert.equal(
     resolved,
-    'https://baserabook.in',
-    'getSiteUrl() must default to https://baserabook.in even when Vercel env vars are injected'
+    'https://www.baserabook.in',
+    'getSiteUrl() must default to https://www.baserabook.in even when Vercel env vars are injected'
   )
   console.log('✔ getSiteUrl() resists Vercel internal subdomain overrides.')
 } finally {
