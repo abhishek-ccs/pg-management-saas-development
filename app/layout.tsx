@@ -39,7 +39,7 @@ export const metadata: Metadata = {
       'Your Property. Smartly Managed. Replace spreadsheets with a calm, accurate rental property management system for PGs, hostels, apartments, and rental houses.',
     images: [
       {
-        url: '/og-image-v2.png',
+        url: '/og-image-v3.png',
         width: 1200,
         height: 630,
         alt: 'BaseraBook - Property Management Software',
@@ -51,7 +51,7 @@ export const metadata: Metadata = {
     title: 'BaseraBook | Property Management Software & Rental Property Management',
     description:
       'BaseraBook — Your Property. Smartly Managed. Modern cloud property and rental management software for PGs, hostels, apartments, and houses.',
-    images: ['/og-image-v2.png'],
+    images: ['/og-image-v3.png'],
   },
   robots: {
     index: true,
