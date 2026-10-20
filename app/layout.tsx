@@ -39,10 +39,10 @@ export const metadata: Metadata = {
       'Your Property. Smartly Managed. Replace spreadsheets with a calm, accurate rental property management system for PGs, hostels, apartments, and rental houses.',
     images: [
       {
-        url: '/icon.svg',
-        width: 512,
-        height: 512,
-        alt: 'BaseraBook - Property Management Software & Rental Property Management',
+        url: '/og-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'BaseraBook - Property Management Software',
       },
     ],
   },
@@ -50,8 +50,8 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'BaseraBook | Property Management Software & Rental Property Management',
     description:
-      'BaseraBook  — Your Property. Smartly Managed. Modern cloud property and rental management software for PGs, hostels, apartments, and houses.',
-    images: ['/icon.svg'],
+      'BaseraBook — Your Property. Smartly Managed. Modern cloud property and rental management software for PGs, hostels, apartments, and houses.',
+    images: ['/og-image.png'],
   },
   robots: {
     index: true,
@@ -66,9 +66,8 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/favicon.ico', sizes: 'any' },
-      { url: '/icon-light-32x32.png', type: 'image/png', sizes: '32x32', media: '(prefers-color-scheme: light)' },
-      { url: '/icon-dark-32x32.png', type: 'image/png', sizes: '32x32', media: '(prefers-color-scheme: dark)' },
+      { url: '/favicon.ico', sizes: '48x48' },
+      { url: '/icon-192x192.png', type: 'image/png', sizes: '192x192' },
       { url: '/icon.svg', type: 'image/svg+xml' },
     ],
     apple: [
