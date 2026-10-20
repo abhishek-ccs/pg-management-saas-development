@@ -225,6 +225,15 @@ export function PricingContent() {
 
       const rzp = new (window as any).Razorpay(options)
       rzp.on('payment.failed', (failResp: any) => {
+        if (typeof window !== 'undefined') {
+          console.warn('[Razorpay Checkout Mandate Failure]', {
+            code: failResp.error?.code,
+            description: failResp.error?.description,
+            source: failResp.error?.source,
+            step: failResp.error?.step,
+            reason: failResp.error?.reason,
+          })
+        }
         setErrorMessage(
           failResp.error?.description || 'Payment mandate authorization failed or was declined.'
         )
