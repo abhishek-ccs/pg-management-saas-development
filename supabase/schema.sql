@@ -90,8 +90,7 @@ CREATE TABLE IF NOT EXISTS public.properties (
   payment_link TEXT,
   upi_qr_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
-  CONSTRAINT uq_properties_owner UNIQUE (owner_id)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
 
 CREATE INDEX IF NOT EXISTS idx_properties_owner ON public.properties(owner_id);

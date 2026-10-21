@@ -163,10 +163,11 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
       }
     }
 
-    // Calculate initial status based on due day vs current day
-    const safeDueDay = Math.min(Math.max(Number(input.dueDay || 5), 1), 31)
-    const currentDate = new Date().getDate()
-    const initialStatus = currentDate > safeDueDay ? 'Overdue' : 'Pending'
+    // If tenant joins on the 10th, the rent due day defaults to 10 and next rent is due on the 10th of following month
+    const joiningParsed = new Date(joiningDate)
+    const joiningDay = !isNaN(joiningParsed.getTime()) ? joiningParsed.getDate() : 5
+    const safeDueDay = Math.min(Math.max(Number(input.dueDay || joiningDay || 5), 1), 31)
+    const initialStatus = 'Pending'
 
     // 5. Construct guaranteed baseline payload
     const tenantPayload: Record<string, any> = {
@@ -1072,8 +1073,15 @@ export async function createPropertyAction(input: CreatePropertyInput): Promise<
       if (insertErr.code === 'P0002' || insertErr.message?.includes('Property limit reached')) {
         return {
           success: false,
-          error: 'Property limit reached. Your subscription includes up to 2 properties. Please upgrade your plan to add more properties.',
+          error: `Property limit reached. Your subscription includes up to ${entitlement.maxProperties} properties. Please upgrade your plan to add more properties.`,
           code: 'PROPERTY_LIMIT_REACHED',
+        }
+      }
+      if (insertErr.message?.includes('uq_properties_owner') || insertErr.code === '23505') {
+        return {
+          success: false,
+          error: 'Legacy database constraint "uq_properties_owner" detected. Please run migration 20261021000001_fix_multi_property_constraint.sql in Supabase to allow multiple properties.',
+          code: 'LEGACY_CONSTRAINT_ERROR',
         }
       }
       return { success: false, error: `Could not save property: ${insertErr.message}` }

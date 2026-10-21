@@ -38,9 +38,14 @@ import {
 } from '@/lib/pricing'
 import {
   calculateRentDueStatus,
+  calculateNextRentDueDate,
+  generateMonthlyRentSchedules,
+  calculateTenantRentStatus,
+  isDuplicateRentPayment,
   formatPaymentTimestamp,
   generateWhatsAppReminder,
   generateSmsReminder,
+  type MonthlyRentSchedule,
   type ReminderPaymentDetails,
 } from '@/lib/due-dates'
 import {
@@ -501,6 +506,7 @@ export default function DashboardPage() {
 
   const [tenantFormDueDay, setTenantFormDueDay] = useState<number>(5)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [selectedTenantForSchedule, setSelectedTenantForSchedule] = useState<Tenant | null>(null)
   const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null)
   const [showExpenseModal, setShowExpenseModal] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
@@ -2244,10 +2250,26 @@ export default function DashboardPage() {
       return
     }
 
+    // Preserve previous payment history and prevent duplicate monthly bills
+    if (type === 'rent' && monthCovered) {
+      const dupCheck = isDuplicateRentPayment({
+        tenantId,
+        monthCovered,
+        payments,
+      })
+      if (dupCheck.isDuplicate) {
+        const paidWhen = dupCheck.existingPayment?.paid_at
+          ? ` on ${formatPaymentTimestamp(dupCheck.existingPayment.paid_at, 'Asia/Kolkata', locale)}`
+          : ''
+        flash(`Rent for ${monthCovered} has already been recorded for ${targetTenant.name}${paidWhen}. Duplicate monthly bill prevented.`)
+        return
+      }
+    }
+
     setConfirmDialog({
       open: true,
       title: 'Confirm Payment Entry',
-      description: `Record payment of ${currency(amount)} from ${targetTenant.name} via ${method.toUpperCase()}? This will update your accounting ledger and generate a formal receipt.`,
+      description: `Record payment of ${currency(amount)} from ${targetTenant.name} via ${method.toUpperCase()} for ${monthCovered || 'rent'}? This will update your accounting ledger and generate a formal receipt.`,
       actionLabel: 'Confirm Payment',
       isDestructive: false,
       onConfirm: async () => {
@@ -2269,10 +2291,11 @@ export default function DashboardPage() {
             amount,
             payment_method: method,
             payment_type: type,
+            month_covered: monthCovered || null,
             paid_at: now,
             notes: combinedNotes || null,
           })
-          .select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,notes')
+          .select('id,property_id,tenant_id,amount,payment_method,payment_type,month_covered,paid_at,notes')
           .single()
 
         if (error) {
@@ -3341,26 +3364,26 @@ export default function DashboardPage() {
       {/* Main Content Area */}
       <main className="lg:pl-[248px]">
         {/* Top Header */}
-        <header className="sticky top-0 z-20 border-b border-[#ebe4da] bg-white/95 backdrop-blur px-3 sm:px-8 py-2.5">
-          <div className="flex items-center justify-between gap-2">
+        <header className="sticky top-0 z-20 border-b border-[#ebe4da] bg-white/95 backdrop-blur px-3 sm:px-6 lg:px-8 py-2.5">
+          <div className="flex items-center justify-between gap-2 sm:gap-4 min-w-0">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <button className="lg:hidden p-1.5 rounded-lg hover:bg-[#faf7f2] text-[#6c635a] shrink-0" onClick={() => setMobileOpen(true)} aria-label="Open menu">
                 <Menu className="size-5" />
               </button>
-              <div className="hidden items-center gap-2 text-xs text-[#9c8e80] sm:flex shrink-0">
+              <div className="hidden items-center gap-2 text-xs text-[#9c8e80] md:flex shrink-0">
                 <span>Workspace</span>
                 <span>/</span>
                 <span className="font-semibold text-[#2c221e]">
                   {active === 'Overview' ? 'Dashboard' : active}
                 </span>
               </div>
-              <h1 className="text-sm sm:text-base font-semibold text-[#2c221e] lg:hidden truncate">
+              <h1 className="text-sm sm:text-base font-semibold text-[#2c221e] md:hidden truncate">
                 {active === 'Overview' ? 'Dashboard' : active}
               </h1>
 
               {/* Multiple Properties Switcher Dropdown in Header */}
               {properties.length > 0 && (
-                <div className="flex items-center gap-1 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2 py-1 text-xs shadow-2xs hover:border-[#d9cbbe] transition-colors shrink-0">
+                <div className="flex items-center gap-1 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2 py-1 text-xs shadow-2xs hover:border-[#d9cbbe] transition-colors shrink-1 min-w-0">
                   <Building2 className="size-3.5 text-[#8b5a2b] shrink-0" />
                   <select
                     value={selectedPropertyId || property.id}
@@ -3377,7 +3400,7 @@ export default function DashboardPage() {
                         setSelectedPropertyId(e.target.value)
                       }
                     }}
-                    className="bg-transparent font-semibold text-[#2c221e] outline-none cursor-pointer text-xs max-w-[100px] xs:max-w-[140px] sm:max-w-[180px] truncate"
+                    className="bg-transparent font-semibold text-[#2c221e] outline-none cursor-pointer text-xs max-w-[90px] xs:max-w-[120px] sm:max-w-[150px] md:max-w-[170px] truncate"
                   >
                     {properties.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -3392,15 +3415,16 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
               {/* Header Subscription / Trial Pill */}
               {subscriptionStatus === 'active' ? (
-                <div className="hidden md:flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-3.5 py-1.5 text-xs font-semibold text-emerald-800 shadow-2xs">
+                <div className="hidden sm:flex items-center gap-1.5 sm:gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-semibold text-emerald-800 shadow-2xs">
                   <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span>Growth Pro · Active</span>
+                  <span className="hidden md:inline">Growth Pro · </span>
+                  <span>Active</span>
                 </div>
               ) : (
-                <div className="hidden md:flex items-center gap-2 rounded-full border border-[#e5dcd0] bg-[#faf6f1] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
+                <div className="hidden sm:flex items-center gap-1.5 sm:gap-2 rounded-full border border-[#e5dcd0] bg-[#faf6f1] px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
                   <span
                     className={`size-2 rounded-full ${
                       isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#8b5a2b]'
@@ -3410,8 +3434,8 @@ export default function DashboardPage() {
                     {isTrialExpired
                       ? 'Trial Ended'
                       : hoursRemaining !== null && hoursRemaining < 48
-                      ? `Trial: ${hoursRemaining}h remaining`
-                      : `Trial: ${daysRemaining ?? 7}d remaining`}
+                      ? `Trial: ${hoursRemaining}h`
+                      : `Trial: ${daysRemaining ?? 7}d`}
                   </span>
                 </div>
               )}
@@ -3421,21 +3445,21 @@ export default function DashboardPage() {
                 <a
                   href="/admin"
                   title="Open BaseraBook Super Admin Console"
-                  className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
+                  className="hidden xl:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
                 >
                   <ShieldCheck className="size-3.5 text-[#8b5a2b]" />
                   <span>Staff Admin</span>
                 </a>
               )}
 
-              {/* Dynamic Multi-Module Search Input (Desktop/Tablet) */}
-              <div className="hidden sm:flex relative items-center gap-2 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a] focus-within:border-[#8b5a2b] transition-colors">
+              {/* Dynamic Multi-Module Search Input (Desktop only to prevent tablet overlap) */}
+              <div className="hidden lg:flex relative items-center gap-2 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a] focus-within:border-[#8b5a2b] transition-colors">
                 <Search className="size-3.5 text-[#8b5a2b] shrink-0" />
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={`Search ${active === 'Overview' ? 'Dashboard' : active}...`}
-                  className="w-28 sm:w-36 md:w-44 bg-transparent outline-none placeholder:text-[#a09488] text-xs text-[#2c221e]"
+                  className="w-28 xl:w-40 bg-transparent outline-none placeholder:text-[#a09488] text-xs text-[#2c221e]"
                 />
                 {search && (
                   <div className="flex items-center gap-1.5">
@@ -3469,7 +3493,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="hidden sm:block leading-tight">
                   <div className="flex items-center gap-1">
-                    <p className="max-w-[110px] sm:max-w-[130px] truncate text-xs font-bold text-[#2c221e]">
+                    <p className="max-w-[90px] md:max-w-[110px] xl:max-w-[130px] truncate text-xs font-bold text-[#2c221e]">
                       {userName || 'Owner'}
                     </p>
                     <ChevronDown className="size-3 text-[#9c8e80]" />
@@ -3638,6 +3662,8 @@ export default function DashboardPage() {
               rooms={currentPropertyRooms}
               property={property}
               locale={locale}
+              payments={payments}
+              onViewRentSchedule={(t: Tenant) => setSelectedTenantForSchedule(t)}
               onAddTenant={() => {
                 const availableRoom = currentPropertyRooms.find((r) => {
                   const cap = getRoomMaxCapacity(r.room_type)
@@ -3822,6 +3848,23 @@ export default function DashboardPage() {
       {/* ---------------------------------------------------------------------- */}
       {/* MODALS & DIALOGS */}
       {/* ---------------------------------------------------------------------- */}
+
+      {/* 0. Monthly Rent Schedule Ledger Modal */}
+      {selectedTenantForSchedule && (
+        <MonthlyRentScheduleModal
+          tenant={selectedTenantForSchedule}
+          payments={payments}
+          locale={locale}
+          onClose={() => setSelectedTenantForSchedule(null)}
+          onRecordPaymentForMonth={(tenantTarget: Tenant, monthCovered: string, amount: number) => {
+            setPaymentFormTenantId(tenantTarget.id)
+            setPaymentFormAmount(amount)
+            setPaymentFormNotes(`[Month: ${monthCovered}]`)
+            setSelectedTenantForSchedule(null)
+            setShowPaymentModal(true)
+          }}
+        />
+      )}
 
       {/* 1. Property Setup / Edit Modal */}
       {showPropertyModal && (() => {
@@ -6356,16 +6399,21 @@ function OverviewTab({
     return list.slice(0, 5)
   }, [payments, tenants, electricity, expenses])
 
-  // Real upcoming & overdue dues
+  // Real upcoming & overdue dues calculated with month-by-month rent status
   const upcomingDues = useMemo(() => {
-    const pendingTenants = (tenants || []).filter(
-      (t: Tenant) => t && t.status !== 'Vacated' && (t.status === 'Pending' || t.status === 'Overdue')
+    const activeTenants = (tenants || []).filter(
+      (t: Tenant) => t && t.status !== 'Vacated'
     )
 
-    return pendingTenants
+    return activeTenants
       .map((t: Tenant) => {
-        const dueInfo = calculateRentDueStatus(t.rent_due_day || 5, false)
-        const isOverdue = dueInfo.status === 'overdue' || t.status === 'Overdue'
+        const rentStatus = calculateTenantRentStatus({
+          tenant: t,
+          payments: payments || [],
+          locale: 'en',
+        })
+        const isOverdue = rentStatus.status === 'overdue' || t.status === 'Overdue'
+        const isDue = isOverdue || rentStatus.status === 'due_today' || rentStatus.status === 'due_soon'
         return {
           id: t.id,
           name: t.name,
@@ -6373,12 +6421,14 @@ function OverviewTab({
           amount: Number(t.rent || 0),
           status: t.status,
           isOverdue,
-          dueLabel: isOverdue ? 'Overdue' : dueInfo.labelEn,
+          isDue,
+          dueLabel: isOverdue ? (rentStatus.labelEn || 'Overdue') : (rentStatus.labelEn || 'Due Soon'),
         }
       })
+      .filter((item: any) => item.isDue)
       .sort((a: any, b: any) => (a.isOverdue === b.isOverdue ? 0 : a.isOverdue ? -1 : 1))
       .slice(0, 5)
-  }, [tenants])
+  }, [tenants, payments])
 
   return (
     <>
@@ -6411,8 +6461,8 @@ function OverviewTab({
         </div>
       </div>
 
-      {/* 4 Dashboard Stat Cards: Properties, Rooms/Units, Residents, Occupancy (Matches Reference Image) */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* 4 Dashboard Stat Cards: Properties, Rooms/Units, Residents, Occupancy (Responsive on desktop, tablet, mobile) */}
+      <div className="mb-8 grid gap-3.5 sm:gap-4 lg:gap-5 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="Properties"
           value={propertiesCount}
@@ -6449,10 +6499,10 @@ function OverviewTab({
         />
       </div>
 
-      {/* Main 2-Column Section: Recent Activity & Upcoming Dues (Matches Reference Image) */}
-      <div className="mb-8 grid gap-6 lg:grid-cols-12 items-start">
+      {/* Main 2-Column Section: Recent Activity & Upcoming Dues */}
+      <div className="mb-8 grid gap-6 xl:grid-cols-12 items-start">
         {/* Left Column: Recent Activity */}
-        <section className="lg:col-span-7 rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)]">
+        <section className="xl:col-span-7 rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)]">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <h3 className="text-base font-bold text-[#2c221e]">Recent Activity</h3>
@@ -6496,7 +6546,7 @@ function OverviewTab({
         </section>
 
         {/* Right Column: Upcoming Dues */}
-        <section className="lg:col-span-5 rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)]">
+        <section className="xl:col-span-5 rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)]">
           <div className="mb-5 flex items-center justify-between">
             <h3 className="text-base font-bold text-[#2c221e]">Upcoming Dues</h3>
             <button
@@ -6996,6 +7046,8 @@ function TenantsTab({
   rooms,
   property,
   locale = 'en',
+  payments = [],
+  onViewRentSchedule,
   onAddTenant,
   onEditTenant,
   onVacateTenant,
@@ -7009,13 +7061,21 @@ function TenantsTab({
 }: any) {
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'due' | 'overdue'>('all')
 
-  // Calculate live due statuses for all tenants
+  // Calculate live due statuses for all tenants using monthly rent cycle tracking
   const tenantStatuses = useMemo(() => {
     return tenants.map((t: Tenant) => {
-      const dueInfo = calculateRentDueStatus(t.rent_due_day || 5, t.status === 'Paid')
-      return { tenant: t, dueInfo }
+      const rentStatus = calculateTenantRentStatus({
+        tenant: t,
+        payments: payments || [],
+        locale,
+      })
+      return {
+        tenant: t,
+        dueInfo: rentStatus,
+        nextDueDateFormatted: rentStatus.nextDueDateFormatted,
+      }
     })
-  }, [tenants])
+  }, [tenants, payments, locale])
 
   const paidCount = useMemo(() => tenantStatuses.filter((item: any) => item.dueInfo.status === 'paid').length, [tenantStatuses])
   const dueCount = useMemo(() => tenantStatuses.filter((item: any) => item.dueInfo.status === 'due_soon' || item.dueInfo.status === 'due_today').length, [tenantStatuses])
@@ -7134,7 +7194,7 @@ function TenantsTab({
         <>
           {/* Mobile Card Layout (md:hidden) */}
           <div className="grid grid-cols-1 gap-3 md:hidden">
-            {displayedTenants.map(({ tenant: t, dueInfo }: any) => {
+            {displayedTenants.map(({ tenant: t, dueInfo, nextDueDateFormatted }: any) => {
               const whatsappUrl = generateWhatsAppReminder({
                 tenantName: t.name,
                 phone: t.phone,
@@ -7171,11 +7231,24 @@ function TenantsTab({
                       <p className="text-[10px] text-[#8c827a]">Monthly Rent</p>
                       <p className="font-bold text-[#784b20]">{currency(t.rent)}</p>
                     </div>
-                    <div className="col-span-2">
-                      <p className="text-[10px] text-[#8c827a]">Due Schedule</p>
-                      <p className="font-medium text-[#44485a]">
-                        {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
-                      </p>
+                    <div className="col-span-2 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] text-[#8c827a]">Due Schedule</p>
+                        <p className="font-medium text-[#44485a]">
+                          {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
+                        </p>
+                        {nextDueDateFormatted && (
+                          <p className="text-[10px] text-[#8b5a2b] font-medium">Next: {nextDueDateFormatted}</p>
+                        )}
+                      </div>
+                      {onViewRentSchedule && (
+                        <button
+                          onClick={() => onViewRentSchedule(t)}
+                          className="rounded-lg border border-[#e8dfd4] bg-white px-2.5 py-1 text-[11px] font-semibold text-[#6c635a] hover:bg-[#faf7f2] transition-colors"
+                        >
+                          Rent Ledger
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -7262,7 +7335,7 @@ function TenantsTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#eee6dc]">
-                  {displayedTenants.map(({ tenant: t, dueInfo }: any) => {
+                  {displayedTenants.map(({ tenant: t, dueInfo, nextDueDateFormatted }: any) => {
                     const whatsappUrl = generateWhatsAppReminder({
                       tenantName: t.name,
                       phone: t.phone,
@@ -7282,9 +7355,14 @@ function TenantsTab({
                         </td>
                         <td className="px-5 py-4 font-semibold text-[#784b20]">{currency(t.rent)}</td>
                         <td className="px-5 py-4 text-[#74798a]">
-                          <span className="font-medium text-[#44485a]">
+                          <span className="font-medium text-[#44485a] block">
                             {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
                           </span>
+                          {nextDueDateFormatted && (
+                            <span className="text-[10px] text-[#8b5a2b] font-medium block">
+                              Next: {nextDueDateFormatted}
+                            </span>
+                          )}
                         </td>
                         <td className="px-5 py-4">
                           <span
@@ -7298,6 +7376,18 @@ function TenantsTab({
                         </td>
                         <td className="px-5 py-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            {/* Monthly Rent Ledger */}
+                            {onViewRentSchedule && (
+                              <button
+                                onClick={() => onViewRentSchedule(t)}
+                                className="flex items-center gap-1 rounded-lg border border-[#e8dfd4] bg-white px-2 py-1 text-[11px] font-semibold text-[#6c635a] hover:bg-[#faf7f2] transition-colors"
+                                title="View monthly rent schedule & payment history"
+                              >
+                                <Calendar className="size-3.5 text-[#8b5a2b]" />
+                                <span className="hidden xl:inline">Ledger</span>
+                              </button>
+                            )}
+
                             {/* 1-Click WhatsApp Reminder */}
                             <a
                               href={whatsappUrl}
@@ -8620,15 +8710,19 @@ function SettingsTab({
 
 function MetricCard({ label, value, note, Icon, i }: any) {
   return (
-    <div className="rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)] hover:border-[#d9cbbe] transition-all">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-[#7d756d]">{label}</span>
-        <div className="grid size-9 place-items-center rounded-full bg-[#faf3ea] text-[#8b5a2b]">
+    <div className="rounded-2xl sm:rounded-3xl border border-[#ebe4da] bg-white p-4 sm:p-5 lg:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)] hover:border-[#d9cbbe] transition-all min-w-0">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-[#7d756d] truncate">{label}</span>
+        <div className="grid size-8 sm:size-9 shrink-0 place-items-center rounded-full bg-[#faf3ea] text-[#8b5a2b]">
           <Icon className="size-4" />
         </div>
       </div>
-      <p className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2c221e] mt-3">{value}</p>
-      {note && <p className="mt-1 text-[11px] font-medium text-[#8b5a2b] truncate">{note}</p>}
+      <p className="text-2xl sm:text-3xl font-bold tracking-tight text-[#2c221e] mt-2 sm:mt-3 truncate">{value}</p>
+      {note && (
+        <p className="mt-1 text-[11px] font-medium text-[#8b5a2b] truncate" title={note}>
+          {note}
+        </p>
+      )}
     </div>
   )
 }
@@ -8716,3 +8810,166 @@ function Modal({ title, onClose, children, maxWidth = 'max-w-lg' }: any) {
     </div>
   )
 }
+
+function MonthlyRentScheduleModal({
+  tenant,
+  payments,
+  locale = 'en',
+  onClose,
+  onRecordPaymentForMonth,
+}: {
+  tenant: Tenant
+  payments: PaymentRecord[]
+  locale?: 'en' | 'hi'
+  onClose: () => void
+  onRecordPaymentForMonth: (tenant: Tenant, monthCovered: string, amount: number) => void
+}) {
+  const schedules = useMemo(() => {
+    return generateMonthlyRentSchedules({
+      tenantId: tenant.id,
+      joiningDate: tenant.joiningDate,
+      rentDueDay: tenant.rent_due_day,
+      monthlyRent: tenant.rent,
+      payments,
+      locale,
+    })
+  }, [tenant, payments, locale])
+
+  const totalBilled = schedules.reduce((sum, s) => sum + s.amount, 0)
+  const totalPaid = schedules.filter((s) => s.isPaid).reduce((sum, s) => sum + s.amount, 0)
+  const totalOutstanding = totalBilled - totalPaid
+
+  return (
+    <Modal title={`Rent Ledger: ${tenant.name}`} onClose={onClose} maxWidth="max-w-3xl">
+      <div className="space-y-4">
+        {/* Tenant Summary Banner */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-2xl border border-[#ebe4da] bg-[#faf8f5] p-3.5 text-xs">
+          <div>
+            <p className="text-[10px] text-[#8c827a]">Room & Bed</p>
+            <p className="font-semibold text-[#2c221e]">
+              Room {tenant.room || 'Unassigned'} {tenant.bed_number ? `· Bed ${tenant.bed_number}` : ''}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] text-[#8c827a]">Joining Date</p>
+            <p className="font-semibold text-[#2c221e]">
+              {tenant.joiningDate ? new Date(tenant.joiningDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] text-[#8c827a]">Monthly Rent</p>
+            <p className="font-bold text-[#8b5a2b]">₹{tenant.rent.toLocaleString('en-IN')}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-[#8c827a]">Recurring Due Day</p>
+            <p className="font-semibold text-[#2c221e]">
+              {tenant.rent_due_day ? `${tenant.rent_due_day}th of month` : '5th of month'}
+            </p>
+          </div>
+        </div>
+
+        {/* Ledger Balance Summary */}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
+          <div className="flex items-center gap-4">
+            <span className="text-[#6c635a]">
+              Total Billed: <strong className="text-[#2c221e]">₹{totalBilled.toLocaleString('en-IN')}</strong>
+            </span>
+            <span className="text-[#2e7d32]">
+              Collected: <strong>₹{totalPaid.toLocaleString('en-IN')}</strong>
+            </span>
+            {totalOutstanding > 0 && (
+              <span className="text-[#b95c3c]">
+                Pending: <strong>₹{totalOutstanding.toLocaleString('en-IN')}</strong>
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-[#8c827a]">
+            Month-by-month billing cycle · Duplicate payments prevented
+          </p>
+        </div>
+
+        {/* Monthly Schedules Table */}
+        <div className="overflow-hidden rounded-xl border border-[#ebe4da] bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-xs">
+              <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#7d756d]">
+                <tr>
+                  <th className="px-4 py-3">Billing Cycle</th>
+                  <th className="px-4 py-3">Due Date</th>
+                  <th className="px-4 py-3">Rent Amount</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Payment Record</th>
+                  <th className="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#eee6dc]">
+                {schedules.map((cycle) => (
+                  <tr key={cycle.monthKey} className="hover:bg-[#fbf9f6] transition-colors">
+                    <td className="px-4 py-3 font-semibold text-[#2c221e]">
+                      {cycle.monthCovered}
+                      <span className="block text-[10px] text-[#8c827a] font-normal">{cycle.cycleLabel}</span>
+                    </td>
+                    <td className="px-4 py-3 text-[#555a6c]">
+                      {cycle.dueDateFormatted}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-[#2c221e]">
+                      ₹{cycle.amount.toLocaleString('en-IN')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-bold ${cycle.badgeColor}`}
+                      >
+                        {cycle.status === 'overdue' && <AlertTriangle className="size-3" />}
+                        {cycle.status === 'paid' && <Check className="size-3" />}
+                        {cycle.status === 'due_soon' && <Clock className="size-3" />}
+                        {cycle.status === 'due_today' && <Clock className="size-3" />}
+                        {locale === 'hi' ? cycle.labelHi : cycle.labelEn}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-[#555a6c]">
+                      {cycle.isPaid ? (
+                        <div>
+                          <p className="font-semibold text-emerald-800">Paid</p>
+                          <p className="text-[10px] text-[#7d756d]">
+                            {cycle.paidAtFormatted || 'Recorded'}
+                            {cycle.paymentMethod ? ` · ${cycle.paymentMethod.toUpperCase()}` : ''}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-[#a09488] italic">Unpaid</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {!cycle.isPaid ? (
+                        <button
+                          onClick={() => onRecordPaymentForMonth(tenant, cycle.monthCovered, cycle.amount)}
+                          className="rounded-lg bg-[#8b5a2b] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[#784b20] transition-colors shadow-2xs"
+                        >
+                          Collect
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                          <CheckCircle2 className="size-3.5" /> Settled
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-[#d9cbbe] bg-white px-4 py-2 text-xs font-semibold text-[#2c221e] hover:bg-[#faf7f2] transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+

@@ -100,10 +100,20 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error:
-              'Property limit reached. Your subscription includes up to 2 properties. Please upgrade your plan to add more properties.',
+              `Property limit reached. Your subscription includes up to ${entitlement.maxProperties} properties. Please upgrade your plan to add more properties.`,
             code: 'PROPERTY_LIMIT_REACHED',
           },
           { status: 403 }
+        )
+      }
+      if (insertErr.message?.includes('uq_properties_owner') || insertErr.code === '23505') {
+        return NextResponse.json(
+          {
+            error:
+              'Legacy database constraint "uq_properties_owner" detected. Please execute migration 20261021000001_fix_multi_property_constraint.sql to allow multiple properties.',
+            code: 'LEGACY_CONSTRAINT_ERROR',
+          },
+          { status: 409 }
         )
       }
       return NextResponse.json({ error: insertErr.message }, { status: 500 })

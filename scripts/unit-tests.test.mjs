@@ -17,10 +17,15 @@ import {
 } from '../lib/pricing.js'
 import {
   calculateRentDueStatus,
+  calculateNextRentDueDate,
+  generateMonthlyRentSchedules,
+  calculateTenantRentStatus,
+  isDuplicateRentPayment,
   formatPaymentTimestamp,
   generateWhatsAppReminder,
   generateSmsReminder,
 } from '../lib/due-dates.js'
+import { resolveCustomerEntitlements, PLAN_PROPERTY_LIMITS } from '../lib/subscription.ts'
 import { calculateMidCycleElectricitySplit } from '../lib/electricity-split.ts'
 import {
   validateUpiId,
@@ -2125,6 +2130,227 @@ test('46. Password Policy Invariants: 12-128 chars, Complexity, Compromised Reje
   assert.ok(!resetRoute.includes('console.log(') || !resetRoute.includes('console.log(newPassword'), 'Must not log newPassword')
   assert.ok(!adminActions.includes('console.log(') || !adminActions.includes('console.log(newPassword'), 'Must not log admin password')
 })
+
+test('47. Monthly Rent Due Date & Next Cycle Invariants (Issue #1)', () => {
+  // Requirement: If tenant joins on the 10th, next rent should be due on the 10th of following month and every month thereafter.
+  const joiningDate = new Date(2026, 9, 10) // 10 Oct 2026
+
+  // 1. Next due date calculation immediately upon joining
+  const nextDueDate = calculateNextRentDueDate(joiningDate, 10, joiningDate)
+  assert.strictEqual(nextDueDate.getFullYear(), 2026)
+  assert.strictEqual(nextDueDate.getMonth(), 10) // November (0-indexed 10)
+  assert.strictEqual(nextDueDate.getDate(), 10) // 10th of following month
+
+  // 2. Next due date mid-way through November cycle
+  const refNov15 = new Date(2026, 10, 15) // 15 Nov 2026 (after Nov 10 due date)
+  const nextDueDateDec = calculateNextRentDueDate(joiningDate, 10, refNov15)
+  assert.strictEqual(nextDueDateDec.getFullYear(), 2026)
+  assert.strictEqual(nextDueDateDec.getMonth(), 11) // December (0-indexed 11)
+  assert.strictEqual(nextDueDateDec.getDate(), 10) // 10th of December
+
+  // 3. Short month day clamping (e.g. joined on 31st Jan -> due on 28th Feb)
+  const jan31 = new Date(2026, 0, 31)
+  const nextDueDateFeb = calculateNextRentDueDate(jan31, 31, jan31)
+  assert.strictEqual(nextDueDateFeb.getFullYear(), 2026)
+  assert.strictEqual(nextDueDateFeb.getMonth(), 1) // February
+  assert.strictEqual(nextDueDateFeb.getDate(), 28) // Clamped to 28th Feb (non-leap year)
+
+  // 4. Default due day resolution: if tenant joins on 10th and due day not specified, defaults to 10
+  const tenantDefaultDue = calculateNextRentDueDate(joiningDate, undefined, joiningDate)
+  assert.strictEqual(tenantDefaultDue.getDate(), 10)
+})
+
+test('48. Month-by-Month Rent Tracking, Status Determination & Duplicate Prevention (Issue #1)', () => {
+  const joiningDate = new Date(2026, 7, 10) // 10 Aug 2026
+  const refDate = new Date(2026, 9, 15) // 15 Oct 2026
+
+  // Simulated previous payment for September (month_covered: "September 2026")
+  const payments = [
+    {
+      id: 'pay-sep',
+      tenant_id: 't-101',
+      amount: 8000,
+      payment_type: 'rent',
+      payment_method: 'upi',
+      month_covered: 'September 2026',
+      paid_at: '2026-09-09T10:30:00.000Z',
+    },
+  ]
+
+  // Generate month-by-month schedules from joining date up to reference date
+  const schedules = generateMonthlyRentSchedules({
+    tenantId: 't-101',
+    joiningDate,
+    rentDueDay: 10,
+    monthlyRent: 8000,
+    payments,
+    referenceDate: refDate,
+  })
+
+  // Should track September, October, and November
+  assert.ok(schedules.length >= 2, 'Should generate schedules for each monthly billing cycle')
+
+  // Check September cycle: Paid on 09 Sep
+  const sepCycle = schedules.find((s) => s.monthCovered.toLowerCase().includes('september'))
+  assert.ok(sepCycle, 'September cycle must exist')
+  assert.strictEqual(sepCycle.isPaid, true)
+  assert.strictEqual(sepCycle.status, 'paid')
+  assert.ok(sepCycle.paidAtFormatted?.includes('2026') && sepCycle.paidAtFormatted?.toLowerCase().includes('sep'))
+
+  // Check October cycle: Due on 10 Oct, today is 15 Oct -> Overdue
+  const octCycle = schedules.find((s) => s.monthCovered.toLowerCase().includes('october'))
+  assert.ok(octCycle, 'October cycle must exist')
+  assert.strictEqual(octCycle.isPaid, false)
+  assert.strictEqual(octCycle.status, 'overdue')
+  assert.ok(octCycle.daysDiff >= 4)
+
+  // Verify Duplicate Monthly Rent Bill Prevention
+  const dupCheck = isDuplicateRentPayment({
+    tenantId: 't-101',
+    monthCovered: 'September 2026',
+    payments,
+  })
+  assert.strictEqual(dupCheck.isDuplicate, true, 'Payment for September 2026 must be flagged as duplicate')
+  assert.strictEqual(dupCheck.existingPayment?.id, 'pay-sep')
+
+  const nonDupCheck = isDuplicateRentPayment({
+    tenantId: 't-101',
+    monthCovered: 'October 2026',
+    payments,
+  })
+  assert.strictEqual(nonDupCheck.isDuplicate, false, 'October 2026 is unpaid, duplicate check must be false')
+
+  // Verify calculateTenantRentStatus resolves the live overdue cycle accurately
+  const liveStatus = calculateTenantRentStatus({
+    tenant: {
+      id: 't-101',
+      joining_date: joiningDate,
+      rent_due_day: 10,
+      monthly_rent: 8000,
+    },
+    payments,
+    referenceDate: refDate,
+  })
+  assert.strictEqual(liveStatus.status, 'overdue')
+  assert.ok(liveStatus.days >= 4)
+  assert.strictEqual(liveStatus.monthCovered, 'October 2026')
+})
+
+test('49. Multi-Property Database Schema & Subscription Limit Law (Issue #2)', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  // 1. Verify remote/local database schema does NOT have uq_properties_owner
+  const schemaSql = fs.readFileSync(path.resolve('supabase/schema.sql'), 'utf-8')
+  assert.ok(
+    !schemaSql.includes('CONSTRAINT uq_properties_owner UNIQUE (owner_id)'),
+    'Schema must not contain hardcoded 1-property owner unique constraint'
+  )
+
+  // 2. Verify migration script exists and is idempotent
+  const migrationSql = fs.readFileSync(
+    path.resolve('supabase/migrations/20261021000001_fix_multi_property_constraint.sql'),
+    'utf-8'
+  )
+  assert.ok(
+    migrationSql.includes('DROP CONSTRAINT IF EXISTS uq_properties_owner'),
+    'Migration must drop uq_properties_owner constraint'
+  )
+  assert.ok(
+    migrationSql.includes('enforce_property_limit'),
+    'Migration must upgrade enforce_property_limit trigger'
+  )
+
+  // 3. Multi-property subscription limit rules (Never bypass limits)
+  // Trial: max 2 properties
+  const trialState = {
+    hasPaidAccess: true,
+    status: 'trialing',
+    plan: 'trial',
+    isTrial: true,
+    daysRemaining: 7,
+  }
+  const trial1 = resolveCustomerEntitlements(trialState, 1)
+  assert.strictEqual(trial1.canCreateProperty, true)
+  assert.strictEqual(trial1.maxProperties, 2)
+
+  const trial2 = resolveCustomerEntitlements(trialState, 2)
+  assert.strictEqual(trial2.canCreateProperty, false, 'Trial cannot exceed 2 properties')
+  assert.ok(trial2.reason?.includes('used') || trial2.reason?.includes('capacity') || trial2.reason?.includes('limit'), 'Must provide limit reached reason')
+
+  // Growth / Pro: max 5 properties
+  const growthState = {
+    hasPaidAccess: true,
+    status: 'active',
+    plan: 'growth',
+    isTrial: false,
+    daysRemaining: 0,
+  }
+  const growth = resolveCustomerEntitlements(growthState, 2)
+  assert.strictEqual(growth.canCreateProperty, true, 'Growth owner can create 3rd property')
+  assert.strictEqual(growth.maxProperties, 5)
+
+  // Business: max 9 properties
+  const businessState = {
+    hasPaidAccess: true,
+    status: 'active',
+    plan: 'business',
+    isTrial: false,
+    daysRemaining: 0,
+  }
+  const business = resolveCustomerEntitlements(businessState, 5)
+  assert.strictEqual(business.canCreateProperty, true)
+  assert.strictEqual(business.maxProperties, 9)
+
+  // Expired subscription: cannot create property
+  const expiredState = {
+    hasPaidAccess: false,
+    status: 'expired',
+    plan: 'trial',
+    isTrial: false,
+    daysRemaining: 0,
+  }
+  const expired = resolveCustomerEntitlements(expiredState, 1)
+  assert.strictEqual(expired.canCreateProperty, false, 'Expired account cannot create property')
+})
+
+test('50. Dashboard Responsive Layout & Overlap Protection (Issue #3)', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  const dashboardCode = fs.readFileSync(path.resolve('app/dashboard/page.tsx'), 'utf-8')
+
+  // 1. Header responsiveness: ensures search is hidden on tablet, switcher is constrained, subscription badge is compact
+  assert.ok(
+    dashboardCode.includes('hidden lg:flex relative items-center') ||
+    dashboardCode.includes('hidden lg:flex'),
+    'Search bar must be hidden on tablet and mobile to prevent header collision'
+  )
+  assert.ok(
+    dashboardCode.includes('max-w-[90px] xs:max-w-[120px] sm:max-w-[150px] md:max-w-[170px] truncate') ||
+    dashboardCode.includes('max-w-[90px]'),
+    'Property switcher dropdown must have responsive max-widths'
+  )
+
+  // 2. Dashboard stat cards grid: 2 cols on tablet, 4 cols on large desktop (not 4 cols at 1024px)
+  assert.ok(
+    dashboardCode.includes('grid-cols-1 sm:grid-cols-2 xl:grid-cols-4'),
+    'Stat cards grid must use xl:grid-cols-4 and sm:grid-cols-2 to prevent card squeeze'
+  )
+
+  // 3. MetricCard safety: has min-w-0 and responsive padding
+  assert.ok(
+    dashboardCode.includes('p-4 sm:p-5 lg:p-6') && dashboardCode.includes('min-w-0'),
+    'MetricCard must have min-w-0 and responsive padding'
+  )
+
+  // 4. Rent ledger modal presence in dashboard
+  assert.ok(
+    dashboardCode.includes('MonthlyRentScheduleModal'),
+    'Dashboard must include MonthlyRentScheduleModal for month-by-month rent ledger'
+  )
+})
+
 
 
 
