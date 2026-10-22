@@ -408,48 +408,76 @@ export default function DashboardPage() {
   const [electricity, setElectricity] = useState<ElectricityRecord[]>([])
 
   // Scoped views for the currently selected property (ensures strict isolation between multiple properties)
+  const isSingleProperty = properties.length <= 1
+  const currentPropId = property.id
+
   const currentPropertyRooms = useMemo(() => {
-    if (!property.id) return rooms
-    return rooms.filter((r) => !r.property_id || r.property_id === property.id)
-  }, [rooms, property.id])
+    if (!currentPropId) return rooms
+    return rooms.filter((r) => {
+      if (r.property_id) return r.property_id === currentPropId
+      return isSingleProperty || properties[0]?.id === currentPropId
+    })
+  }, [rooms, currentPropId, isSingleProperty, properties])
 
   const currentPropertyRoomIds = useMemo(() => {
     return new Set(currentPropertyRooms.map((r) => r.id))
   }, [currentPropertyRooms])
 
   const currentPropertyBeds = useMemo(() => {
-    if (!property.id) return beds
-    return beds.filter((b) => (!b.property_id || b.property_id === property.id) || currentPropertyRoomIds.has(b.room_id))
-  }, [beds, property.id, currentPropertyRoomIds])
+    if (!currentPropId) return beds
+    return beds.filter((b) => {
+      if (b.property_id) return b.property_id === currentPropId
+      if (b.room_id && currentPropertyRoomIds.has(b.room_id)) return true
+      return isSingleProperty || properties[0]?.id === currentPropId
+    })
+  }, [beds, currentPropId, currentPropertyRoomIds, isSingleProperty, properties])
 
   const currentPropertyTenants = useMemo(() => {
-    if (!property.id) return tenants
-    return tenants.filter((t) => (!t.property_id || t.property_id === property.id) || (t.room_id && currentPropertyRoomIds.has(t.room_id)))
-  }, [tenants, property.id, currentPropertyRoomIds])
+    if (!currentPropId) return tenants
+    return tenants.filter((t) => {
+      if (t.property_id) return t.property_id === currentPropId
+      if (t.room_id && currentPropertyRoomIds.has(t.room_id)) return true
+      return isSingleProperty || properties[0]?.id === currentPropId
+    })
+  }, [tenants, currentPropId, currentPropertyRoomIds, isSingleProperty, properties])
 
   const currentPropertyTenantIds = useMemo(() => {
     return new Set(currentPropertyTenants.map((t) => t.id))
   }, [currentPropertyTenants])
 
   const currentPropertyPayments = useMemo(() => {
-    if (!property.id) return payments
-    return payments.filter((p) => (!p.property_id || p.property_id === property.id) || currentPropertyTenantIds.has(p.tenant_id))
-  }, [payments, property.id, currentPropertyTenantIds])
+    if (!currentPropId) return payments
+    return payments.filter((p) => {
+      if (p.property_id) return p.property_id === currentPropId
+      if (p.tenant_id && currentPropertyTenantIds.has(p.tenant_id)) return true
+      return isSingleProperty || properties[0]?.id === currentPropId
+    })
+  }, [payments, currentPropId, currentPropertyTenantIds, isSingleProperty, properties])
 
   const currentPropertyExpenses = useMemo(() => {
-    if (!property.id) return expenses
-    return expenses.filter((e) => !e.property_id || e.property_id === property.id)
-  }, [expenses, property.id])
+    if (!currentPropId) return expenses
+    return expenses.filter((e) => {
+      if (e.property_id) return e.property_id === currentPropId
+      return isSingleProperty || properties[0]?.id === currentPropId
+    })
+  }, [expenses, currentPropId, isSingleProperty, properties])
 
   const currentPropertyElectricity = useMemo(() => {
-    if (!property.id) return electricity
-    return electricity.filter((el) => (!el.property_id || el.property_id === property.id) || (el.room_id && currentPropertyRoomIds.has(el.room_id)))
-  }, [electricity, property.id, currentPropertyRoomIds])
+    if (!currentPropId) return electricity
+    return electricity.filter((el) => {
+      if (el.property_id) return el.property_id === currentPropId
+      if (el.room_id && currentPropertyRoomIds.has(el.room_id)) return true
+      return isSingleProperty || properties[0]?.id === currentPropId
+    })
+  }, [electricity, currentPropId, currentPropertyRoomIds, isSingleProperty, properties])
 
   const currentPropertyComplaints = useMemo(() => {
-    if (!property.id) return complaints
-    return complaints.filter((c) => !c.property_id || c.property_id === property.id)
-  }, [complaints, property.id])
+    if (!currentPropId) return complaints
+    return complaints.filter((c) => {
+      if (c.property_id) return c.property_id === currentPropId
+      return isSingleProperty || properties[0]?.id === currentPropId
+    })
+  }, [complaints, currentPropId, isSingleProperty, properties])
 
   // Due Dates & Undo State
   const [tenantDueFilter, setTenantDueFilter] = useState<'all' | 'paid' | 'due' | 'overdue'>('all')
@@ -1045,54 +1073,54 @@ export default function DashboardPage() {
   }
 
   // ----------------------------------------------------------------------------
-  // Calculations for Real Metrics (No Fake Data)
+  // Calculations for Real Metrics (No Fake Data) - Scoped Strictly to Selected Property
   // ----------------------------------------------------------------------------
   const totalCollectedMonth = useMemo(() => {
     const currentMonth = new Date().getMonth()
     const currentYear = new Date().getFullYear()
-    return payments
+    return currentPropertyPayments
       .filter((p) => {
         const d = new Date(p.paid_at)
         return d.getMonth() === currentMonth && d.getFullYear() === currentYear
       })
       .reduce((sum, p) => sum + p.amount, 0)
-  }, [payments])
+  }, [currentPropertyPayments])
 
   const totalRentPending = useMemo(() => {
-    return tenants
+    return currentPropertyTenants
       .filter((t) => t.status !== 'Paid' && t.status !== 'Vacated')
       .reduce((sum, t) => sum + t.rent, 0)
-  }, [tenants])
+  }, [currentPropertyTenants])
 
   const totalExpensesMonth = useMemo(() => {
     const currentMonth = new Date().getMonth()
     const currentYear = new Date().getFullYear()
-    return expenses
+    return currentPropertyExpenses
       .filter((e) => {
         const d = new Date(e.expense_date)
         return d.getMonth() === currentMonth && d.getFullYear() === currentYear
       })
       .reduce((sum, e) => sum + e.amount, 0)
-  }, [expenses])
+  }, [currentPropertyExpenses])
 
   const totalElectricityPending = useMemo(() => {
-    return electricity.reduce((sum, el) => {
+    return currentPropertyElectricity.reduce((sum, el) => {
       const units = Math.max(0, el.current_reading - el.previous_reading)
       return sum + units * el.rate_per_unit
     }, 0)
-  }, [electricity])
+  }, [currentPropertyElectricity])
 
   const activeTenantsCount = useMemo(() => {
-    return tenants.filter((t) => t.status !== 'Vacated').length
-  }, [tenants])
+    return currentPropertyTenants.filter((t) => t.status !== 'Vacated').length
+  }, [currentPropertyTenants])
 
   const availableBedsCount = useMemo(() => {
-    return beds.filter((b) => b.status === 'available').length
-  }, [beds])
+    return currentPropertyBeds.filter((b) => b.status === 'available').length
+  }, [currentPropertyBeds])
 
   const occupiedBedsCount = useMemo(() => {
-    return beds.filter((b) => b.status === 'occupied').length
-  }, [beds])
+    return currentPropertyBeds.filter((b) => b.status === 'occupied').length
+  }, [currentPropertyBeds])
 
   const { daysRemaining, hoursRemaining, isEndingSoon } = useMemo(() => {
     if (!trialEnd) return { daysRemaining: null, hoursRemaining: null, isEndingSoon: false }
@@ -1107,13 +1135,13 @@ export default function DashboardPage() {
   }, [trialEnd])
 
   // ----------------------------------------------------------------------------
-  // Multi-Module Search Filtering (Real Data Search)
+  // Multi-Module Search Filtering (Real Data Search - Scoped to Selected Property)
   // ----------------------------------------------------------------------------
   const q = search.trim().toLowerCase()
 
   const filteredTenants = useMemo(() => {
-    if (!q) return tenants
-    return tenants.filter(
+    if (!q) return currentPropertyTenants
+    return currentPropertyTenants.filter(
       (t) =>
         t.name.toLowerCase().includes(q) ||
         t.room.toLowerCase().includes(q) ||
@@ -1121,21 +1149,21 @@ export default function DashboardPage() {
         (t.phone && t.phone.includes(q)) ||
         t.status.toLowerCase().includes(q)
     )
-  }, [tenants, q])
+  }, [currentPropertyTenants, q])
 
   const filteredRooms = useMemo(() => {
-    if (!q) return rooms
-    return rooms.filter(
+    if (!q) return currentPropertyRooms
+    return currentPropertyRooms.filter(
       (r) =>
         r.room_number.toLowerCase().includes(q) ||
         r.room_type.toLowerCase().includes(q) ||
         String(r.floor).includes(q)
     )
-  }, [rooms, q])
+  }, [currentPropertyRooms, q])
 
   const filteredPayments = useMemo(() => {
-    if (!q) return payments
-    return payments.filter(
+    if (!q) return currentPropertyPayments
+    return currentPropertyPayments.filter(
       (p) =>
         p.tenant_name.toLowerCase().includes(q) ||
         p.room_number.toLowerCase().includes(q) ||
@@ -1144,29 +1172,29 @@ export default function DashboardPage() {
         p.payment_type.toLowerCase().includes(q) ||
         (p.notes && p.notes.toLowerCase().includes(q))
     )
-  }, [payments, q])
+  }, [currentPropertyPayments, q])
 
   const filteredElectricity = useMemo(() => {
-    if (!q) return electricity
-    return electricity.filter(
+    if (!q) return currentPropertyElectricity
+    return currentPropertyElectricity.filter(
       (el) => el.room.toLowerCase().includes(q) || el.reading_date.includes(q)
     )
-  }, [electricity, q])
+  }, [currentPropertyElectricity, q])
 
   const filteredExpenses = useMemo(() => {
-    if (!q) return expenses
-    return expenses.filter(
+    if (!q) return currentPropertyExpenses
+    return currentPropertyExpenses.filter(
       (e) =>
         e.title.toLowerCase().includes(q) ||
         e.category.toLowerCase().includes(q) ||
         (e.notes && e.notes.toLowerCase().includes(q)) ||
         String(e.amount).includes(q)
     )
-  }, [expenses, q])
+  }, [currentPropertyExpenses, q])
 
   const filteredComplaints = useMemo(() => {
-    if (!q) return complaints
-    return complaints.filter(
+    if (!q) return currentPropertyComplaints
+    return currentPropertyComplaints.filter(
       (c) =>
         c.title.toLowerCase().includes(q) ||
         c.tenant.toLowerCase().includes(q) ||
@@ -1174,7 +1202,7 @@ export default function DashboardPage() {
         c.status.toLowerCase().includes(q) ||
         (c.description && c.description.toLowerCase().includes(q))
     )
-  }, [complaints, q])
+  }, [currentPropertyComplaints, q])
 
   const currentSearchCount = useMemo(() => {
     if (!q) return 0
@@ -2537,7 +2565,7 @@ export default function DashboardPage() {
           expense_date: date,
           notes,
         })
-        .select('id,title,category,amount,expense_date,notes')
+        .select('id,property_id,title,category,amount,expense_date,notes')
         .single()
 
       if (error) {
@@ -2545,7 +2573,7 @@ export default function DashboardPage() {
         return
       }
 
-      setExpenses((prev) => [{ ...newExp, amount: Number(newExp.amount) }, ...prev])
+      setExpenses((prev) => [{ ...newExp, property_id: newExp.property_id || property.id, amount: Number(newExp.amount) }, ...prev])
       setShowExpenseModal(false)
       flash('Expense logged successfully.')
     } catch {
@@ -2659,7 +2687,7 @@ export default function DashboardPage() {
           rate_per_unit: rate,
           reading_date: date,
         })
-        .select('id,previous_reading,current_reading,rate_per_unit,reading_date,room_id')
+        .select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id')
         .single()
 
       if (error) {
@@ -2672,6 +2700,7 @@ export default function DashboardPage() {
       setElectricity((prev) => [
         {
           id: data.id,
+          property_id: data.property_id || property.id,
           room_id: data.room_id,
           room: roomName,
           previous_reading: Number(data.previous_reading),
@@ -3075,7 +3104,7 @@ export default function DashboardPage() {
           status: 'Open',
           description: desc,
         })
-        .select('id,title,tenant,priority,status,description,created_at')
+        .select('id,property_id,title,tenant,priority,status,description,created_at')
         .single()
 
       if (error) {
@@ -3083,7 +3112,7 @@ export default function DashboardPage() {
         return
       }
 
-      setComplaints((prev) => [data, ...prev])
+      setComplaints((prev) => [{ ...data, property_id: data.property_id || property.id }, ...prev])
       setShowComplaintModal(false)
       flash('Complaint ticket logged.')
     } catch {
@@ -3272,85 +3301,6 @@ export default function DashboardPage() {
             })}
           </nav>
         </div>
-
-        {/* Sidebar Subscription / Trial Callout */}
-        <div className="p-4 border-t border-[#ebe4da] bg-white">
-          <div className="rounded-2xl border border-[#ebe4da] bg-[#fbf8f4] p-4 text-xs">
-            {subscriptionStatus === 'active' ? (
-              <>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 font-bold text-[#236b4e]">
-                    <CheckCircle2 className="size-3.5 text-[#236b4e]" />
-                    {subscriptionPlan === 'starter'
-                      ? 'Starter Plan'
-                      : subscriptionPlan === 'business'
-                      ? 'Business Plan'
-                      : subscriptionPlan === 'enterprise'
-                      ? 'Enterprise Plan'
-                      : subscriptionPlan === 'yearly' || subscriptionPlan === 'pro'
-                      ? 'Growth Plan (Yearly)'
-                      : 'Growth Plan (Monthly)'}
-                  </span>
-                  <span className="rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-2 py-0.5 text-[10px] font-bold text-[#236b4e]">
-                    Active
-                  </span>
-                </div>
-                <p className="mb-1 font-semibold text-[#2c221e]">
-                  Full Access Active
-                </p>
-                <p className="mb-3 text-[11px] leading-4 text-[#7d756d]">
-                  Unlimited properties, rooms, beds, rent tracking, and digital receipts.
-                </p>
-                <button
-                  onClick={() => setShowPricingModal(true)}
-                  className="w-full rounded-xl border border-[#d8c2aa] bg-white py-2 text-center text-xs font-semibold text-[#8b5a2b] shadow-2xs hover:bg-[#faf6f1] transition-colors"
-                >
-                  Manage Subscription
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 font-bold text-[#8b5a2b]">
-                    <Sparkles className="size-3.5" />
-                    7-Day Free Trial
-                  </span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      isTrialExpired
-                        ? 'bg-[#ffebe8] text-[#b95c3c]'
-                        : isEndingSoon
-                        ? 'bg-[#fff4e5] text-[#b46b1a]'
-                        : 'bg-[#f4ede4] text-[#8b5a2b]'
-                    }`}
-                  >
-                    {isTrialExpired
-                      ? 'Expired'
-                      : hoursRemaining !== null && hoursRemaining < 48
-                      ? `${hoursRemaining}h left`
-                      : daysRemaining !== null
-                      ? `${daysRemaining}d left`
-                      : 'Active'}
-                  </span>
-                </div>
-                <p className="mb-1 font-semibold text-[#2c221e]">
-                  {isTrialExpired ? 'Trial concluded.' : 'Active 7-day trial.'}
-                </p>
-                <p className="mb-3 text-[11px] leading-4 text-[#7d756d]">
-                  {isTrialExpired
-                    ? 'Upgrade anytime to continue adding business records.'
-                    : 'Full workspace access with real database isolation.'}
-                </p>
-                <button
-                  onClick={() => setShowPricingModal(true)}
-                  className="w-full rounded-xl bg-[#8b5a2b] py-2 text-center text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
-                >
-                  View Plans & Upgrade
-                </button>
-              </>
-            )}
-          </div>
-        </div>
       </aside>
 
       {mobileOpen && (
@@ -3416,29 +3366,6 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-              {/* Header Subscription / Trial Pill */}
-              {subscriptionStatus === 'active' ? (
-                <div className="hidden sm:flex items-center gap-1.5 sm:gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-semibold text-emerald-800 shadow-2xs">
-                  <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="hidden md:inline">Growth Pro · </span>
-                  <span>Active</span>
-                </div>
-              ) : (
-                <div className="hidden sm:flex items-center gap-1.5 sm:gap-2 rounded-full border border-[#e5dcd0] bg-[#faf6f1] px-2.5 sm:px-3.5 py-1 sm:py-1.5 text-xs font-semibold text-[#8b5a2b] shadow-2xs">
-                  <span
-                    className={`size-2 rounded-full ${
-                      isTrialExpired ? 'bg-[#b95c3c]' : isEndingSoon ? 'bg-[#d97706] animate-pulse' : 'bg-[#8b5a2b]'
-                    }`}
-                  />
-                  <span>
-                    {isTrialExpired
-                      ? 'Trial Ended'
-                      : hoursRemaining !== null && hoursRemaining < 48
-                      ? `Trial: ${hoursRemaining}h`
-                      : `Trial: ${daysRemaining ?? 7}d`}
-                  </span>
-                </div>
-              )}
 
               {/* Discreet Admin Console Button for Verified Super Admins */}
               {isSuperAdminUser && (
@@ -3633,6 +3560,8 @@ export default function DashboardPage() {
               tenantsCount={currentPropertyTenants.filter((t) => t.status !== 'Vacated').length}
               bedsCount={currentPropertyBeds.length}
               entitlement={entitlement}
+              subscriptionPlan={subscriptionPlan}
+              subscriptionStatus={subscriptionStatus}
               onViewPlans={() => setShowPricingModal(true)}
             />
           )}
@@ -3774,10 +3703,14 @@ export default function DashboardPage() {
               rooms={currentPropertyRooms}
               beds={currentPropertyBeds}
               tenants={currentPropertyTenants}
+              payments={currentPropertyPayments}
+              expenses={currentPropertyExpenses}
+              electricity={currentPropertyElectricity}
               revenueMonth={totalCollectedMonth}
               expensesMonth={totalExpensesMonth}
               rentPending={totalRentPending}
               electricityPending={totalElectricityPending}
+              locale={locale}
             />
           )}
 
@@ -6689,8 +6622,21 @@ function PropertyTab({
   tenantsCount,
   bedsCount,
   entitlement,
+  subscriptionPlan,
+  subscriptionStatus,
   onViewPlans,
 }: any) {
+  const planLabel =
+    subscriptionStatus === 'active'
+      ? subscriptionPlan === 'starter'
+        ? 'Starter Plan'
+        : subscriptionPlan === 'business'
+        ? 'Business Plan'
+        : subscriptionPlan === 'enterprise'
+        ? 'Enterprise Plan'
+        : 'Growth Pro'
+      : 'Free Trial'
+
   return (
     <div className="flex flex-col gap-6">
       {/* Top Header & Actions */}
@@ -6707,7 +6653,9 @@ function PropertyTab({
                 }`}
               >
                 <Building2 className="size-3.5" />
-                Properties: {entitlement.activePropertyCount} / {entitlement.maxProperties} used
+                <span>
+                  {planLabel} · Properties: {entitlement.activePropertyCount} / {entitlement.maxProperties} used
+                </span>
                 {!entitlement.canCreateProperty && (
                   <span className="rounded-full bg-[#b46b1a] text-white px-1.5 py-0.2 text-[10px]">
                     Limit Reached
@@ -7474,6 +7422,28 @@ function PaymentsTab({
   searchQuery,
   onClearSearch,
 }: any) {
+  const currentYear = new Date().getFullYear()
+  const currentMonth = new Date().getMonth()
+  const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(currentMonth)
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear)
+
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ]
+
+  const displayedPayments = useMemo(() => {
+    if (selectedMonth === 'all') return payments
+    return payments.filter((p: PaymentRecord) => {
+      const d = new Date(p.paid_at)
+      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+    })
+  }, [payments, selectedMonth, selectedYear])
+
+  const totalFilteredAmount = useMemo(() => {
+    return displayedPayments.reduce((sum: number, p: PaymentRecord) => sum + (p.amount || 0), 0)
+  }, [displayedPayments])
+
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -7489,22 +7459,91 @@ function PaymentsTab({
         </button>
       </div>
 
-      {payments.length === 0 ? (
+      {/* Month/Year Filter Controls & Summary */}
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-3.5 sm:p-4 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-[#6c635a] flex items-center gap-1.5">
+            <Calendar className="size-3.5 text-[#8b5a2b]" /> Period:
+          </span>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
+          >
+            <option value="all">All Months (Historical)</option>
+            {MONTH_NAMES.map((name, idx) => (
+              <option key={name} value={idx}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
+          >
+            {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((yr) => (
+              <option key={yr} value={yr}>
+                {yr}
+              </option>
+            ))}
+          </select>
+          {selectedMonth !== currentMonth && (
+            <button
+              onClick={() => {
+                setSelectedMonth(currentMonth)
+                setSelectedYear(currentYear)
+              }}
+              className="rounded-xl border border-[#d8c2aa] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#8b5a2b] hover:bg-[#faf4ed] transition-colors"
+            >
+              Current Month
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 font-semibold">
+          <span className="text-[#6c635a]">
+            {selectedMonth === 'all' ? 'All Collections' : `${MONTH_NAMES[selectedMonth]} ${selectedYear}`}:
+          </span>
+          <span className="rounded-lg bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 font-bold text-emerald-800">
+            {currency(totalFilteredAmount)} ({displayedPayments.length} recorded)
+          </span>
+        </div>
+      </div>
+
+      {displayedPayments.length === 0 ? (
         searchQuery ? (
           <EmptySearchState query={searchQuery} onClear={onClearSearch} />
         ) : (
-          <EmptyState
-            title="No payments recorded yet"
-            description="Record rent collections to generate receipts and update ledger records."
-            action={onRecordPayment}
-            actionLabel="Record First Payment"
-          />
+          <div className="rounded-2xl border border-[#e8dfd4] bg-white p-8 text-center text-xs text-[#85899a]">
+            <p className="font-semibold text-sm text-[#2c221e]">
+              No rent payments recorded for {selectedMonth === 'all' ? 'this property' : `${MONTH_NAMES[selectedMonth]} ${selectedYear}`}.
+            </p>
+            <p className="mt-1">
+              Select another month using the period selector above, or record a new rent collection.
+            </p>
+            <div className="mt-4 flex items-center justify-center gap-2">
+              {selectedMonth !== 'all' && (
+                <button
+                  onClick={() => setSelectedMonth('all')}
+                  className="rounded-xl border border-[#d8c2aa] bg-[#faf7f2] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] hover:bg-[#f1e8dc]"
+                >
+                  View All Historical Payments
+                </button>
+              )}
+              <button
+                onClick={onRecordPayment}
+                className="rounded-xl bg-[#8b5a2b] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#784b20]"
+              >
+                Record Payment
+              </button>
+            </div>
+          </div>
         )
       ) : (
         <>
           {/* Mobile Card Layout (md:hidden) */}
           <div className="grid grid-cols-1 gap-3 md:hidden">
-            {payments.map((p: PaymentRecord) => (
+            {displayedPayments.map((p: PaymentRecord) => (
               <div key={p.id} className="rounded-2xl border border-[#ebe4da] bg-white p-4 shadow-2xs space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -7578,7 +7617,7 @@ function PaymentsTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#eee6dc]">
-                  {payments.map((p: PaymentRecord) => (
+                  {displayedPayments.map((p: PaymentRecord) => (
                     <tr key={p.id} className="hover:bg-[#fbf8f3] transition-colors">
                       <td className="px-5 py-4 font-mono font-bold text-[#676b7d]">
                         REC-{p.id.slice(0, 8).toUpperCase()}
@@ -7890,6 +7929,37 @@ function ElectricityTab({
   searchQuery,
   onClearSearch,
 }: any) {
+  const currentYear = new Date().getFullYear()
+  const currentMonth = new Date().getMonth()
+  const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(currentMonth)
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear)
+
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ]
+
+  const displayedRecords = useMemo(() => {
+    if (selectedMonth === 'all') return records
+    return records.filter((el: ElectricityRecord) => {
+      const d = new Date(el.reading_date)
+      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+    })
+  }, [records, selectedMonth, selectedYear])
+
+  const totalUnits = useMemo(() => {
+    return displayedRecords.reduce((sum: number, el: ElectricityRecord) => {
+      return sum + Math.max(0, el.current_reading - el.previous_reading)
+    }, 0)
+  }, [displayedRecords])
+
+  const totalAmount = useMemo(() => {
+    return displayedRecords.reduce((sum: number, el: ElectricityRecord) => {
+      const units = Math.max(0, el.current_reading - el.previous_reading)
+      return sum + units * el.rate_per_unit
+    }, 0)
+  }, [displayedRecords])
+
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -7913,16 +7983,85 @@ function ElectricityTab({
         </div>
       </div>
 
-      {records.length === 0 ? (
+      {/* Month/Year Filter Controls & Summary */}
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-3.5 sm:p-4 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-[#6c635a] flex items-center gap-1.5">
+            <Calendar className="size-3.5 text-[#8b5a2b]" /> Period:
+          </span>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
+          >
+            <option value="all">All Months (Historical)</option>
+            {MONTH_NAMES.map((name, idx) => (
+              <option key={name} value={idx}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
+          >
+            {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((yr) => (
+              <option key={yr} value={yr}>
+                {yr}
+              </option>
+            ))}
+          </select>
+          {selectedMonth !== currentMonth && (
+            <button
+              onClick={() => {
+                setSelectedMonth(currentMonth)
+                setSelectedYear(currentYear)
+              }}
+              className="rounded-xl border border-[#d8c2aa] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#8b5a2b] hover:bg-[#faf4ed] transition-colors"
+            >
+              Current Month
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 font-semibold">
+          <span className="text-[#6c635a]">
+            {selectedMonth === 'all' ? 'All Readings' : `${MONTH_NAMES[selectedMonth]} ${selectedYear}`}:
+          </span>
+          <span className="rounded-lg bg-[#faf0e6] border border-[#d8c2aa] px-2 py-0.5 font-bold text-[#8b5a2b]">
+            {currency(totalAmount)} ({totalUnits} units · {displayedRecords.length} readings)
+          </span>
+        </div>
+      </div>
+
+      {displayedRecords.length === 0 ? (
         searchQuery ? (
           <EmptySearchState query={searchQuery} onClear={onClearSearch} />
         ) : (
-          <EmptyState
-            title="No electricity readings recorded"
-            description="Track previous and current meter readings to calculate utility charges."
-            action={onAddReading}
-            actionLabel="Record Reading"
-          />
+          <div className="rounded-2xl border border-[#e8dfd4] bg-white p-8 text-center text-xs text-[#85899a]">
+            <p className="font-semibold text-sm text-[#2c221e]">
+              No electricity readings recorded for {selectedMonth === 'all' ? 'this property' : `${MONTH_NAMES[selectedMonth]} ${selectedYear}`}.
+            </p>
+            <p className="mt-1">
+              Select another month using the period selector above, or record a new meter reading.
+            </p>
+            <div className="mt-4 flex items-center justify-center gap-2">
+              {selectedMonth !== 'all' && (
+                <button
+                  onClick={() => setSelectedMonth('all')}
+                  className="rounded-xl border border-[#d8c2aa] bg-[#faf7f2] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] hover:bg-[#f1e8dc]"
+                >
+                  View All Historical Readings
+                </button>
+              )}
+              <button
+                onClick={onAddReading}
+                className="rounded-xl bg-[#8b5a2b] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#784b20]"
+              >
+                Record Reading
+              </button>
+            </div>
+          </div>
         )
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[#ebe4da] bg-white shadow-sm">
@@ -7941,7 +8080,7 @@ function ElectricityTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#eee6dc]">
-                {records.map((el: ElectricityRecord) => {
+                {displayedRecords.map((el: ElectricityRecord) => {
                   const isMidCycle = el.calculation_type && el.calculation_type !== 'standard'
                   const units = Math.max(0, el.current_reading - el.previous_reading)
                   const total = units * el.rate_per_unit
@@ -8014,6 +8153,28 @@ function ElectricityTab({
 }
 
 function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDeleteExpense, searchQuery, onClearSearch }: any) {
+  const currentYear = new Date().getFullYear()
+  const currentMonth = new Date().getMonth()
+  const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(currentMonth)
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear)
+
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ]
+
+  const displayedExpenses = useMemo(() => {
+    if (selectedMonth === 'all') return expenses
+    return expenses.filter((e: Expense) => {
+      const d = new Date(e.expense_date)
+      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+    })
+  }, [expenses, selectedMonth, selectedYear])
+
+  const totalFilteredExpenses = useMemo(() => {
+    return displayedExpenses.reduce((sum: number, e: Expense) => sum + (e.amount || 0), 0)
+  }, [displayedExpenses])
+
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -8029,21 +8190,85 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
         </button>
       </div>
 
-      <div className="mb-6 rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-5">
-        <p className="text-xs text-[#999daa]">Total Expenses This Month</p>
-        <p className="mt-1 text-2xl font-bold text-[#b95c3c]">{currency(totalMonth)}</p>
+      {/* Month/Year Filter Controls & Summary */}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-4 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-[#6c635a] flex items-center gap-1.5">
+            <Calendar className="size-3.5 text-[#8b5a2b]" /> Period:
+          </span>
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
+          >
+            <option value="all">All Months (Historical)</option>
+            {MONTH_NAMES.map((name, idx) => (
+              <option key={name} value={idx}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
+          >
+            {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((yr) => (
+              <option key={yr} value={yr}>
+                {yr}
+              </option>
+            ))}
+          </select>
+          {selectedMonth !== currentMonth && (
+            <button
+              onClick={() => {
+                setSelectedMonth(currentMonth)
+                setSelectedYear(currentYear)
+              }}
+              className="rounded-xl border border-[#d8c2aa] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#8b5a2b] hover:bg-[#faf4ed] transition-colors"
+            >
+              Current Month
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-2 font-semibold">
+          <span className="text-[#6c635a]">
+            {selectedMonth === 'all' ? 'All Operating Expenses' : `Expenses for ${MONTH_NAMES[selectedMonth]} ${selectedYear}`}:
+          </span>
+          <span className="rounded-lg bg-rose-100/70 border border-rose-200 px-2 py-0.5 font-bold text-rose-800">
+            {currency(totalFilteredExpenses)} ({displayedExpenses.length} entries)
+          </span>
+        </div>
       </div>
 
-      {expenses.length === 0 ? (
+      {displayedExpenses.length === 0 ? (
         searchQuery ? (
           <EmptySearchState query={searchQuery} onClear={onClearSearch} />
         ) : (
-          <EmptyState
-            title="No expenses logged"
-            description="Record maintenance, Wi-Fi bills, water supplies, and staff salaries."
-            action={onAddExpense}
-            actionLabel="Log Expense"
-          />
+          <div className="rounded-2xl border border-[#e8dfd4] bg-white p-8 text-center text-xs text-[#85899a]">
+            <p className="font-semibold text-sm text-[#2c221e]">
+              No expenses logged for {selectedMonth === 'all' ? 'this property' : `${MONTH_NAMES[selectedMonth]} ${selectedYear}`}.
+            </p>
+            <p className="mt-1">
+              Select another month using the period selector above, or log a maintenance or utility expense.
+            </p>
+            <div className="mt-4 flex items-center justify-center gap-2">
+              {selectedMonth !== 'all' && (
+                <button
+                  onClick={() => setSelectedMonth('all')}
+                  className="rounded-xl border border-[#d8c2aa] bg-[#faf7f2] px-3.5 py-1.5 text-xs font-semibold text-[#8b5a2b] hover:bg-[#f1e8dc]"
+                >
+                  View All Historical Expenses
+                </button>
+              )}
+              <button
+                onClick={onAddExpense}
+                className="rounded-xl bg-[#8b5a2b] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#784b20]"
+              >
+                Log Expense
+              </button>
+            </div>
+          </div>
         )
       ) : (
         <div className="overflow-hidden rounded-2xl border border-[#ebe4da] bg-white shadow-sm">
@@ -8059,7 +8284,7 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#eee6dc]">
-                {expenses.map((e: Expense) => (
+                {displayedExpenses.map((e: Expense) => (
                   <tr key={e.id} className="hover:bg-[#fbf8f3] transition-colors">
                     <td className="px-5 py-4 font-bold text-[#3d3934]">{e.title}</td>
                     <td className="px-5 py-4 uppercase text-[10px] text-[#85899a]">{e.category}</td>
@@ -8184,60 +8409,691 @@ function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve,
   )
 }
 
-function ReportsTab({ property, rooms, beds, tenants, revenueMonth, expensesMonth, rentPending, electricityPending }: any) {
+function ReportsTab({
+  property,
+  rooms = [],
+  beds = [],
+  tenants = [],
+  payments = [],
+  expenses = [],
+  electricity = [],
+  revenueMonth = 0,
+  expensesMonth = 0,
+  rentPending = 0,
+  electricityPending = 0,
+  locale = 'en',
+}: any) {
+  const currentYear = new Date().getFullYear()
+  const currentMonth = new Date().getMonth()
+  const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth)
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear)
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'rent' | 'expenses' | 'electricity' | 'occupancy'>('overview')
+
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ]
+
+  const periodLabel = `${MONTH_NAMES[selectedMonth]} ${selectedYear}`
+  const isCurrentMonth = selectedMonth === currentMonth && selectedYear === currentYear
+
+  // 1. Scoped Monthly Rent Collections (from actual DB records)
+  const monthPayments = useMemo(() => {
+    return payments.filter((p: PaymentRecord) => {
+      const d = new Date(p.paid_at)
+      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+    })
+  }, [payments, selectedMonth, selectedYear])
+
+  const monthRevenue = useMemo(() => {
+    return monthPayments.reduce((sum: number, p: PaymentRecord) => sum + (p.amount || 0), 0)
+  }, [monthPayments])
+
+  // 2. Scoped Monthly Operating Expenses (from actual DB records)
+  const monthExpenses = useMemo(() => {
+    return expenses.filter((e: Expense) => {
+      const d = new Date(e.expense_date)
+      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+    })
+  }, [expenses, selectedMonth, selectedYear])
+
+  const monthExpensesTotal = useMemo(() => {
+    return monthExpenses.reduce((sum: number, e: Expense) => sum + (e.amount || 0), 0)
+  }, [monthExpenses])
+
+  // 3. Scoped Monthly Electricity Utility Charges (from actual DB records)
+  const monthElectricity = useMemo(() => {
+    return electricity.filter((el: ElectricityRecord) => {
+      const d = new Date(el.reading_date)
+      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+    })
+  }, [electricity, selectedMonth, selectedYear])
+
+  const monthElectricityUnits = useMemo(() => {
+    return monthElectricity.reduce((sum: number, el: ElectricityRecord) => {
+      return sum + Math.max(0, el.current_reading - el.previous_reading)
+    }, 0)
+  }, [monthElectricity])
+
+  const monthElectricityTotal = useMemo(() => {
+    return monthElectricity.reduce((sum: number, el: ElectricityRecord) => {
+      const units = Math.max(0, el.current_reading - el.previous_reading)
+      return sum + units * (el.rate_per_unit || 10)
+    }, 0)
+  }, [monthElectricity])
+
+  // 4. Pending Rent for the period
+  const monthPendingRent = useMemo(() => {
+    if (isCurrentMonth) return rentPending
+    const activeTenants = tenants.filter((t: Tenant) => t.status !== 'Vacated')
+    const totalExpected = activeTenants.reduce((sum: number, t: Tenant) => sum + (t.rent || 0), 0)
+    return Math.max(0, totalExpected - monthRevenue)
+  }, [isCurrentMonth, rentPending, tenants, monthRevenue])
+
+  // 5. Net Cashflow / Operating Income
+  const netCashflow = monthRevenue - monthExpensesTotal
+
+  // 6. Rent Collection Rate
+  const totalExpectedRent = monthRevenue + monthPendingRent
+  const collectionRate = totalExpectedRent > 0 ? Math.min(100, Math.round((monthRevenue / totalExpectedRent) * 100)) : 100
+
+  // 7. Overall Occupancy Rate
+  const totalCapacity = useMemo(() => {
+    return rooms.reduce((sum: number, r: Room) => sum + getRoomMaxCapacity(r.room_type), 0)
+  }, [rooms])
+
+  const totalOccupants = useMemo(() => {
+    return tenants.filter((t: Tenant) => t.status !== 'Vacated').length
+  }, [tenants])
+
+  const occupancyRate = totalCapacity > 0 ? Math.min(100, Math.round((totalOccupants / totalCapacity) * 100)) : 0
+
+  // 8. Expense Breakdown by Category
+  const expenseCategories = useMemo(() => {
+    const map = new Map<string, number>()
+    monthExpenses.forEach((e: Expense) => {
+      const cat = e.category || 'General'
+      map.set(cat, (map.get(cat) || 0) + (e.amount || 0))
+    })
+    return Array.from(map.entries()).map(([category, amount]) => ({
+      category,
+      amount,
+      pct: monthExpensesTotal > 0 ? Math.round((amount / monthExpensesTotal) * 100) : 0,
+    })).sort((a, b) => b.amount - a.amount)
+  }, [monthExpenses, monthExpensesTotal])
+
+  const handleDownloadPdf = () => {
+    window.print()
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Screen Controls Header (Hidden in Print) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 no-print">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Property Analytics & Reports</h2>
-          <p className="text-xs text-[#85899a]">Financial ledger overview and occupancy breakdown.</p>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold tracking-tight text-[#2c221e]">Property Analytics & Reports</h2>
+            <span className="rounded-full bg-[#faf0e6] border border-[#d8c2aa] px-2.5 py-0.5 text-[11px] font-bold text-[#8b5a2b]">
+              {property.name || 'Selected Property'}
+            </span>
+          </div>
+          <p className="text-xs text-[#85899a] mt-0.5">
+            Official monthly statement, financial ledger, and room occupancy records.
+          </p>
+        </div>
+
+        {/* Month/Year Selectors & PDF Download Action */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 rounded-xl border border-[#d8c2aa] bg-white p-1 shadow-2xs">
+            <Calendar className="size-3.5 text-[#8b5a2b] ml-1.5" />
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              className="bg-transparent font-semibold text-xs text-[#2c221e] outline-none cursor-pointer py-1 pr-1"
+            >
+              {MONTH_NAMES.map((name, idx) => (
+                <option key={name} value={idx}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className="bg-transparent font-semibold text-xs text-[#2c221e] outline-none cursor-pointer py-1 pr-1"
+            >
+              {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((yr) => (
+                <option key={yr} value={yr}>
+                  {yr}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {!isCurrentMonth && (
+            <button
+              onClick={() => {
+                setSelectedMonth(currentMonth)
+                setSelectedYear(currentYear)
+              }}
+              className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-2 text-xs font-semibold text-[#8b5a2b] hover:bg-[#faf4ed] transition-colors"
+              title="Jump to current active month"
+            >
+              Current Month
+            </button>
+          )}
+
+          <button
+            onClick={handleDownloadPdf}
+            className="flex items-center gap-1.5 rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+            title="Download report as PDF or Print"
+          >
+            <Download className="size-3.5" /> Download PDF / Print
+          </button>
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-[#e9ebf0] bg-white p-5">
-          <p className="text-xs text-[#999daa]">Revenue (Month)</p>
-          <p className="mt-1 text-2xl font-bold text-[#328d68]">{currency(revenueMonth)}</p>
+      {/* Screen View: Executive Financial KPI Grid */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 no-print">
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white p-5 shadow-2xs">
+          <p className="text-xs font-medium text-[#85899a]">Rent Collected ({periodLabel})</p>
+          <p className="mt-1 text-2xl font-bold text-[#328d68]">{currency(monthRevenue)}</p>
+          <p className="mt-1 text-[11px] text-[#74798a]">{monthPayments.length} payment(s) confirmed</p>
         </div>
-        <div className="rounded-2xl border border-[#e9ebf0] bg-white p-5">
-          <p className="text-xs text-[#999daa]">Pending Rent</p>
-          <p className="mt-1 text-2xl font-bold text-[#b95c3c]">{currency(rentPending)}</p>
+
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white p-5 shadow-2xs">
+          <p className="text-xs font-medium text-[#85899a]">Operating Expenses ({periodLabel})</p>
+          <p className="mt-1 text-2xl font-bold text-[#b95c3c]">{currency(monthExpensesTotal)}</p>
+          <p className="mt-1 text-[11px] text-[#74798a]">{monthExpenses.length} expense entry(ies)</p>
         </div>
-        <div className="rounded-2xl border border-[#e9ebf0] bg-white p-5">
-          <p className="text-xs text-[#999daa]">Expenses (Month)</p>
-          <p className="mt-1 text-2xl font-bold text-[#b46b1a]">{currency(expensesMonth)}</p>
+
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white p-5 shadow-2xs">
+          <p className="text-xs font-medium text-[#85899a]">Net Operating Cashflow</p>
+          <p className={`mt-1 text-2xl font-bold ${netCashflow >= 0 ? 'text-[#3d3934]' : 'text-[#b95c3c]'}`}>
+            {currency(netCashflow)}
+          </p>
+          <span className={`inline-block mt-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+            netCashflow >= 0 ? 'bg-[#eaf5ea] text-[#2e7d32]' : 'bg-[#ffebe8] text-[#b95c3c]'
+          }`}>
+            {netCashflow >= 0 ? 'Operating Surplus' : 'Operating Deficit'}
+          </span>
         </div>
-        <div className="rounded-2xl border border-[#e9ebf0] bg-white p-5">
-          <p className="text-xs text-[#999daa]">Net Cashflow</p>
-          <p className="mt-1 text-2xl font-bold text-[#3d3934]">{currency(revenueMonth - expensesMonth)}</p>
+
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white p-5 shadow-2xs">
+          <p className="text-xs font-medium text-[#85899a]">Pending Rent Dues</p>
+          <p className="mt-1 text-2xl font-bold text-[#b46b1a]">{currency(monthPendingRent)}</p>
+          <p className="mt-1 text-[11px] text-[#74798a]">{collectionRate}% collection rate</p>
+        </div>
+
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white p-5 shadow-2xs">
+          <p className="text-xs font-medium text-[#85899a]">Electricity Utilities</p>
+          <p className="mt-1 text-2xl font-bold text-[#44485a]">{currency(monthElectricityTotal)}</p>
+          <p className="mt-1 text-[11px] text-[#74798a]">{monthElectricityUnits} units billed</p>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
-        <h3 className="text-sm font-bold text-[#3d3934]">Room Occupancy Distribution</h3>
-        <p className="mt-0.5 text-xs text-[#85899a]">Live breakdown of configured rooms and assigned capacity.</p>
-        <div className="mt-4 divide-y divide-[#f0f1f4]">
-          {rooms.map((r: Room) => {
-            const cap = getRoomMaxCapacity(r.room_type)
-            const count = tenants.filter((t: Tenant) => t.room_id === r.id && t.status !== 'Vacated').length
-            const pct = Math.min(100, Math.round((count / cap) * 100))
-            return (
-              <div key={r.id} className="py-3 flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-bold text-[#3d3934]">Room {r.room_number}</span>
-                  <span className="ml-2 text-[#85899a]">({r.room_type})</span>
+      {/* Sub-tab Navigation (Screen only) */}
+      <div className="flex items-center gap-1.5 border-b border-[#e8dfd4] pb-2 text-xs font-semibold overflow-x-auto no-print">
+        <button
+          onClick={() => setActiveSubTab('overview')}
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
+            activeSubTab === 'overview'
+              ? 'bg-[#8b5a2b] text-white shadow-2xs'
+              : 'text-[#6a635b] hover:bg-[#faf7f2]'
+          }`}
+        >
+          Executive Summary & P&L
+        </button>
+        <button
+          onClick={() => setActiveSubTab('rent')}
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
+            activeSubTab === 'rent'
+              ? 'bg-[#8b5a2b] text-white shadow-2xs'
+              : 'text-[#6a635b] hover:bg-[#faf7f2]'
+          }`}
+        >
+          Rent Collections ({monthPayments.length})
+        </button>
+        <button
+          onClick={() => setActiveSubTab('expenses')}
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
+            activeSubTab === 'expenses'
+              ? 'bg-[#8b5a2b] text-white shadow-2xs'
+              : 'text-[#6a635b] hover:bg-[#faf7f2]'
+          }`}
+        >
+          Operating Expenses ({monthExpenses.length})
+        </button>
+        <button
+          onClick={() => setActiveSubTab('electricity')}
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
+            activeSubTab === 'electricity'
+              ? 'bg-[#8b5a2b] text-white shadow-2xs'
+              : 'text-[#6a635b] hover:bg-[#faf7f2]'
+          }`}
+        >
+          Electricity Utilities ({monthElectricity.length})
+        </button>
+        <button
+          onClick={() => setActiveSubTab('occupancy')}
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
+            activeSubTab === 'occupancy'
+              ? 'bg-[#8b5a2b] text-white shadow-2xs'
+              : 'text-[#6a635b] hover:bg-[#faf7f2]'
+          }`}
+        >
+          Room Occupancy ({rooms.length})
+        </button>
+      </div>
+
+      {/* Screen Sub-Tab 1: Executive Summary & P&L */}
+      {activeSubTab === 'overview' && (
+        <div className="grid gap-6 lg:grid-cols-2 no-print">
+          {/* P&L Statement Card */}
+          <div className="rounded-2xl border border-[#e8dfd4] bg-white p-6 shadow-sm">
+            <h3 className="text-sm font-bold text-[#3d3934]">Profit & Loss Statement ({periodLabel})</h3>
+            <p className="mt-0.5 text-xs text-[#85899a]">Summary of verified revenue inflows and operating outflows.</p>
+
+            <div className="mt-5 divide-y divide-[#f0f1f4] text-xs">
+              <div className="py-2.5 flex items-center justify-between">
+                <span className="font-semibold text-[#3d3934]">Gross Rent Collections</span>
+                <span className="font-bold text-[#328d68]">{currency(monthRevenue)}</span>
+              </div>
+              <div className="py-2.5 flex items-center justify-between">
+                <span className="text-[#676b7d]">Electricity & Utility Billings</span>
+                <span className="font-semibold text-[#44485a]">{currency(monthElectricityTotal)}</span>
+              </div>
+              <div className="py-2.5 flex items-center justify-between">
+                <span className="text-[#b95c3c]">Total Operating Expenses</span>
+                <span className="font-bold text-[#b95c3c]">-{currency(monthExpensesTotal)}</span>
+              </div>
+              <div className="py-3 flex items-center justify-between font-bold text-sm bg-[#faf8f5] -mx-6 px-6 border-t border-b border-[#e8dfd4]">
+                <span className="text-[#2c221e]">Net Operating Surplus / Deficit</span>
+                <span className={netCashflow >= 0 ? 'text-[#328d68]' : 'text-[#b95c3c]'}>
+                  {currency(netCashflow)}
+                </span>
+              </div>
+              <div className="py-2.5 flex items-center justify-between text-[#85899a]">
+                <span>Uncollected / Pending Rent</span>
+                <span className="font-semibold text-[#b46b1a]">{currency(monthPendingRent)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Operational Metrics & Expense Breakdown */}
+          <div className="rounded-2xl border border-[#e8dfd4] bg-white p-6 shadow-sm flex flex-col justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-[#3d3934]">Operating Ratios & Capacity</h3>
+              <p className="mt-0.5 text-xs text-[#85899a]">Core business performance indicators.</p>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                <div className="rounded-xl border border-[#ebe4da] bg-[#faf8f5] p-3.5">
+                  <span className="text-[#85899a] block">Occupancy Rate</span>
+                  <span className="mt-1 text-lg font-bold text-[#2c221e]">{occupancyRate}%</span>
+                  <span className="text-[11px] text-[#74798a] block mt-0.5">{totalOccupants} / {totalCapacity} beds filled</span>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="w-24 bg-[#eee6dc] rounded-full h-2 overflow-hidden">
-                    <div className="bg-[#8b5a2b] h-full" style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="font-semibold text-[#555a6c]">
-                    {count} / {cap} ({pct}%)
-                  </span>
+                <div className="rounded-xl border border-[#ebe4da] bg-[#faf8f5] p-3.5">
+                  <span className="text-[#85899a] block">Collection Efficiency</span>
+                  <span className="mt-1 text-lg font-bold text-[#2c221e]">{collectionRate}%</span>
+                  <span className="text-[11px] text-[#74798a] block mt-0.5">Rent recovered on time</span>
                 </div>
               </div>
-            )
-          })}
+
+              {/* Expense Category Breakdown */}
+              <div className="mt-5">
+                <h4 className="text-xs font-bold text-[#3d3934] mb-2.5">Expenses by Category</h4>
+                {expenseCategories.length === 0 ? (
+                  <p className="text-xs text-[#85899a] italic">No expenses logged in this period.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {expenseCategories.slice(0, 4).map((c) => (
+                      <div key={c.category} className="flex items-center justify-between text-xs">
+                        <span className="capitalize text-[#44485a] font-medium">{c.category}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-bold text-[#2c221e]">{currency(c.amount)}</span>
+                          <span className="text-[10px] text-[#85899a] w-8 text-right">({c.pct}%)</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-[#f0f1f4] flex items-center justify-between text-xs">
+              <span className="text-[#85899a]">Need official documentation?</span>
+              <button
+                onClick={handleDownloadPdf}
+                className="font-semibold text-[#8b5a2b] hover:underline flex items-center gap-1"
+              >
+                <Printer className="size-3.5" /> Print Statement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Screen Sub-Tab 2: Monthly Rent Ledger */}
+      {activeSubTab === 'rent' && (
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white shadow-sm overflow-hidden no-print">
+          <div className="p-5 border-b border-[#eee6dc] bg-[#faf8f5] flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-sm text-[#2c221e]">Monthly Rent Collections — {periodLabel}</h3>
+              <p className="text-xs text-[#85899a]">Total collections: {currency(monthRevenue)} across {monthPayments.length} payment(s)</p>
+            </div>
+          </div>
+
+          {monthPayments.length === 0 ? (
+            <div className="p-8 text-center text-xs text-[#85899a]">
+              No rent collections recorded for {periodLabel}.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-left text-xs">
+                <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                  <tr>
+                    <th className="px-5 py-3.5">Receipt #</th>
+                    <th className="px-5 py-3.5">Resident</th>
+                    <th className="px-5 py-3.5">Payment Method</th>
+                    <th className="px-5 py-3.5">Paid At</th>
+                    <th className="px-5 py-3.5 font-bold text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#eee6dc]">
+                  {monthPayments.map((p: PaymentRecord) => (
+                    <tr key={p.id} className="hover:bg-[#fbf8f3] transition-colors">
+                      <td className="px-5 py-3.5 font-mono text-[11px] font-bold text-[#676b7d]">
+                        REC-{p.id.slice(0, 8).toUpperCase()}
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className="font-bold text-[#3d3934]">{p.tenant_name}</span>
+                        <span className="text-[#85899a] ml-1.5">(Room {p.room_number})</span>
+                      </td>
+                      <td className="px-5 py-3.5 uppercase text-[10px] text-[#85899a] font-semibold">{p.payment_method}</td>
+                      <td className="px-5 py-3.5 text-[#555a6c]">
+                        {formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}
+                      </td>
+                      <td className="px-5 py-3.5 font-bold text-emerald-700 text-right">{currency(p.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Screen Sub-Tab 3: Operating Expenses Ledger */}
+      {activeSubTab === 'expenses' && (
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white shadow-sm overflow-hidden no-print">
+          <div className="p-5 border-b border-[#eee6dc] bg-[#faf8f5] flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-sm text-[#2c221e]">Monthly Operating Expenses — {periodLabel}</h3>
+              <p className="text-xs text-[#85899a]">Total expenses: {currency(monthExpensesTotal)} across {monthExpenses.length} record(s)</p>
+            </div>
+          </div>
+
+          {monthExpenses.length === 0 ? (
+            <div className="p-8 text-center text-xs text-[#85899a]">
+              No operating expenses recorded for {periodLabel}.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-left text-xs">
+                <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                  <tr>
+                    <th className="px-5 py-3.5">Description</th>
+                    <th className="px-5 py-3.5">Category</th>
+                    <th className="px-5 py-3.5">Expense Date</th>
+                    <th className="px-5 py-3.5">Notes</th>
+                    <th className="px-5 py-3.5 font-bold text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#eee6dc]">
+                  {monthExpenses.map((e: Expense) => (
+                    <tr key={e.id} className="hover:bg-[#fbf8f3] transition-colors">
+                      <td className="px-5 py-3.5 font-bold text-[#3d3934]">{e.title}</td>
+                      <td className="px-5 py-3.5 uppercase text-[10px] text-[#85899a] font-semibold">{e.category}</td>
+                      <td className="px-5 py-3.5 text-[#555a6c]">
+                        {new Date(e.expense_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td className="px-5 py-3.5 text-[#85899a] text-[11px]">{e.notes || '—'}</td>
+                      <td className="px-5 py-3.5 font-bold text-rose-700 text-right">{currency(e.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Screen Sub-Tab 4: Electricity Utility Charges */}
+      {activeSubTab === 'electricity' && (
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white shadow-sm overflow-hidden no-print">
+          <div className="p-5 border-b border-[#eee6dc] bg-[#faf8f5] flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-sm text-[#2c221e]">Monthly Electricity Charges — {periodLabel}</h3>
+              <p className="text-xs text-[#85899a]">Total utility: {currency(monthElectricityTotal)} ({monthElectricityUnits} units)</p>
+            </div>
+          </div>
+
+          {monthElectricity.length === 0 ? (
+            <div className="p-8 text-center text-xs text-[#85899a]">
+              No electricity readings logged for {periodLabel}.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-left text-xs">
+                <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
+                  <tr>
+                    <th className="px-5 py-3.5">Meter / Room</th>
+                    <th className="px-5 py-3.5">Prev (kWh)</th>
+                    <th className="px-5 py-3.5">Curr (kWh)</th>
+                    <th className="px-5 py-3.5">Units</th>
+                    <th className="px-5 py-3.5">Rate / Unit</th>
+                    <th className="px-5 py-3.5 font-bold text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#eee6dc]">
+                  {monthElectricity.map((el: ElectricityRecord) => {
+                    const units = Math.max(0, el.current_reading - el.previous_reading)
+                    const total = units * el.rate_per_unit
+                    return (
+                      <tr key={el.id} className="hover:bg-[#fbf8f3] transition-colors">
+                        <td className="px-5 py-3.5 font-bold text-[#3d3934]">
+                          {el.room_id ? `Room ${el.room}` : 'General Meter'}
+                        </td>
+                        <td className="px-5 py-3.5 text-[#555a6c]">{el.previous_reading}</td>
+                        <td className="px-5 py-3.5 text-[#555a6c]">{el.current_reading}</td>
+                        <td className="px-5 py-3.5 font-semibold text-[#784b20]">{units}</td>
+                        <td className="px-5 py-3.5 text-[#555a6c]">{currency(el.rate_per_unit)}</td>
+                        <td className="px-5 py-3.5 font-bold text-[#44485a] text-right">{currency(total)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Screen Sub-Tab 5: Room Occupancy */}
+      {activeSubTab === 'occupancy' && (
+        <div className="rounded-2xl border border-[#e8dfd4] bg-white p-6 shadow-sm no-print">
+          <div className="flex items-center justify-between pb-4 border-b border-[#f0f1f4]">
+            <div>
+              <h3 className="text-sm font-bold text-[#3d3934]">Room Occupancy Distribution</h3>
+              <p className="mt-0.5 text-xs text-[#85899a]">Overall Occupancy: {occupancyRate}% ({totalOccupants} residents across {totalCapacity} total beds)</p>
+            </div>
+          </div>
+          <div className="mt-4 divide-y divide-[#f0f1f4]">
+            {rooms.map((r: Room) => {
+              const cap = getRoomMaxCapacity(r.room_type)
+              const count = tenants.filter((t: Tenant) => t.room_id === r.id && t.status !== 'Vacated').length
+              const pct = Math.min(100, Math.round((count / cap) * 100))
+              return (
+                <div key={r.id} className="py-3 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-bold text-[#3d3934]">Room {r.room_number}</span>
+                    <span className="ml-2 text-[#85899a]">({r.room_type})</span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="w-28 bg-[#eee6dc] rounded-full h-2 overflow-hidden">
+                      <div className="bg-[#8b5a2b] h-full" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="font-semibold text-[#555a6c] w-20 text-right">
+                      {count} / {cap} ({pct}%)
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* Printable PDF Document View (Rendered exclusively for window.print())     */}
+      {/* ========================================================================= */}
+      <div className="print-only">
+        {/* Printable Header */}
+        <div className="border-b-2 border-[#2c221e] pb-4 mb-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-[#2c221e]">BaseraBook SaaS</h1>
+              <p className="text-xs text-[#555a6c]">Official Monthly Operations & Financial Statement</p>
+            </div>
+            <div className="text-right text-xs">
+              <span className="font-bold text-sm block text-[#2c221e]">{property.name || 'Rental Property'}</span>
+              <span className="text-[#555a6c] block">{property.address || 'Address on file'}</span>
+              {property.contact && <span className="text-[#555a6c] block">Contact: {property.contact}</span>}
+            </div>
+          </div>
+          <div className="mt-3 flex justify-between items-center text-xs font-semibold bg-[#faf8f5] p-2.5 rounded border border-[#e8dfd4]">
+            <span>Statement Period: {periodLabel}</span>
+            <span>Generated on: {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+          </div>
+        </div>
+
+        {/* Financial Summary Table */}
+        <div className="mb-6 print-break-inside-avoid">
+          <h2 className="text-sm font-bold text-[#2c221e] mb-2 uppercase tracking-wide">1. Executive Financial Summary</h2>
+          <table className="print-table text-xs">
+            <tbody>
+              <tr>
+                <td className="font-semibold bg-[#faf7f2]">Gross Rent Collected:</td>
+                <td className="font-bold text-emerald-800">{currency(monthRevenue)}</td>
+                <td className="font-semibold bg-[#faf7f2]">Confirmed Payments:</td>
+                <td>{monthPayments.length} transactions</td>
+              </tr>
+              <tr>
+                <td className="font-semibold bg-[#faf7f2]">Total Operating Expenses:</td>
+                <td className="font-bold text-rose-800">{currency(monthExpensesTotal)}</td>
+                <td className="font-semibold bg-[#faf7f2]">Logged Expenses:</td>
+                <td>{monthExpenses.length} entries</td>
+              </tr>
+              <tr>
+                <td className="font-semibold bg-[#faf7f2]">Net Operating Income (NOI):</td>
+                <td className="font-bold">{currency(netCashflow)}</td>
+                <td className="font-semibold bg-[#faf7f2]">Cashflow Status:</td>
+                <td>{netCashflow >= 0 ? 'Surplus' : 'Deficit'}</td>
+              </tr>
+              <tr>
+                <td className="font-semibold bg-[#faf7f2]">Pending Rent Dues:</td>
+                <td className="font-bold text-amber-800">{currency(monthPendingRent)}</td>
+                <td className="font-semibold bg-[#faf7f2]">Collection Efficiency:</td>
+                <td>{collectionRate}%</td>
+              </tr>
+              <tr>
+                <td className="font-semibold bg-[#faf7f2]">Electricity & Utilities:</td>
+                <td>{currency(monthElectricityTotal)} ({monthElectricityUnits} units)</td>
+                <td className="font-semibold bg-[#faf7f2]">Portfolio Occupancy:</td>
+                <td>{occupancyRate}% ({totalOccupants}/{totalCapacity} beds)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Itemized Rent Collections */}
+        <div className="mb-6 print-break-inside-avoid">
+          <h2 className="text-sm font-bold text-[#2c221e] mb-2 uppercase tracking-wide">
+            2. Rent Collections Ledger ({monthPayments.length} entries)
+          </h2>
+          {monthPayments.length === 0 ? (
+            <p className="text-xs text-[#85899a] italic">No rent payments recorded for {periodLabel}.</p>
+          ) : (
+            <table className="print-table text-xs">
+              <thead>
+                <tr className="bg-[#faf7f2] font-semibold">
+                  <th>Receipt #</th>
+                  <th>Resident</th>
+                  <th>Room</th>
+                  <th>Method</th>
+                  <th>Payment Date</th>
+                  <th className="text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthPayments.map((p: PaymentRecord) => (
+                  <tr key={p.id}>
+                    <td className="font-mono text-[10px]">REC-{p.id.slice(0, 8).toUpperCase()}</td>
+                    <td className="font-semibold">{p.tenant_name}</td>
+                    <td>Room {p.room_number}</td>
+                    <td className="uppercase text-[10px]">{p.payment_method}</td>
+                    <td>{formatPaymentTimestamp(p.paid_at, 'Asia/Kolkata', locale)}</td>
+                    <td className="text-right font-bold text-emerald-800">{currency(p.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Itemized Expenses */}
+        <div className="mb-6 print-break-inside-avoid">
+          <h2 className="text-sm font-bold text-[#2c221e] mb-2 uppercase tracking-wide">
+            3. Operating Expenses Ledger ({monthExpenses.length} entries)
+          </h2>
+          {monthExpenses.length === 0 ? (
+            <p className="text-xs text-[#85899a] italic">No operating expenses recorded for {periodLabel}.</p>
+          ) : (
+            <table className="print-table text-xs">
+              <thead>
+                <tr className="bg-[#faf7f2] font-semibold">
+                  <th>Description</th>
+                  <th>Category</th>
+                  <th>Date</th>
+                  <th>Notes</th>
+                  <th className="text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthExpenses.map((e: Expense) => (
+                  <tr key={e.id}>
+                    <td className="font-semibold">{e.title}</td>
+                    <td className="uppercase text-[10px]">{e.category}</td>
+                    <td>{new Date(e.expense_date).toLocaleDateString('en-IN')}</td>
+                    <td>{e.notes || '—'}</td>
+                    <td className="text-right font-bold text-rose-800">{currency(e.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Printable Footer / Signoff */}
+        <div className="mt-10 pt-4 border-t border-[#d1d5db] flex justify-between items-end text-[11px] text-[#676b7d] print-break-inside-avoid">
+          <div>
+            <p className="font-semibold text-[#2c221e]">BaseraBook SaaS Property Management</p>
+            <p>Confidential operational report for property owner records.</p>
+          </div>
+          <div className="text-right">
+            <p className="font-semibold">Authorized Signatory / Property Owner</p>
+            <div className="mt-8 border-b border-[#2c221e] w-48 ml-auto" />
+          </div>
         </div>
       </div>
     </div>
@@ -8568,78 +9424,125 @@ function SettingsTab({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
-        {subscriptionStatus === 'active' ? (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* 4. Primary Subscription & Plan Management Hub */}
+      <div id="settings-subscription" className="rounded-2xl border border-[#e8dfd4] bg-white p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#eee6dc] pb-5">
+          <div className="flex items-center gap-2.5 text-[#8b5a2b]">
+            <CreditCard className="size-5" />
             <div>
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 font-bold text-emerald-700">
-                  <CheckCircle2 className="size-4 text-emerald-600" />
-                  {subscriptionPlan === 'starter'
-                    ? 'Starter Subscription'
-                    : subscriptionPlan === 'business'
-                    ? 'Business Subscription'
-                    : subscriptionPlan === 'enterprise'
-                    ? 'Enterprise Subscription'
-                    : 'Growth Subscription'}
-                </span>
-                <span className="rounded-md px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                  Active
-                </span>
-              </div>
-              <p className="mt-2 text-sm font-semibold text-[#3d3934]">
-                Your BaseraBook paid subscription is verified and active.
-              </p>
-              <p className="mt-1 text-xs text-[#74798a]">
-                All premium features, multi-property management, and automated rent collection tools are unlocked.
+              <h3 className="text-base font-bold text-[#2c221e]">Subscription & Billing</h3>
+              <p className="text-xs text-[#85899a]">
+                Manage your BaseraBook plan, property quotas, and billing status.
               </p>
             </div>
-            <button
-              onClick={onViewPlans}
-              className="self-start sm:self-center shrink-0 rounded-xl border border-[#d8c2aa] bg-[#faf7f2] px-4 py-2.5 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors"
-            >
-              Manage / View Plans
-            </button>
           </div>
-        ) : (
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="flex items-center gap-1.5 font-bold text-[#8b5a2b]">
-                  <Sparkles className="size-4" />
-                  7-Day Free Trial
-                </span>
-                <span
-                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                    isTrialExpired
-                      ? 'bg-[#ffebe8] text-[#b95c3c]'
-                      : isEndingSoon
-                      ? 'bg-[#fff4e5] text-[#b46b1a]'
-                      : 'bg-[#faf3ea] text-[#8b5a2b]'
-                  }`}
-                >
-                  {isTrialExpired
-                    ? 'Expired'
-                    : hoursRemaining !== null && hoursRemaining < 48
-                    ? `${hoursRemaining}h remaining`
-                    : `${daysRemaining ?? 7} days remaining`}
-                </span>
-              </div>
-              <p className="mt-2 text-sm font-semibold text-[#3d3934]">
-                {isTrialExpired ? 'Your 7-day trial period has ended.' : 'Your 7-day free trial is currently active.'}
-              </p>
-              <p className="mt-1 text-xs text-[#74798a]">
-                Historical records are retained safely. Upgrade anytime to continue day-to-day operations.
-              </p>
+          <button
+            onClick={onViewPlans}
+            className="self-start sm:self-auto inline-flex items-center gap-1.5 rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
+          >
+            <Sparkles className="size-3.5" />
+            {subscriptionStatus === 'active' ? 'Change / Upgrade Plan' : 'Upgrade Plan'}
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Current Tier Details */}
+          <div className="rounded-xl border border-[#ebe4da] bg-[#faf8f5] p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9c8e80]">Current Plan</p>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-base font-bold text-[#2c221e] capitalize">
+                {subscriptionPlan || 'Free Trial'} Plan
+              </span>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                  subscriptionStatus === 'active'
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    : isTrialExpired
+                    ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
+                    : isEndingSoon
+                    ? 'bg-[#fff4e5] text-[#b46b1a] border border-[#f5c285]'
+                    : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
+                }`}
+              >
+                {subscriptionStatus === 'active'
+                  ? 'Active Paid Plan'
+                  : isTrialExpired
+                  ? 'Trial Expired'
+                  : hoursRemaining !== null && hoursRemaining < 48
+                  ? `Trial (${hoursRemaining}h left)`
+                  : `Trial (${daysRemaining ?? 7}d left)`}
+              </span>
             </div>
-            <button
-              onClick={onViewPlans}
-              className="self-start sm:self-center shrink-0 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
-            >
-              Upgrade Plan
-            </button>
+            <p className="mt-2 text-xs text-[#676b7d]">
+              {subscriptionStatus === 'active'
+                ? 'Your account has full access to all features, automated rent cycles, and multi-property management.'
+                : isTrialExpired
+                ? 'Your 7-day trial period has ended. Historical records remain preserved. Upgrade to resume operational actions.'
+                : 'You are on a 7-day free trial. Experience all features without restriction.'}
+            </p>
           </div>
-        )}
+
+          {/* Property Quota & Usage */}
+          <div className="rounded-xl border border-[#ebe4da] bg-[#faf8f5] p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#9c8e80]">Property Quota</p>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-base font-bold text-[#2c221e]">
+                {entitlement?.activePropertyCount ?? properties.length} / {entitlement?.maxProperties ?? 1} Active
+              </span>
+              {entitlement && !entitlement.canCreateProperty && (
+                <span className="rounded-md bg-[#fff0e6] px-2 py-0.5 text-[10px] font-bold text-[#b46b1a] border border-[#f5c285]">
+                  Quota Limit Reached
+                </span>
+              )}
+            </div>
+            {/* Usage Progress Bar */}
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#eee6dc]">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  entitlement && !entitlement.canCreateProperty ? 'bg-[#b95c3c]' : 'bg-[#8b5a2b]'
+                }`}
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.round(
+                      ((entitlement?.activePropertyCount ?? properties.length) /
+                        Math.max(1, entitlement?.maxProperties ?? 1)) *
+                        100
+                    )
+                  )}%`,
+                }}
+              />
+            </div>
+            <p className="mt-2 text-[11px] text-[#85899a]">
+              {entitlement && !entitlement.canCreateProperty
+                ? 'Upgrade to a higher tier plan to add more hostel branches or properties.'
+                : `${(entitlement?.maxProperties ?? 1) - (entitlement?.activePropertyCount ?? properties.length)} additional property slot(s) available.`}
+            </p>
+          </div>
+        </div>
+
+        {/* Feature Highlights */}
+        <div className="mt-5 rounded-xl border border-[#ebe4da] bg-[#faf8f5] p-4">
+          <p className="text-xs font-bold text-[#2c221e] mb-2.5">Included in your subscription:</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-[#676b7d]">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+              <span>Recurring monthly rent schedule & cycle tracking</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+              <span>Multi-property branch isolation & switching</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+              <span>Monthly financial ledgers & printable PDF export</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+              <span>WhatsApp / SMS rent reminders with UPI QR code</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">

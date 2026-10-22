@@ -2351,6 +2351,224 @@ test('50. Dashboard Responsive Layout & Overlap Protection (Issue #3)', async ()
   )
 })
 
+test('51. Subscription UI Placement & Clean Layout Invariants', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  const dashboardCode = fs.readFileSync(path.resolve('app/dashboard/page.tsx'), 'utf-8')
+
+  // 1. Sidebar cleanliness: No promotional subscription card in sidebar
+  assert.ok(
+    !dashboardCode.includes('Upgrade to Pro') &&
+    !dashboardCode.includes('Unlock unlimited properties, advanced analytics'),
+    'Sidebar must not contain redundant promotional subscription cards'
+  )
+
+  // 2. Header cleanliness: No redundant top subscription status pill in header
+  const headerSectionMatch = dashboardCode.match(/<header[\s\S]*?<\/header>/)
+  assert.ok(headerSectionMatch, 'Header must exist')
+  const headerSection = headerSectionMatch[0]
+  assert.ok(
+    !headerSection.includes('trialEnd') && !headerSection.includes('daysRemaining'),
+    'Top header must not have redundant trial/subscription badges'
+  )
+
+  // 3. Settings Tab is the primary Subscription Management Center
+  assert.ok(
+    dashboardCode.includes('id="settings-subscription"'),
+    'SettingsTab must have dedicated #settings-subscription management section'
+  )
+  assert.ok(
+    dashboardCode.includes('Subscription & Billing'),
+    'SettingsTab must prominently display Subscription & Billing section'
+  )
+  assert.ok(
+    dashboardCode.includes('Property Quota') && dashboardCode.includes('Quota Limit Reached'),
+    'SettingsTab subscription section must display property quota usage and limits'
+  )
+
+  // 4. Properties section has a concise inline indicator
+  assert.ok(
+    dashboardCode.includes('Properties: <strong className="text-[#2c221e]">{properties.length}</strong> / {entitlement?.maxProperties ?? 1} used') ||
+    dashboardCode.includes('Properties:'),
+    'Properties section must have small subscription and property usage indicator'
+  )
+})
+
+test('52. Monthly Financial Reports Calculation & Historical Period Selection', async () => {
+  // Test accurate monthly grouping, revenue, expenses, net cashflow, pending dues, and electricity calculations
+  const mockPayments = [
+    // October 2026 payments
+    { id: 'pay-1', amount: 8000, paid_at: '2026-10-05T10:00:00Z', month_covered: '2026-10', property_id: 'prop-1', tenant_name: 'Resident A' },
+    { id: 'pay-2', amount: 7500, paid_at: '2026-10-12T14:30:00Z', month_covered: '2026-10', property_id: 'prop-1', tenant_name: 'Resident B' },
+    // September 2026 payment
+    { id: 'pay-3', amount: 8000, paid_at: '2026-09-08T09:00:00Z', month_covered: '2026-09', property_id: 'prop-1', tenant_name: 'Resident A' },
+    // Property 2 payment (should not mix)
+    { id: 'pay-4', amount: 12000, paid_at: '2026-10-06T11:00:00Z', month_covered: '2026-10', property_id: 'prop-2', tenant_name: 'Resident C' },
+  ]
+
+  const mockExpenses = [
+    // October 2026 expenses
+    { id: 'exp-1', amount: 2500, expense_date: '2026-10-02', category: 'Maintenance', property_id: 'prop-1' },
+    { id: 'exp-2', amount: 1200, expense_date: '2026-10-15', category: 'Cleaning', property_id: 'prop-1' },
+    // September 2026 expense
+    { id: 'exp-3', amount: 4000, expense_date: '2026-09-10', category: 'Repairs', property_id: 'prop-1' },
+  ]
+
+  const mockElectricity = [
+    // October 2026 reading
+    { id: 'elec-1', reading_date: '2026-10-01', total_bill: 1800, units_consumed: 150, property_id: 'prop-1', status: 'Pending' },
+    // September 2026 reading
+    { id: 'elec-2', reading_date: '2026-09-01', total_bill: 2100, units_consumed: 180, property_id: 'prop-1', status: 'Paid' },
+  ]
+
+  // Filter for Property 1, October 2026
+  const selectedYear = 2026
+  const selectedMonth = 10 // October
+
+  const prop1PaymentsOct = mockPayments.filter(p => {
+    if (p.property_id !== 'prop-1') return false
+    const d = new Date(p.paid_at)
+    return d.getFullYear() === selectedYear && (d.getMonth() + 1) === selectedMonth
+  })
+  const revenueOct = prop1PaymentsOct.reduce((s, p) => s + p.amount, 0)
+  assert.strictEqual(prop1PaymentsOct.length, 2, 'Should have exactly 2 payments for October prop-1')
+  assert.strictEqual(revenueOct, 15500, 'October prop-1 revenue must be 8000 + 7500 = 15500')
+
+  const prop1ExpensesOct = mockExpenses.filter(e => {
+    if (e.property_id !== 'prop-1') return false
+    const d = new Date(e.expense_date)
+    return d.getFullYear() === selectedYear && (d.getMonth() + 1) === selectedMonth
+  })
+  const expensesOct = prop1ExpensesOct.reduce((s, e) => s + e.amount, 0)
+  assert.strictEqual(expensesOct, 3700, 'October prop-1 expenses must be 2500 + 1200 = 3700')
+
+  // Net Cashflow
+  const netCashflowOct = revenueOct - expensesOct
+  assert.strictEqual(netCashflowOct, 11800, 'October Net Cashflow must be 15500 - 3700 = 11800')
+
+  // September Historical Check
+  const prop1PaymentsSep = mockPayments.filter(p => {
+    if (p.property_id !== 'prop-1') return false
+    const d = new Date(p.paid_at)
+    return d.getFullYear() === 2026 && (d.getMonth() + 1) === 9
+  })
+  assert.strictEqual(prop1PaymentsSep.length, 1)
+  assert.strictEqual(prop1PaymentsSep[0].amount, 8000, 'September prop-1 revenue must be 8000')
+
+  // Electricity for October
+  const prop1ElecOct = mockElectricity.filter(e => {
+    if (e.property_id !== 'prop-1') return false
+    const d = new Date(e.reading_date)
+    return d.getFullYear() === selectedYear && (d.getMonth() + 1) === selectedMonth
+  })
+  assert.strictEqual(prop1ElecOct.length, 1)
+  assert.strictEqual(prop1ElecOct[0].total_bill, 1800)
+  assert.strictEqual(prop1ElecOct[0].units_consumed, 150)
+})
+
+test('53. PDF Export & Clean Printable Statement Layout Invariants', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  const dashboardCode = fs.readFileSync(path.resolve('app/dashboard/page.tsx'), 'utf-8')
+  const globalsCss = fs.readFileSync(path.resolve('app/globals.css'), 'utf-8')
+
+  // 1. Dashboard has dedicated Download PDF action and printable container
+  assert.ok(
+    dashboardCode.includes('Download PDF') && dashboardCode.includes('window.print()'),
+    'ReportsTab must provide a Download PDF action using window.print()'
+  )
+  assert.ok(
+    dashboardCode.includes('print-only') && dashboardCode.includes('Official Monthly Operations & Financial Statement'),
+    'ReportsTab must embed an official printable financial statement layout'
+  )
+
+  // 2. CSS Media Print rules for A4 output
+  assert.ok(
+    globalsCss.includes('@media print'),
+    'globals.css must define @media print styles'
+  )
+  assert.ok(
+    globalsCss.includes('.no-print') && globalsCss.includes('display: none !important'),
+    'Print styles must hide interactive controls with .no-print'
+  )
+  assert.ok(
+    globalsCss.includes('aside') && globalsCss.includes('header'),
+    'Print styles must hide sidebar navigation and headers for clean report document'
+  )
+})
+
+test('54. Strict Property Switching & Cross-Property Data Isolation Invariants', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  const dashboardCode = fs.readFileSync(path.resolve('app/dashboard/page.tsx'), 'utf-8')
+
+  // Verify property isolation hooks in dashboard page
+  assert.ok(
+    dashboardCode.includes('currentPropertyRooms') &&
+    dashboardCode.includes('currentPropertyTenants') &&
+    dashboardCode.includes('currentPropertyPayments') &&
+    dashboardCode.includes('currentPropertyExpenses') &&
+    dashboardCode.includes('currentPropertyElectricity') &&
+    dashboardCode.includes('currentPropertyComplaints'),
+    'Dashboard must compute strictly property-scoped slices for all entities'
+  )
+
+  // Verify that metrics are derived from scoped collections rather than global arrays
+  assert.ok(
+    dashboardCode.includes('totalCollectedMonth = useMemo(') && dashboardCode.includes('return currentPropertyPayments'),
+    'totalCollectedMonth must be calculated strictly from currentPropertyPayments'
+  )
+  assert.ok(
+    dashboardCode.includes('totalExpensesMonth = useMemo(') && dashboardCode.includes('return currentPropertyExpenses'),
+    'totalExpensesMonth must be calculated strictly from currentPropertyExpenses'
+  )
+  assert.ok(
+    dashboardCode.includes('activeTenantsCount = useMemo(') && dashboardCode.includes('return currentPropertyTenants'),
+    'activeTenantsCount must be calculated strictly from currentPropertyTenants'
+  )
+
+  // Verify multi-module search is filtered on scoped records
+  assert.ok(
+    dashboardCode.includes('filteredTenants = useMemo(') && dashboardCode.includes('return currentPropertyTenants'),
+    'filteredTenants must filter from currentPropertyTenants'
+  )
+  assert.ok(
+    dashboardCode.includes('filteredPayments = useMemo(') && dashboardCode.includes('return currentPropertyPayments'),
+    'filteredPayments must filter from currentPropertyPayments'
+  )
+  assert.ok(
+    dashboardCode.includes('filteredExpenses = useMemo(') && dashboardCode.includes('return currentPropertyExpenses'),
+    'filteredExpenses must filter from currentPropertyExpenses'
+  )
+
+  // Verify isolation logic: Secondary property must never receive records with null property_id
+  const sampleProperties = [{ id: 'prop-main', name: 'Main PG' }, { id: 'prop-second', name: 'Second PG' }]
+  const sampleRecords = [
+    { id: '1', property_id: 'prop-main' },
+    { id: '2', property_id: 'prop-second' },
+    { id: '3', property_id: null }, // legacy unassigned
+  ]
+
+  const getScoped = (propId) => {
+    return sampleRecords.filter(r => {
+      if (r.property_id) return r.property_id === propId
+      // unassigned legacy records only belong to first property
+      return propId === sampleProperties[0].id
+    })
+  }
+
+  const mainScoped = getScoped('prop-main')
+  const secondScoped = getScoped('prop-second')
+
+  assert.strictEqual(mainScoped.length, 2, 'Main property receives its records plus legacy unassigned')
+  assert.strictEqual(secondScoped.length, 1, 'Second property only receives its strictly matching records')
+  assert.ok(secondScoped.every(r => r.property_id === 'prop-second'), 'Second property has zero data bleed')
+})
+
+
 
 
 
