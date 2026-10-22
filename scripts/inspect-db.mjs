@@ -30,7 +30,7 @@ const admin = createClient(supabaseUrl, serviceRoleKey, {
 })
 
 async function check() {
-  const tables = ['profiles', 'properties', 'rooms', 'beds', 'tenants', 'payments', 'expenses', 'electricity_readings', 'complaints', 'subscriptions']
+  const tables = ['profiles', 'properties', 'rooms', 'beds', 'tenants', 'payments', 'expenses', 'electricity_readings', 'complaints', 'subscriptions', 'platform_audit_logs', 'tenant_electricity_shares', 'tenant_access_tokens']
   for (const t of tables) {
     const { data, count, error } = await admin.from(t).select('*', { count: 'exact' }).limit(1)
     if (error) {

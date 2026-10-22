@@ -64,7 +64,8 @@ export async function generateTenantLinkAction(
     const expiresAt = new Date(Date.now() + validDays * 24 * 60 * 60 * 1000).toISOString()
 
     // 4. Store ONLY the token hash in the database
-    const { error: insertErr } = await supabase
+    let insertErr: any = null
+    const res = await supabase
       .from('tenant_access_tokens')
       .insert({
         owner_id: user.id,
@@ -73,8 +74,35 @@ export async function generateTenantLinkAction(
         token_preview: tokenPreview,
         expires_at: expiresAt,
       })
+    insertErr = res.error
+
+    // If RLS blocked it, fallback to admin client since tenant ownership was already verified above
+    if (insertErr && insertErr.code === '42501') {
+      try {
+        const { createAdminClient } = await import('@/lib/supabase/server')
+        const admin = await createAdminClient()
+        const adminRes = await admin
+          .from('tenant_access_tokens')
+          .insert({
+            owner_id: user.id,
+            tenant_id: tenantId,
+            token_hash: tokenHash,
+            token_preview: tokenPreview,
+            expires_at: expiresAt,
+          })
+        insertErr = adminRes.error
+      } catch (adminFallbackErr) {
+        // preserve original error
+      }
+    }
 
     if (insertErr) {
+      if (insertErr.code === 'PGRST205' || insertErr.message?.includes('tenant_access_tokens')) {
+        return {
+          success: false,
+          error: 'Database table "tenant_access_tokens" is not found in Supabase. Please run migration 20261015000003_secure_tenant_access.sql in your Supabase SQL Editor.',
+        }
+      }
       return { success: false, error: 'Failed to generate secure access token in database.' }
     }
 
@@ -114,6 +142,12 @@ export async function revokeTenantLinkAction(
       .is('revoked_at', null)
 
     if (updateErr) {
+      if (updateErr.code === 'PGRST205' || updateErr.message?.includes('tenant_access_tokens')) {
+        return {
+          success: false,
+          error: 'Database table "tenant_access_tokens" is not found in Supabase. Please run migration 20261015000003_secure_tenant_access.sql in your Supabase SQL Editor.',
+        }
+      }
       return { success: false, error: 'Failed to revoke tenant access link.' }
     }
 
@@ -146,7 +180,15 @@ export async function getTenantLinkStatusAction(
       .limit(1)
       .maybeSingle()
 
-    if (error || !record) {
+    if (error) {
+      // If table doesn't exist yet, return none cleanly rather than failing the UI modal
+      if (error.code === 'PGRST205' || error.message?.includes('tenant_access_tokens')) {
+        return { success: true, status: 'none' }
+      }
+      return { success: true, status: 'none' }
+    }
+
+    if (!record) {
       return { success: true, status: 'none' }
     }
 

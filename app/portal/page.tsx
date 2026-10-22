@@ -58,14 +58,18 @@ export default async function TenantPortalPage({ searchParams }: PortalPageProps
       )
     }
 
-    // Record access metrics
-    await admin
-      .from('tenant_access_tokens')
-      .update({
-        last_accessed_at: new Date().toISOString(),
-        access_count: (record as any).access_count ? (record as any).access_count + 1 : 1,
-      })
-      .eq('id', record.id)
+    // Record access metrics (non-blocking)
+    try {
+      await admin
+        .from('tenant_access_tokens')
+        .update({
+          last_accessed_at: new Date().toISOString(),
+          access_count: (record as any).access_count ? (record as any).access_count + 1 : 1,
+        })
+        .eq('id', record.id)
+    } catch {
+      // Metric update is non-critical, proceed with session authentication
+    }
 
     // Set secure HttpOnly session cookie
     await setTenantSessionCookie({

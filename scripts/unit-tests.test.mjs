@@ -2568,6 +2568,78 @@ test('54. Strict Property Switching & Cross-Property Data Isolation Invariants',
   assert.ok(secondScoped.every(r => r.property_id === 'prop-second'), 'Second property has zero data bleed')
 })
 
+test('55. Tenant Access Tokens Database Migration Integrity & Action Error Diagnostics', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  // 1. Verify Migration File Integrity
+  const migrationSql = fs.readFileSync(
+    path.resolve('supabase/migrations/20261015000003_secure_tenant_access.sql'),
+    'utf-8'
+  )
+
+  assert.ok(
+    migrationSql.includes('CREATE TABLE IF NOT EXISTS public.tenant_access_tokens'),
+    'Migration must define public.tenant_access_tokens'
+  )
+  assert.ok(
+    migrationSql.includes('owner_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE'),
+    'Must enforce owner_id foreign key cascade to profiles'
+  )
+  assert.ok(
+    migrationSql.includes('tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE'),
+    'Must enforce tenant_id foreign key cascade to tenants'
+  )
+  assert.ok(
+    migrationSql.includes('token_hash TEXT NOT NULL UNIQUE'),
+    'token_hash column must have UNIQUE constraint'
+  )
+  assert.ok(
+    migrationSql.includes('ALTER TABLE public.tenant_access_tokens ENABLE ROW LEVEL SECURITY'),
+    'Must enable Row Level Security'
+  )
+  assert.ok(
+    migrationSql.includes('tenant_access_tokens_owner_select') &&
+    migrationSql.includes('tenant_access_tokens_owner_insert') &&
+    migrationSql.includes('tenant_access_tokens_owner_update') &&
+    migrationSql.includes('tenant_access_tokens_owner_delete'),
+    'Must define complete CRUD RLS policies for owner'
+  )
+  assert.ok(
+    migrationSql.includes('idx_tenant_access_tokens_hash') &&
+    migrationSql.includes('idx_tenant_access_tokens_tenant') &&
+    migrationSql.includes('idx_tenant_access_tokens_owner') &&
+    migrationSql.includes('idx_tenant_access_tokens_expires'),
+    'Must create performance and security indexes'
+  )
+
+  // 2. Verify Server Action error handling and missing table diagnostics
+  const actionCode = fs.readFileSync(
+    path.resolve('app/dashboard/tenant-link-actions.ts'),
+    'utf-8'
+  )
+
+  assert.ok(
+    actionCode.includes('PGRST205') &&
+    actionCode.includes('20261015000003_secure_tenant_access.sql'),
+    'Server actions must detect missing tenant_access_tokens table and provide explicit migration guidance'
+  )
+  assert.ok(
+    actionCode.includes('token_hash: tokenHash') &&
+    !actionCode.includes('token_hash: rawToken'),
+    'Server action must strictly store token_hash in database, never rawToken'
+  )
+
+  // 3. Cryptographic Token Pair and Preview Safety
+  const { generateTenantToken, hashToken } = await import('../lib/tenant-access.js')
+  const pair = generateTenantToken()
+  assert.ok(pair.rawToken.length >= 40, 'Raw token must have high entropy')
+  assert.strictEqual(pair.tokenHash, hashToken(pair.rawToken), 'Hash must be exact SHA-256')
+  assert.ok(pair.tokenPreview.startsWith('tk_') && pair.tokenPreview.includes('...'))
+  assert.ok(!pair.tokenPreview.includes(pair.rawToken), 'Preview must never expose raw token')
+})
+
+
 
 
 
