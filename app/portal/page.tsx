@@ -22,7 +22,7 @@ export default async function TenantPortalPage({
   // Exchange the access link through the Route Handler.
   if (rawToken) {
     redirect(
-      `/api/tenant-portal?token=${encodeURIComponent(rawToken)}`
+      `/api/portal?token=${encodeURIComponent(rawToken)}`
     )
   }
 
