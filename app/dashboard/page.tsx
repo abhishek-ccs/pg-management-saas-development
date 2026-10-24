@@ -1272,6 +1272,13 @@ export default function DashboardPage() {
       updated_at: new Date().toISOString(),
     })
 
+    if (!editingPropertyId && !entitlement.canCreateProperty) {
+      flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
+      setShowPropertyModal(false)
+      setShowPricingModal(true)
+      return
+    }
+
     setIsSavingProperty(true)
     try {
       let targetId = editingPropertyId
@@ -1303,7 +1310,7 @@ export default function DashboardPage() {
 
       if (!res.success) {
         if (res.code === 'PROPERTY_LIMIT_REACHED') {
-          flash(res.error || 'Property limit reached (2 properties included in plan). Please upgrade your plan.')
+          flash(res.error || 'Property limit reached. Please visit Subscription or Settings to upgrade your plan.')
           setShowPropertyModal(false)
           setShowPricingModal(true)
         } else {
@@ -3340,7 +3347,7 @@ export default function DashboardPage() {
                     onChange={(e) => {
                       if (e.target.value === '__add_new__') {
                         if (!entitlement.canCreateProperty) {
-                          flash(entitlement.reason || 'Property limit reached (2/2 used). Upgrade your plan to add more properties.')
+                          flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
                           setShowPricingModal(true)
                         } else {
                           setEditingPropertyId(null)
@@ -3358,7 +3365,7 @@ export default function DashboardPage() {
                       </option>
                     ))}
                     <option value="__add_new__">
-                      {entitlement.canCreateProperty ? '+ Add Property...' : `+ Add Property (${entitlement.activePropertyCount}/${entitlement.maxProperties})`}
+                      + Add Property...
                     </option>
                   </select>
                 </div>
@@ -3494,7 +3501,7 @@ export default function DashboardPage() {
               entitlement={entitlement}
               onAddProperty={() => {
                 if (!entitlement.canCreateProperty) {
-                  flash(entitlement.reason || 'Property limit reached (2/2 used). Upgrade your plan to add more properties.')
+                  flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
                   setShowPricingModal(true)
                   return
                 }
@@ -3544,7 +3551,7 @@ export default function DashboardPage() {
               onSelectProperty={(id: string) => setSelectedPropertyId(id)}
               onAddProperty={() => {
                 if (!entitlement.canCreateProperty) {
-                  flash(entitlement.reason || 'Property limit reached (2/2 used). Upgrade your plan to add more properties.')
+                  flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
                   setShowPricingModal(true)
                   return
                 }
@@ -3737,7 +3744,7 @@ export default function DashboardPage() {
               onSelectProperty={(id: string) => setSelectedPropertyId(id)}
               onAddProperty={() => {
                 if (!entitlement.canCreateProperty) {
-                  flash(entitlement.reason || 'Property limit reached (2/2 used). Upgrade your plan to add more properties.')
+                  flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
                   setShowPricingModal(true)
                   return
                 }
@@ -3816,27 +3823,6 @@ export default function DashboardPage() {
             onClose={() => !isSavingProperty && setShowPropertyModal(false)}
           >
             <form onSubmit={handleSaveProperty} className="flex flex-col gap-4">
-              {!editTarget && !entitlement.canCreateProperty && (
-                <div className="rounded-xl border border-[#ffcfc7] bg-[#fff5f2] p-3 text-xs text-[#8c351e]">
-                  <div className="flex items-center gap-2 font-bold text-[#b95c3c] mb-1">
-                    <AlertTriangle className="size-4 shrink-0" />
-                    <span>Plan Property Limit Reached</span>
-                  </div>
-                  <p className="leading-relaxed">
-                    {entitlement.reason || `Your current plan includes up to ${entitlement.maxProperties} properties (${entitlement.activePropertyCount}/${entitlement.maxProperties} in use). Upgrade your plan to add more properties.`}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowPropertyModal(false)
-                      setShowPricingModal(true)
-                    }}
-                    className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-[#8b5a2b] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
-                  >
-                    Upgrade Plan
-                  </button>
-                </div>
-              )}
               <p className="text-xs text-[#74798a]">
                 Please fill in your rental property details. Required fields are marked (<span className="text-[#8b5a2b] font-bold">*</span>).
               </p>
@@ -3882,7 +3868,7 @@ export default function DashboardPage() {
                 />
               </div>
               <button
-                disabled={isSavingProperty || (!editTarget && !entitlement.canCreateProperty)}
+                disabled={isSavingProperty}
                 className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] disabled:opacity-60 transition-colors"
               >
                 {isSavingProperty && <Loader2 className="size-4 animate-spin" />}
@@ -3890,8 +3876,6 @@ export default function DashboardPage() {
                   ? 'Saving Details...'
                   : editTarget
                   ? 'Save Property Details'
-                  : !entitlement.canCreateProperty
-                  ? 'Property Limit Reached (Upgrade Plan)'
                   : 'Create Property'}
               </button>
             </form>
@@ -5070,6 +5054,86 @@ export default function DashboardPage() {
           onClose={() => setShowPricingModal(false)}
         >
           <div className="space-y-5">
+            {/* Active Subscription & Property Allowance Central Hub */}
+            <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-4 sm:p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#8b5a2b]">Active Subscription</span>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                        subscriptionStatus === 'active'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : isTrialExpired
+                          ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
+                          : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
+                      }`}
+                    >
+                      {subscriptionStatus === 'active' ? 'Active Paid Plan' : isTrialExpired ? 'Trial Expired' : '7-Day Free Trial'}
+                    </span>
+                  </div>
+                  <h3 className="mt-1 text-base sm:text-lg font-extrabold text-[#2c221e] capitalize">
+                    {subscriptionPlan || 'Starter'} Plan
+                  </h3>
+                  <p className="mt-0.5 text-xs text-[#74798a]">
+                    Total Property Allowance:{' '}
+                    <strong className="text-[#2c221e]">
+                      {entitlement?.maxProperties ?? 2} {entitlement?.maxProperties === 1 ? 'Property' : 'Properties'}
+                    </strong>
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl border border-[#ebe4da] bg-white px-3.5 py-2 text-center shadow-2xs min-w-[110px]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#9c8e80]">Properties Used</p>
+                    <p className="text-base font-bold text-[#2c221e]">
+                      {entitlement?.activePropertyCount ?? properties.length} / {entitlement?.maxProperties ?? 2}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-[#ebe4da] bg-white px-3.5 py-2 text-center shadow-2xs min-w-[110px]">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#9c8e80]">Remaining Slots</p>
+                    <p className={`text-base font-bold ${
+                      (entitlement?.remainingPropertySlots ?? 0) <= 0 ? 'text-[#b95c3c]' : 'text-emerald-700'
+                    }`}>
+                      {entitlement?.remainingPropertySlots ?? 0}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress Bar & Real-time Slots Breakdown */}
+              <div className="mt-3.5">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-[#eee5db]">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      !entitlement?.canCreateProperty ? 'bg-[#b95c3c]' : 'bg-[#8b5a2b]'
+                    }`}
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.round(
+                          ((entitlement?.activePropertyCount ?? properties.length) /
+                            Math.max(1, entitlement?.maxProperties ?? 2)) *
+                            100
+                        )
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="mt-1.5 flex items-center justify-between text-[11px] text-[#85899a]">
+                  <span>
+                    {entitlement?.activePropertyCount ?? properties.length} of {entitlement?.maxProperties ?? 2} property slots used
+                  </span>
+                  <span>
+                    {!entitlement?.canCreateProperty
+                      ? 'Quota limit reached · Choose a higher capacity plan below to expand'
+                      : `${entitlement?.remainingPropertySlots ?? 0} additional property slot(s) available`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#f0ebe3] pb-4">
               <div>
                 <p className="text-xs sm:text-sm text-[#74798a]">
@@ -6400,11 +6464,11 @@ function OverviewTab({
           label="Properties"
           value={propertiesCount}
           note={
-            entitlement
-              ? `${propertiesCount} / ${entitlement.maxProperties} properties used`
-              : propertiesCount > 1
+            propertiesCount > 1
               ? `${propertiesCount} active locations`
-              : '1 active location'
+              : propertiesCount === 1
+              ? '1 active location'
+              : '0 active locations'
           }
           Icon={Home}
           i={0}
@@ -6642,41 +6706,12 @@ function PropertyTab({
       {/* Top Header & Actions */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-xl font-bold tracking-tight text-[#3d3934]">Rental Properties</h2>
-            {entitlement && (
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${
-                  !entitlement.canCreateProperty
-                    ? 'border border-[#f3d9b1] bg-[#fff4e5] text-[#b46b1a]'
-                    : 'border border-[#dcd3c5] bg-[#faf7f2] text-[#8b5a2b]'
-                }`}
-              >
-                <Building2 className="size-3.5" />
-                <span>
-                  {planLabel} · Properties: {entitlement.activePropertyCount} / {entitlement.maxProperties} used
-                </span>
-                {!entitlement.canCreateProperty && (
-                  <span className="rounded-full bg-[#b46b1a] text-white px-1.5 py-0.2 text-[10px]">
-                    Limit Reached
-                  </span>
-                )}
-              </span>
-            )}
-          </div>
+          <h2 className="text-xl font-bold tracking-tight text-[#3d3934]">Rental Properties</h2>
           <p className="text-xs text-[#85899a] mt-1">
             Manage your properties, branches, and accommodation centers with isolated operational records.
           </p>
         </div>
         <div className="flex items-center gap-2.5">
-          {entitlement && !entitlement.canCreateProperty && (
-            <button
-              onClick={onViewPlans}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-[#d8c2aa] bg-[#faf7f2] px-3.5 py-2.5 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors"
-            >
-              <Sparkles className="size-3.5 text-[#8b5a2b]" /> Upgrade Plan
-            </button>
-          )}
           <button
             onClick={onAddProperty}
             className="flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] transition-colors"
@@ -6685,33 +6720,6 @@ function PropertyTab({
           </button>
         </div>
       </div>
-
-      {/* Plan Property Limit Warning / Info Banner */}
-      {entitlement && !entitlement.canCreateProperty && (
-        <div className="rounded-2xl border border-[#f3d9b1] bg-[#fff9f0] p-4 text-xs text-[#8c571e]">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="size-4 shrink-0 text-[#b46b1a] mt-0.5" />
-              <div>
-                <p className="font-bold text-[#7a4812]">
-                  Subscription Property Limit: {entitlement.activePropertyCount} of {entitlement.maxProperties} slots in use
-                </p>
-                <p className="mt-0.5 text-[#8c571e]">
-                  {entitlement.isOverLimit
-                    ? `You currently have ${entitlement.activePropertyCount} active properties. All your existing properties, rooms, tenants, and payment records remain fully preserved and operational. Creating additional properties requires an upgraded subscription plan.`
-                    : `Your current subscription plan includes up to ${entitlement.maxProperties} properties. To create a third property or expand your portfolio, please upgrade your plan.`}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={onViewPlans}
-              className="self-start sm:self-center shrink-0 rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
-            >
-              Upgrade Plan
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Multiple Properties Switcher Cards (when owner has >1 properties) */}
       {properties.length > 1 && (
@@ -9335,14 +9343,7 @@ function SettingsTab({
       <div className="rounded-2xl border border-[#e9ebf0] bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-base font-bold text-[#3d3934]">Properties & Locations</h3>
-              {entitlement && (
-                <span className="rounded-full bg-[#faf3ea] px-2.5 py-0.5 text-[11px] font-bold text-[#8b5a2b] border border-[#e8dfd4]">
-                  {entitlement.activePropertyCount} / {entitlement.maxProperties} Used
-                </span>
-              )}
-            </div>
+            <h3 className="text-base font-bold text-[#3d3934]">Properties & Locations</h3>
             <p className="text-xs text-[#85899a]">
               Manage multi-branch hostels, apartments, societies, and PG properties.
             </p>

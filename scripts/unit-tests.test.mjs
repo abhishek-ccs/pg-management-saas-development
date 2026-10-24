@@ -2387,11 +2387,30 @@ test('51. Subscription UI Placement & Clean Layout Invariants', async () => {
     'SettingsTab subscription section must display property quota usage and limits'
   )
 
-  // 4. Properties section has a concise inline indicator
+  // 4. Centralization: Property-limit information restricted strictly to Subscription and Settings sections
   assert.ok(
-    dashboardCode.includes('Properties: <strong className="text-[#2c221e]">{properties.length}</strong> / {entitlement?.maxProperties ?? 1} used') ||
-    dashboardCode.includes('Properties:'),
-    'Properties section must have small subscription and property usage indicator'
+    !dashboardCode.includes('Subscription Property Limit:'),
+    'PropertyTab must not contain redundant subscription property limit warning banner'
+  )
+  assert.ok(
+    !dashboardCode.includes('properties used`'),
+    'Dashboard overview stat card must not display properties used note'
+  )
+  assert.ok(
+    !dashboardCode.includes('+ Add Property (${entitlement.activePropertyCount}/${entitlement.maxProperties})'),
+    'Header dropdown must not display property limits in menu options'
+  )
+  assert.ok(
+    !dashboardCode.includes('Plan Property Limit Reached</span>'),
+    'Add Property modal must not display persistent property limit banner'
+  )
+  assert.ok(
+    dashboardCode.includes('Total Property Allowance:'),
+    'Subscription section must display total property allowance'
+  )
+  assert.ok(
+    dashboardCode.includes('Remaining Slots') && dashboardCode.includes('Properties Used'),
+    'Subscription section must display remaining property slots and properties used'
   )
 })
 
