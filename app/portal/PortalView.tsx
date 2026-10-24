@@ -37,6 +37,18 @@ interface TenantData {
     joiningDate: string
     rentDueDay: number
     status: 'Paid' | 'Pending' | 'Overdue' | 'Vacated'
+    dueStatus?: 'paid' | 'due_today' | 'due_soon' | 'overdue' | 'vacated'
+    dueInfo?: {
+      status: 'paid' | 'due_today' | 'due_soon' | 'overdue' | 'vacated'
+      days: number
+      labelEn: string
+      labelHi: string
+      badgeColor: string
+    }
+    nextDueDate?: string | null
+    nextDueDateFormatted?: string | null
+    outstandingBalance?: number
+    overdueBalance?: number
   }
   property: {
     name: string
@@ -242,34 +254,69 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
             <div className="flex flex-col sm:items-end">
               <span className="text-[11px] font-medium text-[#85899a]">Rent Status</span>
               <div className="mt-1">
-                {tenant.status === 'Paid' && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-3 py-1 text-xs font-bold text-[#236b4e]">
-                    <CheckCircle2 className="size-3.5" /> Paid On Time
+                {tenant.dueInfo ? (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${tenant.dueInfo.badgeColor}`}
+                  >
+                    {tenant.dueInfo.status === 'overdue' && <AlertTriangle className="size-3.5" />}
+                    {tenant.dueInfo.status === 'paid' && <CheckCircle2 className="size-3.5" />}
+                    {(tenant.dueInfo.status === 'due_soon' || tenant.dueInfo.status === 'due_today') && (
+                      <Clock className="size-3.5" />
+                    )}
+                    {tenant.dueInfo.labelEn}
                   </span>
-                )}
-                {tenant.status === 'Pending' && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fef9ee] border border-[#fbd38d] px-3 py-1 text-xs font-bold text-[#b7791f]">
-                    <Clock className="size-3.5" /> Due on the {tenant.rentDueDay}th
-                  </span>
-                )}
-                {tenant.status === 'Overdue' && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff5f5] border border-[#feb2b2] px-3 py-1 text-xs font-bold text-[#c53030]">
-                    <AlertTriangle className="size-3.5" /> Rent Overdue
-                  </span>
-                )}
-                {tenant.status === 'Vacated' && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f4f5f7] border border-[#d2d6dc] px-3 py-1 text-xs font-bold text-[#4b5563]">
-                    Vacated
-                  </span>
+                ) : (
+                  <>
+                    {tenant.status === 'Paid' && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-3 py-1 text-xs font-bold text-[#236b4e]">
+                        <CheckCircle2 className="size-3.5" /> Paid On Time
+                      </span>
+                    )}
+                    {tenant.status === 'Pending' && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#faf7f2] border border-[#e8dfd4] px-3 py-1 text-xs font-bold text-[#9a7651]">
+                        <Clock className="size-3.5" /> Due on the {tenant.rentDueDay}th
+                      </span>
+                    )}
+                    {tenant.status === 'Overdue' && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fff5f5] border border-[#feb2b2] px-3 py-1 text-xs font-bold text-[#c53030]">
+                        <AlertTriangle className="size-3.5" /> Rent Overdue
+                      </span>
+                    )}
+                    {tenant.status === 'Vacated' && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-[#f4f5f7] border border-[#d2d6dc] px-3 py-1 text-xs font-bold text-[#4b5563]">
+                        Vacated
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 border-t border-[#f0ebe3] pt-4 text-xs">
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5 border-t border-[#f0ebe3] pt-4 text-xs">
             <div>
               <p className="text-[#85899a]">Monthly Rent</p>
               <p className="mt-0.5 text-base font-bold text-[#2c221e]">{currency(tenant.monthlyRent)}</p>
+            </div>
+            <div>
+              <p className="text-[#85899a]">Next Due Date</p>
+              <p className="mt-0.5 text-base font-semibold text-[#8b5a2b]">
+                {tenant.nextDueDateFormatted || (tenant.rentDueDay ? `${tenant.rentDueDay}th of month` : '—')}
+              </p>
+            </div>
+            <div>
+              <p className="text-[#85899a]">Outstanding Rent</p>
+              <p className={`mt-0.5 text-base font-bold ${
+                (tenant.outstandingBalance ?? 0) > 0
+                  ? tenant.dueInfo?.status === 'overdue' || tenant.status === 'Overdue'
+                    ? 'text-[#b95c3c]'
+                    : 'text-[#784b20]'
+                  : 'text-[#2e7d32]'
+              }`}>
+                {(tenant.outstandingBalance ?? 0) > 0
+                  ? currency(tenant.outstandingBalance!)
+                  : '₹0 (Clear)'}
+              </p>
             </div>
             <div>
               <p className="text-[#85899a]">Security Deposit</p>
@@ -278,11 +325,11 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
             <div className="col-span-2 sm:col-span-1">
               <p className="text-[#85899a]">Move-in Date</p>
               <p className="mt-0.5 text-base font-semibold text-[#676b7d]">
-                {new Date(tenant.joiningDate).toLocaleDateString('en-IN', {
+                {tenant.joiningDate ? new Date(tenant.joiningDate).toLocaleDateString('en-IN', {
                   day: 'numeric',
                   month: 'short',
                   year: 'numeric',
-                })}
+                }) : '—'}
               </p>
             </div>
           </div>

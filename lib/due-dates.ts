@@ -5,13 +5,34 @@
  */
 
 export interface DueStatusResult {
-  status: 'paid' | 'due_today' | 'due_soon' | 'overdue'
+  status: 'paid' | 'due_today' | 'due_soon' | 'overdue' | 'vacated'
   days: number
   months?: number
   remainingDays?: number
   labelEn: string
   labelHi: string
   badgeColor: string
+}
+
+/**
+ * Safely parse a date string or Date object into a local Date instance without
+ * negative or positive timezone shift side-effects (e.g. YYYY-MM-DD shifting back a day).
+ */
+export function parseLocalDate(input: string | Date | null | undefined, defaultDate?: Date): Date {
+  if (!input) return defaultDate ? new Date(defaultDate) : new Date()
+  if (input instanceof Date) {
+    return isNaN(input.getTime()) ? (defaultDate ? new Date(defaultDate) : new Date()) : new Date(input)
+  }
+  const str = String(input).trim()
+  const ymdMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10)
+    const month = parseInt(ymdMatch[2], 10) - 1
+    const day = parseInt(ymdMatch[3], 10)
+    return new Date(year, month, day, 12, 0, 0)
+  }
+  const d = new Date(str)
+  return isNaN(d.getTime()) ? (defaultDate ? new Date(defaultDate) : new Date()) : d
 }
 
 /**
@@ -43,13 +64,14 @@ export function calculateRentDueStatus(
   }
 
   const safeDay = Math.min(Math.max(Number(rentDueDay) || 5, 1), 31)
-  const currentYear = referenceDate.getFullYear()
-  const currentMonth = referenceDate.getMonth() // 0-indexed
-  const currentDate = referenceDate.getDate()
+  const ref = parseLocalDate(referenceDate)
+  const currentYear = ref.getFullYear()
+  const currentMonth = ref.getMonth() // 0-indexed
+  const currentDate = ref.getDate()
 
   // If tenant joined in the same month as referenceDate, their first upcoming rent is due NEXT month
   if (joiningDate) {
-    const jd = new Date(joiningDate)
+    const jd = parseLocalDate(joiningDate)
     if (!isNaN(jd.getTime()) && jd.getFullYear() === currentYear && jd.getMonth() === currentMonth) {
       // Tenant joined this month (e.g. joined on 10th). Next rent is due on 10th of following month.
       const nextMonth = currentMonth + 1
@@ -58,7 +80,7 @@ export function calculateRentDueStatus(
       const daysInNextMonth = new Date(nextYear, normNextMonth + 1, 0).getDate()
       const effectiveDueDayNext = Math.min(safeDay, daysInNextMonth)
       const nextDueDate = new Date(nextYear, normNextMonth, effectiveDueDayNext, 23, 59, 59)
-      const msLeft = nextDueDate.getTime() - referenceDate.getTime()
+      const msLeft = nextDueDate.getTime() - ref.getTime()
       const daysLeft = Math.max(1, Math.ceil(msLeft / (1000 * 60 * 60 * 24)))
 
       return {
@@ -87,7 +109,7 @@ export function calculateRentDueStatus(
       }
     }
 
-    if (referenceDate < dueDateCurrentMonth) {
+    if (ref < dueDateCurrentMonth) {
       // Due in the future
       const daysLeft = effectiveDueDay - currentDate
       return {
@@ -168,12 +190,12 @@ export function calculateNextRentDueDate(
   rentDueDay?: number | null,
   referenceDate: Date = new Date()
 ): Date {
-  const joining = new Date(joiningDateStr)
-  const safeJoining = isNaN(joining.getTime()) ? new Date(referenceDate) : joining
+  const ref = parseLocalDate(referenceDate)
+  const safeJoining = parseLocalDate(joiningDateStr, ref)
   const dueDay = rentDueDay && rentDueDay >= 1 && rentDueDay <= 31 ? rentDueDay : safeJoining.getDate()
 
-  const refYear = referenceDate.getFullYear()
-  const refMonth = referenceDate.getMonth()
+  const refYear = ref.getFullYear()
+  const refMonth = ref.getMonth()
 
   // Target due date in current reference month
   const daysInCurrentMonth = new Date(refYear, refMonth + 1, 0).getDate()
@@ -190,7 +212,7 @@ export function calculateNextRentDueDate(
   }
 
   // If reference date is already past current month's due date, advance to next month
-  if (referenceDate > currentMonthDueDate) {
+  if (ref > currentMonthDueDate) {
     const nextMonth = refMonth + 1
     const nextYear = refYear + Math.floor(nextMonth / 12)
     const normMonth = nextMonth % 12
@@ -227,16 +249,17 @@ export function generateMonthlyRentSchedules(params: {
     locale = 'en',
   } = params
 
-  const jDate = joiningDate ? new Date(joiningDate) : new Date(referenceDate)
-  const safeJoining = isNaN(jDate.getTime()) ? new Date(referenceDate) : jDate
+  const ref = parseLocalDate(referenceDate)
+  const safeJoining = parseLocalDate(joiningDate, ref)
   const dueDay = rentDueDay && rentDueDay >= 1 && rentDueDay <= 31 ? rentDueDay : safeJoining.getDate()
 
-  // Filter payments for this tenant and of type 'rent' (ignoring soft-deleted)
+  // Filter payments for this tenant and of type 'rent' (ignoring soft-deleted and failed)
   const tenantRentPayments = payments.filter((p: any) => {
     if (!p) return false
-    if (p.tenant_id !== tenantId) return false
-    if (p.deleted_at) return false
-    const type = (p.payment_type || 'rent').toLowerCase()
+    if (p.tenant_id !== tenantId && p.tenantId !== tenantId) return false
+    if (p.deleted_at || p.deletedAt) return false
+    if (p.status && (p.status === 'failed' || p.status === 'cancelled')) return false
+    const type = (p.payment_type || p.paymentType || 'rent').toLowerCase()
     return type === 'rent'
   })
 
@@ -246,8 +269,8 @@ export function generateMonthlyRentSchedules(params: {
   let curYear = safeJoining.getFullYear()
   let curMonth = safeJoining.getMonth()
 
-  const targetYear = referenceDate.getFullYear()
-  const targetMonth = referenceDate.getMonth()
+  const targetYear = ref.getFullYear()
+  const targetMonth = ref.getMonth()
 
   // Max cycles guard (up to 36 months to prevent runaway loops)
   let loopCount = 0
@@ -284,17 +307,19 @@ export function generateMonthlyRentSchedules(params: {
     // Match payment for this specific month
     const matchingPayment = tenantRentPayments.find((p: any) => {
       // 1. Exact match on month_covered column
-      if (p.month_covered) {
-        const mc = p.month_covered.trim().toLowerCase()
+      const mcVal = p.month_covered || p.monthCovered
+      if (mcVal) {
+        const mc = String(mcVal).trim().toLowerCase()
         if (mc === monthCovered.toLowerCase() || mc === monthKey.toLowerCase()) return true
       }
       // 2. Check notes field for "[Month: ...]" tag
       if (p.notes && typeof p.notes === 'string') {
         if (p.notes.toLowerCase().includes(monthCovered.toLowerCase())) return true
       }
-      // 3. Fallback: payment was made within the cycle window (cycleStartDate to cycleDueDate + 7 days)
-      if (p.paid_at) {
-        const paidTime = new Date(p.paid_at).getTime()
+      // 3. Fallback: payment was made within the cycle window (cycleStartDate - 5 days to cycleDueDate + 15 days)
+      const paidAtVal = p.paid_at || p.paidAt
+      if (paidAtVal) {
+        const paidTime = new Date(paidAtVal).getTime()
         const startWindow = cycleStartDate.getTime() - 5 * 24 * 60 * 60 * 1000
         const endWindow = cycleDueDate.getTime() + 15 * 24 * 60 * 60 * 1000
         if (paidTime >= startWindow && paidTime <= endWindow) {
@@ -320,17 +345,16 @@ export function generateMonthlyRentSchedules(params: {
       labelEn = 'Paid On Time'
       labelHi = 'समय पर भुगतान'
       badgeColor = 'bg-[#eaf5ea] text-[#2e7d32] border-[#c5e6c7]'
-      paidAtFormatted = formatPaymentTimestamp(matchingPayment.paid_at, timeZone, locale)
+      paidAtFormatted = formatPaymentTimestamp(matchingPayment.paid_at || matchingPayment.paidAt, timeZone, locale)
     } else {
       // Calculate real-time Due Today / Due Soon / Overdue relative to referenceDate
-      const diffMs = cycleDueDate.getTime() - referenceDate.getTime()
-      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
-
-      const refDay = referenceDate.getDate()
       const isToday =
-        referenceDate.getFullYear() === dueYear &&
-        referenceDate.getMonth() === dueMonthIndex &&
-        refDay === effectiveDueDay
+        ref.getFullYear() === dueYear &&
+        ref.getMonth() === dueMonthIndex &&
+        ref.getDate() === effectiveDueDay
+
+      const diffMs = cycleDueDate.getTime() - ref.getTime()
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
 
       if (isToday) {
         status = 'due_today'
@@ -374,10 +398,10 @@ export function generateMonthlyRentSchedules(params: {
       labelHi,
       badgeColor,
       isPaid,
-      paidAt: matchingPayment?.paid_at || null,
+      paidAt: matchingPayment?.paid_at || matchingPayment?.paidAt || null,
       paidAtFormatted,
       paymentId: matchingPayment?.id || null,
-      paymentMethod: matchingPayment?.payment_method || null,
+      paymentMethod: matchingPayment?.payment_method || matchingPayment?.paymentMethod || null,
       notes: matchingPayment?.notes || null,
     })
 
@@ -394,6 +418,15 @@ export function generateMonthlyRentSchedules(params: {
   return schedules
 }
 
+export interface TenantRentStatusResult extends DueStatusResult {
+  nextDueDate?: string
+  nextDueDateFormatted?: string
+  monthCovered?: string
+  outstandingBalance: number
+  overdueBalance: number
+  schedules?: MonthlyRentSchedule[]
+}
+
 /**
  * Resolves the primary live rent due status for a tenant using their monthly schedule.
  * If tenant has overdue months, the earliest unpaid month's status is returned.
@@ -405,23 +438,54 @@ export function calculateTenantRentStatus(params: {
     joining_date?: string | Date | null
     joiningDate?: string | Date | null
     rent_due_day?: number | null
+    rentDueDay?: number | null
     monthly_rent?: number | null
+    monthlyRent?: number | null
     rent?: number | null
     status?: string | null
+    full_name?: string | null
+    name?: string | null
   }
   payments?: any[]
   referenceDate?: Date
   locale?: 'en' | 'hi'
-}): DueStatusResult & { nextDueDate?: string; nextDueDateFormatted?: string; monthCovered?: string } {
+}): TenantRentStatusResult {
   const { tenant, payments = [], referenceDate = new Date(), locale = 'en' } = params
+  const ref = parseLocalDate(referenceDate)
+
+  const effectiveStatus = (tenant.status || '').trim()
+  if (effectiveStatus === 'Vacated') {
+    return {
+      status: 'vacated',
+      days: 0,
+      labelEn: 'Vacated',
+      labelHi: 'खाली कर दिया',
+      badgeColor: 'bg-[#f4f5f7] text-[#4b5563] border-[#d2d6dc]',
+      outstandingBalance: 0,
+      overdueBalance: 0,
+      schedules: [],
+    }
+  }
 
   const effectiveJoining = tenant.joining_date || tenant.joiningDate || referenceDate
-  const effectiveRent = Number(tenant.monthly_rent !== undefined && tenant.monthly_rent !== null ? tenant.monthly_rent : (tenant.rent || 0))
+  const effectiveDueDay =
+    tenant.rent_due_day !== undefined && tenant.rent_due_day !== null
+      ? tenant.rent_due_day
+      : tenant.rentDueDay !== undefined && tenant.rentDueDay !== null
+      ? tenant.rentDueDay
+      : null
+  const effectiveRent = Number(
+    tenant.monthly_rent !== undefined && tenant.monthly_rent !== null
+      ? tenant.monthly_rent
+      : tenant.monthlyRent !== undefined && tenant.monthlyRent !== null
+      ? tenant.monthlyRent
+      : tenant.rent || 0
+  )
 
   const schedules = generateMonthlyRentSchedules({
     tenantId: tenant.id,
     joiningDate: effectiveJoining,
-    rentDueDay: tenant.rent_due_day,
+    rentDueDay: effectiveDueDay,
     monthlyRent: effectiveRent,
     payments,
     referenceDate,
@@ -429,10 +493,49 @@ export function calculateTenantRentStatus(params: {
   })
 
   if (schedules.length === 0) {
-    return calculateRentDueStatus(tenant.rent_due_day || 5, tenant.status === 'Paid', referenceDate)
+    const fallback = calculateRentDueStatus(effectiveDueDay || 5, effectiveStatus === 'Paid', referenceDate)
+    const isPaid = fallback.status === 'paid'
+    return {
+      ...fallback,
+      outstandingBalance: isPaid ? 0 : effectiveRent,
+      overdueBalance: fallback.status === 'overdue' ? effectiveRent : 0,
+      schedules: [],
+    }
   }
 
-  // 1. Look for overdue schedule entries first
+  // Calculate overdue balance (sum of all unpaid past cycles whose due date has passed)
+  let overdueBalance = 0
+  for (const s of schedules) {
+    if (!s.isPaid && s.status === 'overdue') {
+      overdueBalance += s.amount
+    }
+  }
+
+  // Calculate current outstanding balance:
+  // If tenant has overdue cycles, balance is overdue balance (plus any cycle due today).
+  // If tenant has no overdue cycles, balance is the current cycle (due today or next upcoming).
+  // If tenant is fully paid, balance is 0.
+  let outstandingBalance = 0
+  if (overdueBalance > 0) {
+    const dueTodayAmount = schedules
+      .filter((s) => !s.isPaid && s.status === 'due_today')
+      .reduce((sum, s) => sum + s.amount, 0)
+    outstandingBalance = overdueBalance + dueTodayAmount
+  } else {
+    const dueTodayEntry = schedules.find((s) => !s.isPaid && s.status === 'due_today')
+    if (dueTodayEntry) {
+      outstandingBalance = dueTodayEntry.amount
+    } else {
+      const nextDueSoon = schedules.find((s) => !s.isPaid && s.status === 'due_soon')
+      if (nextDueSoon) {
+        outstandingBalance = nextDueSoon.amount
+      } else {
+        outstandingBalance = 0
+      }
+    }
+  }
+
+  // 1. Look for overdue schedule entries first (earliest unpaid overdue cycle)
   const overdueEntry = schedules.find((s) => s.status === 'overdue')
   if (overdueEntry) {
     return {
@@ -444,6 +547,9 @@ export function calculateTenantRentStatus(params: {
       nextDueDate: overdueEntry.dueDate,
       nextDueDateFormatted: overdueEntry.dueDateFormatted,
       monthCovered: overdueEntry.monthCovered,
+      outstandingBalance,
+      overdueBalance,
+      schedules,
     }
   }
 
@@ -459,10 +565,37 @@ export function calculateTenantRentStatus(params: {
       nextDueDate: dueTodayEntry.dueDate,
       nextDueDateFormatted: dueTodayEntry.dueDateFormatted,
       monthCovered: dueTodayEntry.monthCovered,
+      outstandingBalance,
+      overdueBalance,
+      schedules,
     }
   }
 
-  // 3. Look for next unpaid due soon entry
+  // 3. Check if past and current cycles are paid
+  // If the tenant has already paid up to the current date/cycle, their status is "Paid On Time".
+  const refIso = ref.toISOString().slice(0, 10)
+  const pastAndCurrentCycles = schedules.filter((s) => s.isPaid || s.dueDate <= refIso)
+  const isUpToDate = pastAndCurrentCycles.length > 0 && pastAndCurrentCycles.every((s) => s.isPaid)
+
+  if (isUpToDate) {
+    const nextUpcomingCycle = schedules.find((s) => !s.isPaid)
+    const lastPaid = pastAndCurrentCycles[pastAndCurrentCycles.length - 1]
+    return {
+      status: 'paid',
+      days: 0,
+      labelEn: 'Paid On Time',
+      labelHi: 'समय पर भुगतान',
+      badgeColor: 'bg-[#eaf5ea] text-[#2e7d32] border-[#c5e6c7]',
+      nextDueDate: nextUpcomingCycle?.dueDate || lastPaid?.dueDate,
+      nextDueDateFormatted: nextUpcomingCycle?.dueDateFormatted || lastPaid?.dueDateFormatted,
+      monthCovered: lastPaid?.monthCovered,
+      outstandingBalance: 0,
+      overdueBalance: 0,
+      schedules,
+    }
+  }
+
+  // 4. Look for next unpaid due soon entry (e.g. newly joined resident with first cycle in future)
   const dueSoonEntry = schedules.find((s) => s.status === 'due_soon')
   if (dueSoonEntry) {
     return {
@@ -474,10 +607,13 @@ export function calculateTenantRentStatus(params: {
       nextDueDate: dueSoonEntry.dueDate,
       nextDueDateFormatted: dueSoonEntry.dueDateFormatted,
       monthCovered: dueSoonEntry.monthCovered,
+      outstandingBalance,
+      overdueBalance,
+      schedules,
     }
   }
 
-  // 4. All past & current cycles are paid
+  // 5. All past & current cycles are paid fallback
   const lastPaid = schedules[schedules.length - 1]
   return {
     status: 'paid',
@@ -488,6 +624,9 @@ export function calculateTenantRentStatus(params: {
     nextDueDate: lastPaid?.dueDate,
     nextDueDateFormatted: lastPaid?.dueDateFormatted,
     monthCovered: lastPaid?.monthCovered,
+    outstandingBalance: 0,
+    overdueBalance: 0,
+    schedules,
   }
 }
 

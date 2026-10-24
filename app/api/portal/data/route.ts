@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getTenantSession } from '@/lib/tenant-access'
 import { createAdminClient } from '@/lib/supabase/server'
 import { getValidatedReminderPaymentOptions } from '@/lib/payment-validation'
+import { calculateTenantRentStatus } from '@/lib/due-dates'
 
 export const dynamic = 'force-dynamic'
 
@@ -153,29 +154,32 @@ export async function GET() {
       // Table query fallback
     }
 
-    // 9. Calculate real-time rent status
-    const now = new Date()
-    const currentMonth = now.getMonth()
-    const currentYear = now.getFullYear()
-    const currentDate = new Date().getDate()
-
-    const hasPaidRentThisMonth = (payments || []).some((p) => {
-      if (p.payment_type !== 'rent') return false
-      const d = new Date(p.paid_at)
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear
+    // 9. Calculate real-time rent status using the single source of truth
+    const rentStatusResult = calculateTenantRentStatus({
+      tenant: {
+        id: tenant.id,
+        joining_date: tenant.joining_date,
+        rent_due_day: tenant.rent_due_day,
+        monthly_rent: tenant.monthly_rent,
+        status: tenant.status,
+      },
+      payments: payments || [],
+      referenceDate: new Date(),
+      locale: 'en',
     })
 
     const dueDay = Math.min(Math.max(Number(tenant.rent_due_day) || 5, 1), 31)
-    let rentStatus: 'Paid' | 'Pending' | 'Overdue' | 'Vacated' = tenant.status || 'Pending'
 
-    if (tenant.status === 'Vacated') {
-      rentStatus = 'Vacated'
-    } else if (hasPaidRentThisMonth) {
-      rentStatus = 'Paid'
-    } else if (currentDate > dueDay) {
-      rentStatus = 'Overdue'
+    // Preserve backwards-compatible legacy status mapping
+    let legacyStatus: 'Paid' | 'Pending' | 'Overdue' | 'Vacated' = 'Pending'
+    if (tenant.status === 'Vacated' || rentStatusResult.status === 'vacated') {
+      legacyStatus = 'Vacated'
+    } else if (rentStatusResult.status === 'paid') {
+      legacyStatus = 'Paid'
+    } else if (rentStatusResult.status === 'overdue') {
+      legacyStatus = 'Overdue'
     } else {
-      rentStatus = 'Pending'
+      legacyStatus = 'Pending'
     }
 
     const payload = {
@@ -187,7 +191,19 @@ export async function GET() {
         securityDeposit: Number(tenant.security_deposit || 0),
         joiningDate: tenant.joining_date,
         rentDueDay: dueDay,
-        status: rentStatus,
+        status: legacyStatus,
+        dueStatus: rentStatusResult.status,
+        dueInfo: {
+          status: rentStatusResult.status,
+          days: rentStatusResult.days,
+          labelEn: rentStatusResult.labelEn,
+          labelHi: rentStatusResult.labelHi,
+          badgeColor: rentStatusResult.badgeColor,
+        },
+        nextDueDate: rentStatusResult.nextDueDate || null,
+        nextDueDateFormatted: rentStatusResult.nextDueDateFormatted || null,
+        outstandingBalance: rentStatusResult.outstandingBalance,
+        overdueBalance: rentStatusResult.overdueBalance,
       },
       property: {
         name: property?.name || 'BaseraBook Managed Residence',

@@ -948,23 +948,26 @@ export default function DashboardPage() {
 
         const staleStatusUpdates: { id: string; status: 'Paid' | 'Pending' | 'Overdue' }[] = []
 
-        // Tenants (Synchronize live rent status against actual payment records and due dates)
+        // Tenants (Synchronize live rent status against actual payment records and due dates using single source of truth)
         const allTenants: Tenant[] = (tenantRes.data || []).map((t: any) => {
           const dueDay = Math.min(Math.max(Number(t.rent_due_day) || 5, 1), 31)
-          const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
-          const effectiveDueDay = Math.min(dueDay, daysInMonth)
-
           let accurateStatus: 'Paid' | 'Pending' | 'Overdue' | 'Vacated' = t.status || 'Pending'
 
           if (t.status === 'Vacated') {
             accurateStatus = 'Vacated'
-          } else if (rentPaidTenantIds.has(t.id)) {
-            accurateStatus = 'Paid'
           } else {
-            // Not paid in current billing cycle: check real due day
-            if (currentDate > effectiveDueDay) {
+            const rentStatus = calculateTenantRentStatus({
+              tenant: t,
+              payments: paymentRes.data || [],
+              referenceDate: new Date(),
+            })
+
+            if (rentStatus.status === 'paid') {
+              accurateStatus = 'Paid'
+            } else if (rentStatus.status === 'overdue') {
               accurateStatus = 'Overdue'
             } else {
+              // 'due_soon' or 'due_today'
               accurateStatus = 'Pending'
             }
           }
@@ -6409,7 +6412,7 @@ function OverviewTab({
           payments: payments || [],
           locale: 'en',
         })
-        const isOverdue = rentStatus.status === 'overdue' || t.status === 'Overdue'
+        const isOverdue = rentStatus.status === 'overdue'
         const isDue = isOverdue || rentStatus.status === 'due_today' || rentStatus.status === 'due_soon'
         return {
           id: t.id,

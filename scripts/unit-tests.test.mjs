@@ -24,6 +24,7 @@ import {
   formatPaymentTimestamp,
   generateWhatsAppReminder,
   generateSmsReminder,
+  parseLocalDate,
 } from '../lib/due-dates.js'
 import { resolveCustomerEntitlements, PLAN_PROPERTY_LIMITS } from '../lib/subscription.ts'
 import { calculateMidCycleElectricitySplit } from '../lib/electricity-split.ts'
@@ -2657,6 +2658,175 @@ test('55. Tenant Access Tokens Database Migration Integrity & Action Error Diagn
   assert.ok(pair.tokenPreview.startsWith('tk_') && pair.tokenPreview.includes('...'))
   assert.ok(!pair.tokenPreview.includes(pair.rawToken), 'Preview must never expose raw token')
 })
+
+test('56. Single Source of Truth Rent Status Engine & Dashboard-Portal Synchronization', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+
+  // 1. Nitin's specific bug scenario: Joined Oct 22, due day 22, reference Oct 24
+  // Naive check currentDate (24) > dueDay (22) incorrectly flagged him as "Rent Overdue".
+  // Centralized engine must calculate "Due in 30 days" for next cycle on 22 Nov 2026.
+  const nitinTenant = {
+    id: 'tenant-nitin-2026',
+    full_name: 'Nitin',
+    joining_date: '2026-10-22',
+    rent_due_day: 22,
+    monthly_rent: 8000,
+    status: 'Pending',
+  }
+  const refDateNitin = new Date('2026-10-24T08:33:47+05:30')
+
+  const nitinStatus = calculateTenantRentStatus({
+    tenant: nitinTenant,
+    payments: [],
+    referenceDate: refDateNitin,
+    locale: 'en',
+  })
+
+  assert.strictEqual(
+    nitinStatus.status,
+    'due_soon',
+    'Tenant joining this month with upcoming rent next month must be due_soon, NOT overdue'
+  )
+  assert.ok(
+    nitinStatus.labelEn.includes('Due in 30 days') || nitinStatus.labelEn.includes('Due in 29 days'),
+    `Label must say "Due in X days", got: "${nitinStatus.labelEn}"`
+  )
+  assert.strictEqual(nitinStatus.nextDueDate, '2026-11-22', 'Next due date must be 22 November 2026')
+  assert.strictEqual(nitinStatus.nextDueDateFormatted, '22 Nov 2026')
+  assert.strictEqual(nitinStatus.outstandingBalance, 8000, 'Outstanding rent balance should reflect next upcoming cycle')
+  assert.strictEqual(nitinStatus.overdueBalance, 0, 'Overdue balance must be 0 for future due date')
+
+  // 2. Future due dates with unpaid rent (Requirement 4)
+  const futureTenant = {
+    id: 'tenant-future',
+    joiningDate: '2026-10-05',
+    rentDueDay: 5,
+    monthlyRent: 9500,
+  }
+  const refOct15 = new Date('2026-10-15T12:00:00+05:30')
+  const futureStatus = calculateTenantRentStatus({
+    tenant: futureTenant,
+    payments: [],
+    referenceDate: refOct15,
+  })
+  assert.strictEqual(futureStatus.status, 'due_soon', 'Future due date must remain due_soon')
+  assert.ok(futureStatus.labelEn.includes('Due in'), 'Must show "Due in X days"')
+  assert.ok(!futureStatus.labelEn.toLowerCase().includes('overdue'), 'Must never show "Rent Overdue" for future cycle')
+
+  // 3. Due Today (Requirement 5)
+  const todayTenant = {
+    id: 'tenant-today',
+    joiningDate: '2026-10-22',
+    rentDueDay: 22,
+    monthlyRent: 8000,
+  }
+  const refNov22 = new Date('2026-11-22T10:00:00+05:30')
+  const todayStatus = calculateTenantRentStatus({
+    tenant: todayTenant,
+    payments: [],
+    referenceDate: refNov22,
+  })
+  assert.strictEqual(todayStatus.status, 'due_today', 'Status must be due_today on the exact due date')
+  assert.strictEqual(todayStatus.labelEn, 'Due Today', 'Label must be "Due Today"')
+  assert.strictEqual(todayStatus.days, 0)
+  assert.strictEqual(todayStatus.outstandingBalance, 8000)
+  assert.strictEqual(todayStatus.overdueBalance, 0)
+
+  // 4. Rent Overdue (Requirement 6)
+  const refNov25 = new Date('2026-11-25T14:00:00+05:30') // 3 days past 22 Nov
+  const overdueStatus = calculateTenantRentStatus({
+    tenant: todayTenant,
+    payments: [],
+    referenceDate: refNov25,
+  })
+  assert.strictEqual(overdueStatus.status, 'overdue', 'Status must be overdue when due date has passed unpaid')
+  assert.ok(overdueStatus.labelEn.includes('Overdue by 3 days') || overdueStatus.labelEn.includes('Overdue'), 'Must show overdue days')
+  assert.strictEqual(overdueStatus.overdueBalance, 8000, 'Overdue balance must reflect unpaid past cycle')
+  assert.strictEqual(overdueStatus.outstandingBalance, 8000, 'Outstanding balance reflects overdue rent')
+
+  // 5. Confirmed payments update outstanding balance and rent status correctly (Requirement 7)
+  const confirmedPayments = [
+    {
+      id: 'pay-nov-2026',
+      tenant_id: 'tenant-today',
+      amount: 8000,
+      payment_type: 'rent',
+      month_covered: 'November 2026',
+      paid_at: '2026-11-20T11:00:00+05:30',
+    },
+  ]
+  const paidStatus = calculateTenantRentStatus({
+    tenant: todayTenant,
+    payments: confirmedPayments,
+    referenceDate: refNov25,
+  })
+  assert.strictEqual(paidStatus.status, 'paid', 'Status must transition to paid once confirmed payment is recorded')
+  assert.strictEqual(paidStatus.labelEn, 'Paid On Time')
+  assert.strictEqual(paidStatus.outstandingBalance, 0, 'Outstanding balance must become 0 when fully paid')
+  assert.strictEqual(paidStatus.overdueBalance, 0, 'Overdue balance must be 0')
+
+  // 6. Boundary Conditions: Month-end capping (Feb 28 vs Feb 29 in leap year) & Vacated status (Requirement 9)
+  // Leap Year 2028: Jan 31 joins -> Next due date is 29 Feb 2028
+  const leapDueDate = calculateNextRentDueDate('2028-01-31', 31, new Date('2028-01-31T12:00:00Z'))
+  assert.strictEqual(leapDueDate.getFullYear(), 2028)
+  assert.strictEqual(leapDueDate.getMonth(), 1) // February (0-indexed)
+  assert.strictEqual(leapDueDate.getDate(), 29, 'Leap year February must cap at 29th')
+
+  // Non-leap Year 2027: Jan 31 joins -> Next due date is 28 Feb 2027
+  const nonLeapDueDate = calculateNextRentDueDate('2027-01-31', 31, new Date('2027-01-31T12:00:00Z'))
+  assert.strictEqual(nonLeapDueDate.getFullYear(), 2027)
+  assert.strictEqual(nonLeapDueDate.getMonth(), 1) // February (0-indexed)
+  assert.strictEqual(nonLeapDueDate.getDate(), 28, 'Non-leap year February must cap at 28th')
+
+  // Timezone-safe parsing (YYYY-MM-DD prevents negative UTC offset day shift)
+  const parsedDate = parseLocalDate('2026-10-22')
+  assert.strictEqual(parsedDate.getFullYear(), 2026)
+  assert.strictEqual(parsedDate.getMonth(), 9) // October
+  assert.strictEqual(parsedDate.getDate(), 22, 'Date parsing must preserve day 22 without UTC rollover')
+
+  // Vacated tenant handling
+  const vacatedStatus = calculateTenantRentStatus({
+    tenant: { id: 'tenant-vacated', status: 'Vacated', rent_due_day: 5, monthly_rent: 7000 },
+    payments: [],
+  })
+  assert.strictEqual(vacatedStatus.status, 'vacated')
+  assert.strictEqual(vacatedStatus.labelEn, 'Vacated')
+  assert.strictEqual(vacatedStatus.outstandingBalance, 0)
+
+  // 7. Establish Single Source of Truth across codebase (Requirement 2 & 8)
+  const portalApiCode = fs.readFileSync(path.resolve('app/api/portal/data/route.ts'), 'utf-8')
+  assert.ok(
+    portalApiCode.includes("import { calculateTenantRentStatus } from '@/lib/due-dates'"),
+    'Portal API route must import calculateTenantRentStatus as authoritative source'
+  )
+  assert.ok(
+    !portalApiCode.includes('if (currentDate > dueDay)'),
+    'Portal API route must not contain naive currentDate > dueDay calculation'
+  )
+  assert.ok(
+    portalApiCode.includes('dueStatus: rentStatusResult.status') &&
+    portalApiCode.includes('dueInfo:') &&
+    portalApiCode.includes('outstandingBalance: rentStatusResult.outstandingBalance'),
+    'Portal API route must return unified dueStatus, dueInfo, and outstandingBalance'
+  )
+
+  const dashboardCode = fs.readFileSync(path.resolve('app/dashboard/page.tsx'), 'utf-8')
+  assert.ok(
+    dashboardCode.includes('calculateTenantRentStatus({') &&
+    !dashboardCode.includes('if (currentDate > effectiveDueDay)'),
+    'Owner Dashboard must use calculateTenantRentStatus during load without naive currentDate > effectiveDueDay'
+  )
+
+  const portalViewCode = fs.readFileSync(path.resolve('app/portal/PortalView.tsx'), 'utf-8')
+  assert.ok(
+    portalViewCode.includes('tenant.dueInfo') &&
+    portalViewCode.includes('Outstanding Rent') &&
+    portalViewCode.includes('Next Due Date'),
+    'PortalView must render authoritative dueInfo badge, Next Due Date, and Outstanding Rent'
+  )
+})
+
 
 
 
