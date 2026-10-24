@@ -110,7 +110,7 @@ export function getSafeRedirectPath(url: unknown, fallback: string = '/'): strin
 }
 
 export interface PasswordValidationRules {
-  minLength: boolean // >= 12
+  minLength: boolean // >= 8
   maxLength: boolean // <= 128
   hasUppercase: boolean // [A-Z]
   hasLowercase: boolean // [a-z]
@@ -180,7 +180,7 @@ export const COMMON_COMPROMISED_ROOTS = [
  * Authoritative Password Policy Validator for BaseraBook.
  * 
  * Rules enforced:
- * 1. Minimum 12 characters, Maximum 128 characters
+ * 1. Minimum 8 characters, Maximum 128 characters
  * 2. At least one uppercase letter (A–Z)
  * 3. At least one lowercase letter (a–z)
  * 4. At least one numeric digit (0–9)
@@ -205,7 +205,7 @@ export function validatePassword(password: unknown): PasswordValidationResult {
   }
 
   const length = password.length
-  const minLength = length >= 12
+  const minLength = length >= 8
   const maxLength = length <= 128
   const hasUppercase = /[A-Z]/.test(password)
   const hasLowercase = /[a-z]/.test(password)
@@ -233,7 +233,7 @@ export function validatePassword(password: unknown): PasswordValidationResult {
 
   let error: string | undefined = undefined
   if (!minLength) {
-    error = 'Password must be at least 12 characters long.'
+    error = 'Password must be at least 8 characters long.'
   } else if (!maxLength) {
     error = 'Password cannot exceed 128 characters.'
   } else if (!hasUppercase) {

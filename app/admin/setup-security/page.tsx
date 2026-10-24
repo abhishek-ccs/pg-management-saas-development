@@ -112,7 +112,7 @@ export default function AdminSetupSecurityPage() {
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 12 characters..."
+                  placeholder="At least 8 characters..."
                   required
                   className="w-full rounded-xl border border-[#705b47] bg-[#2c2926] px-3.5 py-2.5 text-sm text-white outline-none focus:border-[#c39d72]"
                 />

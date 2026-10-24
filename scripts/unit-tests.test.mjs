@@ -2039,14 +2039,19 @@ test('45. 4-Tier Pricing Across Website, Dashboard, Backend & Checkout', async (
   assert.ok(dashboardContent.includes('setDashboardBillingCycle'), 'Dashboard must support monthly/yearly toggle')
 })
 
-test('46. Password Policy Invariants: 12-128 chars, Complexity, Compromised Reject & Parity Law', async () => {
+test('46. Password Policy Invariants: 8-128 chars, Complexity, Compromised Reject & Parity Law', async () => {
   const { validatePassword, COMMON_COMPROMISED_PASSWORDS } = await import('../lib/validation.ts')
 
-  // 1. Min length rejection (< 12)
-  const short1 = validatePassword('Short1!Ab')
+  // 1. Min length rejection (< 8)
+  const short1 = validatePassword('Short1!') // 7 characters
   assert.strictEqual(short1.valid, false)
   assert.strictEqual(short1.rules.minLength, false)
-  assert.ok(short1.error?.includes('at least 12 characters'))
+  assert.ok(short1.error?.includes('at least 8 characters'))
+
+  // 1b. Acceptance of compliant 8-character password
+  const valid8 = validatePassword('Basera8!') // exactly 8 characters with Upper, Lower, Digit, Symbol
+  assert.strictEqual(valid8.valid, true)
+  assert.strictEqual(valid8.rules.minLength, true)
 
   // 2. Max length rejection (> 128)
   const longPass = 'A1!' + 'a'.repeat(126) // 129 chars

@@ -81,7 +81,7 @@ export default function SignupPage() {
 
     const passValidation = validatePassword(password)
     if (!passValidation.valid) {
-      setError(passValidation.error || 'Password must be at least 12 characters and include uppercase, lowercase, numbers, and symbols.')
+      setError(passValidation.error || 'Password must be at least 8 characters and include uppercase, lowercase, numbers, and symbols.')
       setLoading(false)
       return
     }
@@ -269,9 +269,9 @@ export default function SignupPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    minLength={12}
+                    minLength={8}
                     maxLength={128}
-                    placeholder="Minimum 12 characters"
+                    placeholder="Minimum 8 characters"
                     className="w-full rounded-xl border border-[#e4e6ec] bg-white pl-10 pr-11 py-2.5 text-sm font-normal text-[#2c221e] outline-none transition-colors focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]"
                   />
                   <button
@@ -284,8 +284,8 @@ export default function SignupPage() {
                   </button>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[11px] text-[#85899a]">
-                  <span className={password.length >= 12 && password.length <= 128 ? 'text-[#1e7e34] font-medium' : ''}>
-                    ✓ 12–128 chars
+                  <span className={password.length >= 8 && password.length <= 128 ? 'text-[#1e7e34] font-medium' : ''}>
+                    ✓ 8–128 chars
                   </span>
                   <span className={/[A-Z]/.test(password) && /[a-z]/.test(password) ? 'text-[#1e7e34] font-medium' : ''}>
                     ✓ Upper & Lowercase

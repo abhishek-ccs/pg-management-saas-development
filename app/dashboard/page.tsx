@@ -6014,8 +6014,8 @@ function GuidedSetupWizard({
   onAddTenant: () => void
 }) {
   const isStep1Done = Boolean(property?.name && property.name.trim().length > 0)
-  const isStep2Done = rooms.length > 0
-  const isStep3Done = tenants.length > 0
+  const isStep2Done = Boolean(rooms && rooms.length > 0)
+  const isStep3Done = Boolean(tenants && tenants.length > 0)
 
   const completedCount = (isStep1Done ? 1 : 0) + (isStep2Done ? 1 : 0) + (isStep3Done ? 1 : 0)
   const allCompleted = completedCount === 3
@@ -6030,75 +6030,85 @@ function GuidedSetupWizard({
     {
       number: 1,
       title: 'Set up property',
-      subtitle: 'Property Profile & Rules',
+      displayTitle: 'Property Details',
+      subtitle: 'Profile, Address & House Rules',
       icon: Building2,
       isDone: isStep1Done,
-      explanation:
-        'Set up your property profile with your PG or hostel name, physical address, contact telephone, warden details, and building house rules to create the operational foundation.',
+      isLocked: false,
+      lockMessage: '',
       currentStatusText: isStep1Done
         ? `Configured: ${property.name}${property.address ? ` (${property.address})` : ''}`
-        : 'No property profile configured yet. Create your property details to get started.',
-      actionLabel: isStep1Done ? 'Edit Property Profile' : 'Set Up Property',
+        : 'No property configured. Add property name, address & rules.',
+      actionLabel: isStep1Done ? 'Edit Property' : 'Set Up Property',
       onAction: onAddProperty,
     },
     {
       number: 2,
       title: 'Add rooms and beds',
-      subtitle: 'Rooms, Floors & Bed Inventory',
+      displayTitle: 'Rooms & Beds',
+      subtitle: 'Floors, Sharing & Bed Inventory',
       icon: BedDouble,
       isDone: isStep2Done,
-      explanation:
-        'Configure your accommodation rooms and inventory beds. Specify room types (Single, Double, Triple, or Four-sharing), bed numbers, and base monthly rent per bed.',
+      isLocked: !isStep1Done,
+      lockMessage: 'Complete Property Details first before adding rooms.',
       currentStatusText: isStep2Done
-        ? `${rooms.length} room${rooms.length !== 1 ? 's' : ''} configured · ${beds.length} inventory bed${beds.length !== 1 ? 's' : ''} ready`
-        : 'No rooms or beds added yet. Add your rooms to enable bed assignment for incoming residents.',
-      actionLabel: isStep2Done ? '+ Add / Manage Rooms' : '+ Add Rooms & Beds',
+        ? `${rooms.length} room${rooms.length !== 1 ? 's' : ''} · ${beds.length} bed${beds.length !== 1 ? 's' : ''} ready`
+        : isStep1Done
+        ? '0 rooms created. Configure room types & bed capacity.'
+        : 'Prerequisite needed: Set up property first.',
+      actionLabel: isStep2Done ? 'Manage Inventory' : '+ Add Rooms & Beds',
       onAction: onAddRoom,
     },
     {
       number: 3,
       title: 'Add tenants',
-      subtitle: 'Resident Onboarding & Rent Dues',
+      displayTitle: 'Add Residents',
+      subtitle: 'Resident Onboarding & Bed Allocation',
       icon: Users,
       isDone: isStep3Done,
-      explanation:
-        'Onboard your residents by capturing their details, assigning each resident to an available room and bed, setting up monthly rent due dates, and recording security deposits.',
+      isLocked: !isStep2Done,
+      lockMessage: 'Add rooms and beds first to enable bed assignment.',
       currentStatusText: isStep3Done
-        ? `${tenants.length} resident${tenants.length !== 1 ? 's' : ''} onboarded (${tenants.filter((t: any) => t.status !== 'Vacated').length} active)`
-        : 'No residents onboarded yet. Onboard your first resident once rooms and beds are created.',
-      actionLabel: isStep3Done ? '+ Onboard More Tenants' : '+ Add Tenants',
+        ? `${tenants.length} resident${tenants.length !== 1 ? 's' : ''} onboarded (${tenants.filter((t: any) => t && t.status !== 'Vacated').length} active)`
+        : isStep2Done
+        ? '0 residents. Onboard tenants & track monthly rent dues.'
+        : 'Prerequisite needed: Add rooms & beds first.',
+      actionLabel: isStep3Done ? 'Onboard More' : '+ Add Residents',
       onAction: onAddTenant,
     },
   ]
-
-  const currentStep = steps[activeStep - 1]
 
   return (
     <div className="mb-8 rounded-3xl border border-[#ebe4da] bg-white p-5 sm:p-6 shadow-[0_2px_12px_rgba(70,50,30,0.03)] transition-all">
       {/* Wizard Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-[#eee6dc] pb-4 mb-5">
         <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-base font-bold text-[#2c221e]">Guided Setup Wizard</h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#faf5ee] border border-[#ede3d7] px-2.5 py-0.5 text-[11px] font-bold text-[#8b5a2b]">
+              <Sparkles className="size-3" /> Guided Setup
+            </span>
+            <h3 className="text-base sm:text-lg font-bold text-[#2c221e]">
+              Property Setup Wizard
+            </h3>
             {allCompleted && (
               <span className="inline-flex items-center gap-1 rounded-full bg-[#f0fbf5] border border-[#a3e4be] px-2.5 py-0.5 text-[11px] font-bold text-[#236b4e]">
                 <CheckCircle2 className="size-3.5" /> All Steps Complete
               </span>
             )}
           </div>
-          <p className="text-xs text-[#7d756d] mt-0.5">
-            Follow this 3-step sequence to get your PG or hostel fully operational.
+          <p className="text-xs text-[#7d756d] mt-1">
+            Complete these 3 foundational steps to unlock automated rent tracking & resident management.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col items-end">
+        <div className="flex items-center gap-3 self-start sm:self-auto">
+          <div className="flex flex-col items-start sm:items-end">
             <span className="text-xs font-bold text-[#8b5a2b]">
               Step {activeStep} of 3 · {completedCount}/3 completed ({progressPercent}%)
             </span>
-            <div className="mt-1.5 h-2 w-32 sm:w-44 overflow-hidden rounded-full bg-[#f0ebe3]">
+            <div className="mt-1.5 h-2 w-36 sm:w-44 overflow-hidden rounded-full bg-[#f0ebe3]">
               <div
-                className="h-full bg-gradient-to-r from-[#8b5a2b] to-[#b46b1a] transition-all duration-500 rounded-full"
+                className="h-full bg-gradient-to-r from-[#8b5a2b] via-[#b46b1a] to-[#236b4e] transition-all duration-500 rounded-full"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
@@ -6108,7 +6118,7 @@ function GuidedSetupWizard({
             <button
               type="button"
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="flex items-center gap-1 rounded-xl border border-[#ebe4da] bg-[#faf7f2] px-3 py-1.5 text-xs font-semibold text-[#6c635a] hover:bg-[#f2ebdf] transition-colors"
+              className="flex items-center gap-1 rounded-xl border border-[#ebe4da] bg-[#faf7f2] px-3 py-1.5 text-xs font-semibold text-[#6c635a] hover:bg-[#f2ebdf] transition-colors cursor-pointer"
             >
               <span>{isCollapsed ? 'Review Steps' : 'Collapse'}</span>
               {isCollapsed ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
@@ -6119,142 +6129,209 @@ function GuidedSetupWizard({
 
       {!isCollapsed && (
         <div className="space-y-5 animate-in fade-in duration-300">
-          {/* Stepper Tabs Bar (1. Set up property -> 2. Add rooms and beds -> 3. Add tenants) */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Polished Celebratory Success Banner when All Steps Completed */}
+          {allCompleted && (
+            <div className="rounded-2xl border border-[#cce9db] bg-gradient-to-r from-[#f4faf7] via-[#f0f9f4] to-[#edf7f1] p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#236b4e] text-white shadow-xs">
+                  <CheckCircle2 className="size-6" />
+                </div>
+                <div>
+                  <h4 className="text-sm sm:text-base font-bold text-[#1f5940]">
+                    🎉 Property Setup Complete!
+                  </h4>
+                  <p className="text-xs text-[#328d68] mt-0.5">
+                    Your PG is fully operational with active rooms, bed inventory, and residents.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="rounded-xl bg-white/90 border border-[#bce2cf] px-3 py-1 text-xs font-semibold text-[#236b4e] shadow-2xs">
+                  📍 {property.name}
+                </span>
+                <span className="rounded-xl bg-white/90 border border-[#bce2cf] px-3 py-1 text-xs font-semibold text-[#236b4e] shadow-2xs">
+                  🛏️ {rooms.length} Rooms · {beds.length} Beds
+                </span>
+                <span className="rounded-xl bg-white/90 border border-[#bce2cf] px-3 py-1 text-xs font-semibold text-[#236b4e] shadow-2xs">
+                  👥 {tenants.length} Residents
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* 3 Interactive Step Cards (Responsive Grid) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {steps.map((st) => {
               const isActive = activeStep === st.number
+              const isLocked = st.isLocked
               return (
-                <button
+                <div
                   key={st.number}
-                  type="button"
                   onClick={() => setActiveStep(st.number)}
-                  className={`flex items-start gap-3 rounded-2xl border p-3.5 text-left transition-all cursor-pointer ${
+                  className={`group relative flex flex-col justify-between rounded-2xl border p-4 sm:p-5 transition-all cursor-pointer ${
                     isActive
-                      ? 'border-[#8b5a2b] bg-[#faf3ea] shadow-xs ring-1 ring-[#8b5a2b]'
+                      ? 'border-[#8b5a2b] bg-[#faf5ee] shadow-sm ring-1 ring-[#8b5a2b]'
                       : st.isDone
-                      ? 'border-[#cce9db] bg-[#f4faf7] hover:border-[#a3e4be]'
-                      : 'border-[#ebe4da] bg-white hover:bg-[#faf7f2]'
+                      ? 'border-[#cce9db] bg-[#f8fcf9] hover:border-[#a3e4be] hover:shadow-2xs'
+                      : isLocked
+                      ? 'border-[#ebe4da] bg-[#faf8f5]/70 opacity-85 hover:opacity-100'
+                      : 'border-[#ebe4da] bg-white hover:border-[#d6c7b7] hover:bg-[#faf7f2] hover:shadow-2xs'
                   }`}
                 >
-                  <div
-                    className={`grid size-9 shrink-0 place-items-center rounded-xl font-bold text-xs ${
-                      isActive
-                        ? 'bg-[#8b5a2b] text-white shadow-2xs'
-                        : st.isDone
-                        ? 'bg-[#328d68] text-white'
-                        : 'bg-[#f0ebe3] text-[#7d756d]'
-                    }`}
-                  >
-                    {st.isDone ? <Check className="size-4" /> : st.number}
-                  </div>
+                  <div>
+                    {/* Header: Step Number & Status Badge */}
+                    <div className="flex items-center justify-between gap-2 mb-3.5">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`grid size-7.5 shrink-0 place-items-center rounded-xl font-bold text-xs ${
+                            st.isDone
+                              ? 'bg-[#236b4e] text-white shadow-2xs'
+                              : isActive
+                              ? 'bg-[#8b5a2b] text-white shadow-2xs'
+                              : isLocked
+                              ? 'bg-[#e8e2d8] text-[#8c8278]'
+                              : 'bg-[#f0ebe3] text-[#7d756d]'
+                          }`}
+                        >
+                          {st.isDone ? <Check className="size-4 stroke-[3]" /> : st.number}
+                        </div>
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-[#9c8e80]">
+                          Step {st.number}
+                        </span>
+                      </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#9c8e80]">
-                        Step {st.number}
-                      </span>
                       {st.isDone ? (
-                        <span className="text-[10px] font-bold text-[#328d68]">Done ✓</span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#edf7f1] border border-[#a3e4be] px-2.5 py-0.5 text-[10px] font-bold text-[#236b4e]">
+                          <CheckCircle2 className="size-3" /> Done ✓
+                        </span>
+                      ) : isLocked ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#f2ede6] border border-[#ded5c8] px-2 py-0.5 text-[10px] font-semibold text-[#8c8278]">
+                          Prerequisite
+                        </span>
                       ) : isActive ? (
-                        <span className="text-[10px] font-bold text-[#8b5a2b]">Current</span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#faf3ea] border border-[#e8dfd4] px-2 py-0.5 text-[10px] font-bold text-[#8b5a2b]">
+                          Active
+                        </span>
                       ) : (
-                        <span className="text-[10px] font-medium text-[#b46b1a]">Pending</span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#fbf5ee] border border-[#efe5d9] px-2 py-0.5 text-[10px] font-semibold text-[#b46b1a]">
+                          Pending
+                        </span>
                       )}
                     </div>
-                    <p className="text-xs font-bold text-[#2c221e] truncate">{st.title}</p>
-                    <p className="text-[11px] text-[#7d756d] truncate">{st.subtitle}</p>
+
+                    {/* Step Icon, Title & Subtitle */}
+                    <div className="flex items-start gap-3 mb-3">
+                      <div
+                        className={`grid size-10 shrink-0 place-items-center rounded-xl border ${
+                          st.isDone
+                            ? 'border-[#cce9db] bg-[#edf7f1] text-[#236b4e]'
+                            : isActive
+                            ? 'border-[#ede3d7] bg-[#faf3ea] text-[#8b5a2b]'
+                            : 'border-[#ebe4da] bg-white text-[#8c7e72]'
+                        }`}
+                      >
+                        <st.icon className="size-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-sm font-bold text-[#2c221e] leading-snug">
+                          {st.displayTitle}
+                        </h4>
+                        <p className="text-[11px] text-[#7d756d] truncate">
+                          {st.subtitle}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Real State or Prerequisite Empty Guidance */}
+                    <div className="mt-2.5 rounded-xl border border-[#ebe4da] bg-white/95 p-3 text-xs">
+                      {isLocked ? (
+                        <div className="flex items-start gap-2 text-[11px] text-[#8c8278] leading-relaxed">
+                          <AlertCircle className="size-3.5 shrink-0 mt-0.5 text-[#b46b1a]" />
+                          <span>{st.lockMessage}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-[11px] font-medium text-[#2c221e]">
+                          <span
+                            className={`size-2 rounded-full shrink-0 ${
+                              st.isDone ? 'bg-[#236b4e]' : 'bg-[#d97706]'
+                            }`}
+                          />
+                          <span className="truncate">{st.currentStatusText}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </button>
+
+                  {/* Step Action Button */}
+                  <div className="mt-4 pt-3.5 border-t border-[#f0ebe3]">
+                    {isLocked ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setActiveStep(st.number === 3 ? (isStep1Done ? 2 : 1) : 1)
+                          if (st.number === 2) onAddProperty()
+                          if (st.number === 3) {
+                            if (!isStep1Done) onAddProperty()
+                            else onAddRoom()
+                          }
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-[#ded5c8] bg-[#f7f2ea] px-3.5 py-2 text-xs font-semibold text-[#7c7166] hover:bg-[#eee7dc] transition-colors cursor-pointer"
+                      >
+                        <span>{st.number === 2 ? 'Complete Step 1 First' : 'Complete Step 2 First'}</span>
+                        <ArrowRight className="size-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          st.onAction()
+                        }}
+                        className={`w-full flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                          st.isDone
+                            ? 'border border-[#cce9db] bg-white text-[#236b4e] hover:bg-[#f4faf7] shadow-2xs'
+                            : 'bg-[#8b5a2b] text-white hover:bg-[#784b20] shadow-xs active:scale-[0.99]'
+                        }`}
+                      >
+                        <st.icon className="size-3.5" />
+                        <span>{st.actionLabel}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               )
             })}
           </div>
 
-          {/* Active Step Detailed Card */}
-          <div className="rounded-2xl border border-[#ebe4da] bg-[#faf8f5] p-5">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-              <div className="flex items-start gap-3.5">
-                <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#faf3ea] text-[#8b5a2b] border border-[#ede3d7] shadow-2xs">
-                  <currentStep.icon className="size-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#8b5a2b]">
-                      Step {currentStep.number} of 3
-                    </span>
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold border ${
-                        currentStep.isDone
-                          ? 'border-[#cce9db] bg-[#f4faf7] text-[#328d68]'
-                          : 'border-[#efe5d9] bg-[#fbf5ee] text-[#b46b1a]'
-                      }`}
-                    >
-                      {currentStep.isDone ? <CheckCircle2 className="size-3" /> : <Clock className="size-3" />}
-                      {currentStep.isDone ? 'Completed' : 'Action Required'}
-                    </span>
-                  </div>
-                  <h4 className="text-base font-bold text-[#2c221e] mt-0.5">{currentStep.title}</h4>
-                  <p className="mt-1 text-xs text-[#5c544c] leading-relaxed max-w-2xl">
-                    {currentStep.explanation}
-                  </p>
-                </div>
-              </div>
-            </div>
+          {/* Stepper Navigation Controls (Previous Step / Next Step) */}
+          <div className="mt-5 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 border-t border-[#ede3d7] pt-4">
+            <button
+              type="button"
+              disabled={activeStep === 1}
+              onClick={() => setActiveStep((prev) => Math.max(1, prev - 1))}
+              className="flex items-center justify-center sm:justify-start gap-1.5 rounded-xl border border-[#ebe4da] bg-white px-3.5 py-2 text-xs font-semibold text-[#5c544c] hover:bg-[#faf7f2] hover:text-[#2c221e] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ArrowLeft className="size-3.5" />
+              <span>Previous Step</span>
+            </button>
 
-            {/* Current State Callout Box */}
-            <div className="mt-4 rounded-xl border border-[#ebe4da] bg-white p-3.5 text-xs">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#9c8e80] block mb-1">
-                Current Setup State:
-              </span>
-              <p className="font-medium text-[#2c221e] flex items-center gap-2">
-                <span
-                  className={`size-2 rounded-full shrink-0 ${
-                    currentStep.isDone ? 'bg-[#328d68]' : 'bg-[#d97706]'
-                  }`}
-                />
-                {currentStep.currentStatusText}
-              </p>
-            </div>
-
-            {/* Stepper Navigation and Action Controls */}
-            <div className="mt-5 flex flex-col-reverse sm:flex-row sm:items-center justify-between gap-3 border-t border-[#ede3d7] pt-4">
-              <div>
+            <div className="flex items-center justify-center sm:justify-end gap-2">
+              {activeStep < 3 ? (
                 <button
                   type="button"
-                  disabled={activeStep === 1}
-                  onClick={() => setActiveStep((prev) => Math.max(1, prev - 1))}
-                  className="flex items-center gap-1.5 rounded-xl border border-[#ebe4da] bg-white px-3.5 py-2 text-xs font-semibold text-[#5c544c] hover:bg-[#faf7f2] hover:text-[#2c221e] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  onClick={() => setActiveStep((prev) => Math.min(3, prev + 1))}
+                  className="flex items-center gap-1.5 rounded-xl border border-[#8b5a2b] bg-[#faf3ea] px-3.5 py-2 text-xs font-semibold text-[#8b5a2b] hover:bg-[#f4ebe1] transition-colors"
                 >
-                  <ArrowLeft className="size-3.5" />
-                  <span>Previous Step</span>
+                  <span>Next Step</span>
+                  <ArrowRight className="size-3.5" />
                 </button>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <button
-                  type="button"
-                  onClick={currentStep.onAction}
-                  className="flex items-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#784b20] active:scale-[0.99] transition-all cursor-pointer"
-                >
-                  <currentStep.icon className="size-3.5" />
-                  <span>{currentStep.actionLabel}</span>
-                </button>
-
-                {activeStep < 3 ? (
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep((prev) => Math.min(3, prev + 1))}
-                    className="flex items-center gap-1.5 rounded-xl border border-[#8b5a2b] bg-[#faf3ea] px-3.5 py-2 text-xs font-semibold text-[#8b5a2b] hover:bg-[#f4ebe1] transition-colors"
-                  >
-                    <span>Next Step</span>
-                    <ArrowRight className="size-3.5" />
-                  </button>
-                ) : allCompleted ? (
-                  <span className="flex items-center gap-1.5 text-xs font-bold text-[#236b4e] bg-[#f0fbf5] border border-[#a3e4be] px-3 py-1.5 rounded-xl">
-                    <CheckCircle2 className="size-3.5" />
-                    <span>Setup Ready</span>
-                  </span>
-                ) : null}
-              </div>
+              ) : allCompleted ? (
+                <span className="flex items-center gap-1.5 text-xs font-bold text-[#236b4e] bg-[#f0fbf5] border border-[#a3e4be] px-3.5 py-2 rounded-xl">
+                  <CheckCircle2 className="size-3.5" />
+                  <span>All Steps Completed</span>
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
