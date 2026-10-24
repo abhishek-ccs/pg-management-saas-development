@@ -52,6 +52,15 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
       return { success: false, error: 'Please enter a valid 10-15 digit tenant contact phone number.' }
     }
 
+    // Authoritative Server-side Subscription & Trial Expiry Enforcement
+    const entitlement = await getOwnerEntitlements(supabase, user.id)
+    if (!entitlement.hasPaidAccess) {
+      return {
+        success: false,
+        error: 'Your 7-day free trial has expired. Please upgrade to a paid subscription to add residents.',
+      }
+    }
+
     // 1. Verify property ownership if provided
     if (propertyId) {
       const { data: prop } = await supabase
@@ -167,7 +176,8 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
     const joiningParsed = new Date(joiningDate)
     const joiningDay = !isNaN(joiningParsed.getTime()) ? joiningParsed.getDate() : 5
     const safeDueDay = Math.min(Math.max(Number(input.dueDay || joiningDay || 5), 1), 31)
-    const initialStatus = 'Pending'
+    const currentDate = new Date().getDate()
+    const initialStatus = currentDate > safeDueDay ? 'Overdue' : 'Pending'
 
     // 5. Construct guaranteed baseline payload
     const tenantPayload: Record<string, any> = {
@@ -237,6 +247,15 @@ export async function updateTenantAction(
 
     if (authErr || !user) {
       return { success: false, error: 'Your session has expired. Please sign in again.' }
+    }
+
+    // Authoritative Server-side Subscription & Trial Expiry Enforcement
+    const entitlement = await getOwnerEntitlements(supabase, user.id)
+    if (!entitlement.hasPaidAccess) {
+      return {
+        success: false,
+        error: 'Your 7-day free trial has expired. Please upgrade to a paid subscription to modify resident records.',
+      }
     }
 
     const { data: existingTenant } = await supabase

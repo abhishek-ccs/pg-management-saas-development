@@ -112,6 +112,7 @@ import {
   Trash2,
   Undo2,
   Upload,
+  User,
   UserCheck,
   UserMinus,
   Users,
@@ -311,18 +312,83 @@ export function getEffectiveBedStatus(
   return { isAvailable: true, label: 'AVAILABLE' }
 }
 
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse" aria-label="Loading dashboard records">
+      {/* Overview Top Bar Skeleton */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="space-y-2">
+          <div className="h-7 w-48 rounded-xl bg-[#ebe4da]" />
+          <div className="h-4 w-72 rounded-lg bg-[#f0e9df]" />
+        </div>
+        <div className="flex gap-2.5">
+          <div className="h-10 w-28 rounded-xl bg-[#ebe4da]" />
+          <div className="h-10 w-32 rounded-xl bg-[#dccfbf]" />
+        </div>
+      </div>
+
+      {/* 4 Stat Cards Skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="rounded-2xl border border-[#ebe4da] bg-white p-4 sm:p-5 lg:p-6 shadow-sm space-y-3 min-w-0">
+            <div className="flex items-center justify-between">
+              <div className="h-4 w-24 rounded bg-[#f0e9df]" />
+              <div className="size-8 rounded-xl bg-[#ebe4da]" />
+            </div>
+            <div className="h-8 w-36 rounded-lg bg-[#ebe4da]" />
+            <div className="h-3 w-28 rounded bg-[#f5ede3]" />
+          </div>
+        ))}
+      </div>
+
+      {/* Main Content Area Skeleton */}
+      <div className="rounded-2xl border border-[#ebe4da] bg-white p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b border-[#f2ede4] pb-4">
+          <div className="h-5 w-44 rounded-lg bg-[#ebe4da]" />
+          <div className="h-8 w-24 rounded-lg bg-[#f0e9df]" />
+        </div>
+        <div className="space-y-3 pt-2">
+          {[1, 2, 3, 4, 5].map((row) => (
+            <div key={row} className="flex items-center justify-between py-2.5 border-b border-[#faf7f2]">
+              <div className="flex items-center gap-3">
+                <div className="size-9 rounded-xl bg-[#f0e9df]" />
+                <div className="space-y-1.5">
+                  <div className="h-4 w-36 rounded bg-[#ebe4da]" />
+                  <div className="h-3 w-24 rounded bg-[#f5ede3]" />
+                </div>
+              </div>
+              <div className="h-5 w-20 rounded bg-[#f0e9df]" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const supabase = createClient()
 
-
-  // Navigation & UI state
+  // Navigation & UI state with localStorage persistence
   const { t, locale } = useI18n()
-  const [active, setActive] = useState('Overview')
+  const [active, setActive] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('baserabook_active_tab') || 'Overview'
+    }
+    return 'Overview'
+  })
   const [mobileOpen, setMobileOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+
+  // Persist tab selection across page refreshes
+  useEffect(() => {
+    if (typeof window !== 'undefined' && active) {
+      localStorage.setItem('baserabook_active_tab', active)
+    }
+  }, [active])
 
   // User & Subscription state
   const [userId, setUserId] = useState<string | null>(null)
@@ -341,10 +407,22 @@ export default function DashboardPage() {
   const [isTrialExpired, setIsTrialExpired] = useState(false)
   const [dashboardBillingCycle, setDashboardBillingCycle] = useState<'yearly' | 'monthly'>('yearly')
 
-  // Real Database Business State (Multi-property support with strict property isolation)
+  // Real Database Business State (Multi-property support with strict property isolation & refresh persistence)
   const [properties, setProperties] = useState<Property[]>([])
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string>('')
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('baserabook_active_property_id') || ''
+    }
+    return ''
+  })
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null)
+
+  // Persist property selection across page refreshes
+  useEffect(() => {
+    if (typeof window !== 'undefined' && selectedPropertyId) {
+      localStorage.setItem('baserabook_active_property_id', selectedPropertyId)
+    }
+  }, [selectedPropertyId])
 
   // Centralized Entitlement State
   const entitlement: CustomerEntitlement = useMemo(() => {
@@ -902,8 +980,17 @@ export default function DashboardPage() {
         }))
         setProperties(propList)
         setSelectedPropertyId((curr) => {
-          if (curr && propList.some((p: any) => p.id === curr)) return curr
-          return propList[0]?.id || ''
+          const savedPropId = typeof window !== 'undefined' ? localStorage.getItem('baserabook_active_property_id') : null
+          const candidate = curr || savedPropId
+          if (candidate && propList.some((p: any) => p.id === candidate)) {
+            if (typeof window !== 'undefined') localStorage.setItem('baserabook_active_property_id', candidate)
+            return candidate
+          }
+          const fallback = propList[0]?.id || ''
+          if (typeof window !== 'undefined' && fallback) {
+            localStorage.setItem('baserabook_active_property_id', fallback)
+          }
+          return fallback
         })
 
         // Rooms
@@ -1160,9 +1247,12 @@ export default function DashboardPage() {
       (r) =>
         r.room_number.toLowerCase().includes(q) ||
         r.room_type.toLowerCase().includes(q) ||
-        String(r.floor).includes(q)
+        String(r.floor).includes(q) ||
+        currentPropertyTenants.some(
+          (t) => t.room_id === r.id && t.status !== 'Vacated' && t.name.toLowerCase().includes(q)
+        )
     )
-  }, [currentPropertyRooms, q])
+  }, [currentPropertyRooms, currentPropertyTenants, q])
 
   const filteredPayments = useMemo(() => {
     if (!q) return currentPropertyPayments
@@ -2272,6 +2362,7 @@ export default function DashboardPage() {
   // Record Payment
   async function handleRecordPayment(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (isSavingPayment) return
     if (!userId) return
 
     const fd = new FormData(e.currentTarget)
@@ -2311,63 +2402,72 @@ export default function DashboardPage() {
       actionLabel: 'Confirm Payment',
       isDestructive: false,
       onConfirm: async () => {
-        const now = new Date().toISOString()
-        const combinedNotes = monthCovered ? `[Month: ${monthCovered}] ${notes}`.trim() : notes
-        const sessionCheck = await ensureFreshSession(supabase)
-        if (!sessionCheck.valid) {
-          flash('Your session has expired. Please sign in again.')
-          router.push('/login?next=/dashboard')
-          return
-        }
-
-        const { data: newPayment, error } = await supabase
-          .from('payments')
-          .insert({
-            owner_id: userId,
-            property_id: property.id || null,
-            tenant_id: tenantId,
-            amount,
-            payment_method: method,
-            payment_type: type,
-            month_covered: monthCovered || null,
-            paid_at: now,
-            notes: combinedNotes || null,
-          })
-          .select('id,property_id,tenant_id,amount,payment_method,payment_type,month_covered,paid_at,notes')
-          .single()
-
-        if (error) {
-          if (error.code === 'PGRST303' || error.message?.includes('JWT') || error.message?.includes('expired')) {
+        if (isSavingPayment) return
+        setIsSavingPayment(true)
+        try {
+          const now = new Date().toISOString()
+          const combinedNotes = monthCovered ? `[Month: ${monthCovered}] ${notes}`.trim() : notes
+          const sessionCheck = await ensureFreshSession(supabase)
+          if (!sessionCheck.valid) {
             flash('Your session has expired. Please sign in again.')
             router.push('/login?next=/dashboard')
             return
           }
-          flash(`Could not save payment to ledger: ${error.message}`)
-          return
+
+          const { data: newPayment, error } = await supabase
+            .from('payments')
+            .insert({
+              owner_id: userId,
+              property_id: property.id || null,
+              tenant_id: tenantId,
+              amount,
+              payment_method: method,
+              payment_type: type,
+              month_covered: monthCovered || null,
+              paid_at: now,
+              notes: combinedNotes || null,
+            })
+            .select('id,property_id,tenant_id,amount,payment_method,payment_type,month_covered,paid_at,notes')
+            .single()
+
+          if (error) {
+            if (error.code === 'PGRST303' || error.message?.includes('JWT') || error.message?.includes('expired')) {
+              flash('Your session has expired. Please sign in again.')
+              router.push('/login?next=/dashboard')
+              return
+            }
+            flash(`Could not save payment to ledger: ${error.message}`)
+            return
+          }
+
+          // Update tenant status to 'Paid'
+          await supabase.from('tenants').update({ status: 'Paid' }).eq('id', tenantId)
+
+          const recordedPayment: PaymentRecord = {
+            id: newPayment.id,
+            property_id: newPayment.property_id || property.id,
+            tenant_id: newPayment.tenant_id,
+            tenant_name: targetTenant.name,
+            room_number: targetTenant.room,
+            amount: newPayment.amount,
+            payment_method: newPayment.payment_method,
+            payment_type: newPayment.payment_type,
+            month_covered: monthCovered || undefined,
+            paid_at: newPayment.paid_at,
+            notes: newPayment.notes,
+          }
+
+          setPayments((prev) => [recordedPayment, ...prev])
+          setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, status: 'Paid' } : t)))
+          setShowPaymentModal(false)
+          flash(`Payment of ${currency(amount)} recorded for ${targetTenant.name}.`)
+          setSelectedReceipt(recordedPayment)
+        } catch (err) {
+          console.error('Record payment error:', err)
+          flash('An unexpected error occurred while saving payment.')
+        } finally {
+          setIsSavingPayment(false)
         }
-
-        // Update tenant status to 'Paid'
-        await supabase.from('tenants').update({ status: 'Paid' }).eq('id', tenantId)
-
-        const recordedPayment: PaymentRecord = {
-          id: newPayment.id,
-          property_id: newPayment.property_id || property.id,
-          tenant_id: newPayment.tenant_id,
-          tenant_name: targetTenant.name,
-          room_number: targetTenant.room,
-          amount: newPayment.amount,
-          payment_method: newPayment.payment_method,
-          payment_type: newPayment.payment_type,
-          month_covered: monthCovered || undefined,
-          paid_at: newPayment.paid_at,
-          notes: newPayment.notes,
-        }
-
-        setPayments((prev) => [recordedPayment, ...prev])
-        setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, status: 'Paid' } : t)))
-        setShowPaymentModal(false)
-        flash(`Payment of ${currency(amount)} recorded for ${targetTenant.name}.`)
-        setSelectedReceipt(recordedPayment)
       },
     })
   }
@@ -3476,314 +3576,436 @@ export default function DashboardPage() {
 
         {/* View Router */}
         <div className="mx-auto max-w-[1360px] px-3 sm:px-8 py-5 sm:py-7 lg:px-10">
-          {active === 'Overview' && (
-            <OverviewTab
-              property={property}
-              properties={properties}
-              rooms={currentPropertyRooms}
-              beds={currentPropertyBeds}
-              tenants={currentPropertyTenants}
-              payments={currentPropertyPayments}
-              expenses={currentPropertyExpenses}
-              electricity={currentPropertyElectricity}
-              complaints={currentPropertyComplaints}
-              collectedMonth={totalCollectedMonth}
-              rentPending={totalRentPending}
-              expensesMonth={totalExpensesMonth}
-              electricityPending={totalElectricityPending}
-              activeTenantsCount={activeTenantsCount}
-              availableBedsCount={availableBedsCount}
-              occupiedBedsCount={occupiedBedsCount}
-              daysRemaining={daysRemaining}
-              hoursRemaining={hoursRemaining}
-              isEndingSoon={isEndingSoon}
-              isTrialExpired={isTrialExpired}
-              trialStart={trialStart}
-              trialEnd={trialEnd}
-              userName={userName}
-              entitlement={entitlement}
-              onAddProperty={() => {
-                if (!entitlement.canCreateProperty) {
-                  flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
-                  setShowPricingModal(true)
-                  return
-                }
-                setEditingPropertyId(null)
-                setShowPropertyModal(true)
-              }}
-              onAddRoom={() => setShowRoomModal(true)}
-              onAddTenant={() => {
-                const availableRoom = currentPropertyRooms.find((r) => {
-                  const cap = getRoomMaxCapacity(r.room_type)
-                  const cur = currentPropertyTenants.filter((t) => t.room_id === r.id && t.status !== 'Vacated').length
-                  return cur < cap
-                })
-                const rId = availableRoom?.id || 'unassigned'
-                setTenantFormRoomId(rId)
-                setTenantFormRent(availableRoom?.base_rent || 0)
-
-                if (rId !== 'unassigned') {
-                  const availBed = currentPropertyBeds.find((b) => {
-                    if (b.room_id !== rId) return false
-                    const eff = getEffectiveBedStatus(b, currentPropertyRooms, currentPropertyTenants)
-                    return eff.isAvailable
-                  })
-                  setTenantFormBedId(availBed?.id || 'unassigned')
-                } else {
-                  setTenantFormBedId('unassigned')
-                }
-                setShowTenantModal(true)
-              }}
-              onRecordPayment={() => {
-                if (currentPropertyTenants.length) {
-                  setPaymentFormTenantId(currentPropertyTenants[0].id)
-                  setPaymentFormAmount(currentPropertyTenants[0].rent)
-                }
-                setShowPaymentModal(true)
-              }}
-              onViewPlans={() => setShowPricingModal(true)}
-              onNavigate={setActive}
-            />
+          {isTrialExpired && (
+            <div className="mb-6 rounded-2xl border border-[#e8cbb0] bg-gradient-to-r from-[#fff7f0] to-[#fbf0e4] p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div className="rounded-xl bg-[#b95c3c]/10 p-2 text-[#b95c3c] mt-0.5 shrink-0">
+                  <AlertCircle className="size-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#2c221e]">Free Trial Period Expired</h3>
+                  <p className="text-xs text-[#6e5849] mt-0.5 max-w-2xl leading-relaxed">
+                    Your 7-day free trial has concluded. Property management actions (adding rooms, onboarding residents, and recording payments) require an active subscription.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPricingModal(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#784b20] transition-colors shrink-0 cursor-pointer"
+              >
+                <Sparkles className="size-4" /> Upgrade Plan
+              </button>
+            </div>
           )}
 
-          {active === 'Property' && (
-            <PropertyTab
-              property={property}
-              properties={properties}
-              selectedPropertyId={selectedPropertyId}
-              onSelectProperty={(id: string) => setSelectedPropertyId(id)}
-              onAddProperty={() => {
-                if (!entitlement.canCreateProperty) {
-                  flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
-                  setShowPricingModal(true)
-                  return
-                }
-                setEditingPropertyId(null)
-                setShowPropertyModal(true)
-              }}
-              onEdit={(p?: any) => {
-                setEditingPropertyId(p?.id || property.id)
-                setShowPropertyModal(true)
-              }}
-              onDelete={() => setShowDeletePropertyModal(true)}
-              roomsCount={currentPropertyRooms.length}
-              tenantsCount={currentPropertyTenants.filter((t) => t.status !== 'Vacated').length}
-              bedsCount={currentPropertyBeds.length}
-              entitlement={entitlement}
-              subscriptionPlan={subscriptionPlan}
-              subscriptionStatus={subscriptionStatus}
-              onViewPlans={() => setShowPricingModal(true)}
-            />
-          )}
+          {loading ? (
+            <DashboardSkeleton />
+          ) : (
+            <>
+              {active === 'Overview' && (
+                <OverviewTab
+                  property={property}
+                  properties={properties}
+                  rooms={currentPropertyRooms}
+                  beds={currentPropertyBeds}
+                  tenants={currentPropertyTenants}
+                  payments={currentPropertyPayments}
+                  expenses={currentPropertyExpenses}
+                  electricity={currentPropertyElectricity}
+                  complaints={currentPropertyComplaints}
+                  collectedMonth={totalCollectedMonth}
+                  rentPending={totalRentPending}
+                  expensesMonth={totalExpensesMonth}
+                  electricityPending={totalElectricityPending}
+                  activeTenantsCount={activeTenantsCount}
+                  availableBedsCount={availableBedsCount}
+                  occupiedBedsCount={occupiedBedsCount}
+                  daysRemaining={daysRemaining}
+                  hoursRemaining={hoursRemaining}
+                  isEndingSoon={isEndingSoon}
+                  isTrialExpired={isTrialExpired}
+                  trialStart={trialStart}
+                  trialEnd={trialEnd}
+                  userName={userName}
+                  entitlement={entitlement}
+                  onAddProperty={() => {
+                    if (isTrialExpired) {
+                      flash('Your free trial has expired. Please upgrade your subscription to add properties.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    if (!entitlement.canCreateProperty) {
+                      flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setEditingPropertyId(null)
+                    setShowPropertyModal(true)
+                  }}
+                  onAddRoom={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your subscription to add rooms.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setShowRoomModal(true)
+                  }}
+                  onAddTenant={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your subscription to onboard residents.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    const availableRoom = currentPropertyRooms.find((r) => {
+                      const cap = getRoomMaxCapacity(r.room_type)
+                      const cur = currentPropertyTenants.filter((t) => t.room_id === r.id && t.status !== 'Vacated').length
+                      return cur < cap
+                    })
+                    const rId = availableRoom?.id || 'unassigned'
+                    setTenantFormRoomId(rId)
+                    setTenantFormRent(availableRoom?.base_rent || 0)
 
-          {active === 'Rooms & Beds' && (
-            <RoomsTab
-              rooms={filteredRooms.filter((r) => !property.id || !r.property_id || r.property_id === property.id)}
-              beds={currentPropertyBeds}
-              tenants={currentPropertyTenants}
-              onAddRoom={() => setShowRoomModal(true)}
-              onEditRoom={(r: Room) => setEditingRoom(r)}
-              onDeleteRoom={handleDeleteRoom}
-              onAddBed={(roomId: string, roomNumber: string) =>
-                setShowAddBedModal({ open: true, roomId, roomNumber })
-              }
-              onEditBed={(b: Bed) => setEditingBed(b)}
-              onToggleBedStatus={handleToggleBedStatus}
-              onDeleteBed={handleDeleteBed}
-              searchQuery={q}
-              onClearSearch={() => setSearch('')}
-            />
-          )}
+                    if (rId !== 'unassigned') {
+                      const availBed = currentPropertyBeds.find((b) => {
+                        if (b.room_id !== rId) return false
+                        const eff = getEffectiveBedStatus(b, currentPropertyRooms, currentPropertyTenants)
+                        return eff.isAvailable
+                      })
+                      setTenantFormBedId(availBed?.id || 'unassigned')
+                    } else {
+                      setTenantFormBedId('unassigned')
+                    }
+                    setShowTenantModal(true)
+                  }}
+                  onRecordPayment={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your subscription to record payments.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    if (currentPropertyTenants.length) {
+                      setPaymentFormTenantId(currentPropertyTenants[0].id)
+                      setPaymentFormAmount(currentPropertyTenants[0].rent)
+                    }
+                    setShowPaymentModal(true)
+                  }}
+                  onViewPlans={() => setShowPricingModal(true)}
+                  onNavigate={setActive}
+                />
+              )}
 
-          {active === 'Tenants' && (
-            <TenantsTab
-              tenants={filteredTenants.filter((t) => !property.id || !t.property_id || t.property_id === property.id)}
-              rooms={currentPropertyRooms}
-              property={property}
-              locale={locale}
-              payments={payments}
-              onViewRentSchedule={(t: Tenant) => setSelectedTenantForSchedule(t)}
-              onAddTenant={() => {
-                const availableRoom = currentPropertyRooms.find((r) => {
-                  const cap = getRoomMaxCapacity(r.room_type)
-                  const cur = currentPropertyTenants.filter((t) => t.room_id === r.id && t.status !== 'Vacated').length
-                  return cur < cap
-                })
-                const rId = availableRoom?.id || 'unassigned'
-                setTenantFormRoomId(rId)
-                setTenantFormRent(availableRoom?.base_rent || 0)
+              {active === 'Property' && (
+                <PropertyTab
+                  property={property}
+                  properties={properties}
+                  selectedPropertyId={selectedPropertyId}
+                  onSelectProperty={(id: string) => setSelectedPropertyId(id)}
+                  onAddProperty={() => {
+                    if (isTrialExpired) {
+                      flash('Your free trial has expired. Please upgrade your subscription to add properties.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    if (!entitlement.canCreateProperty) {
+                      flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setEditingPropertyId(null)
+                    setShowPropertyModal(true)
+                  }}
+                  onEdit={(p?: any) => {
+                    setEditingPropertyId(p?.id || property.id)
+                    setShowPropertyModal(true)
+                  }}
+                  onDelete={() => setShowDeletePropertyModal(true)}
+                  roomsCount={currentPropertyRooms.length}
+                  tenantsCount={currentPropertyTenants.filter((t) => t.status !== 'Vacated').length}
+                  bedsCount={currentPropertyBeds.length}
+                  entitlement={entitlement}
+                  subscriptionPlan={subscriptionPlan}
+                  subscriptionStatus={subscriptionStatus}
+                  onViewPlans={() => setShowPricingModal(true)}
+                />
+              )}
 
-                if (rId !== 'unassigned') {
-                  const availBed = currentPropertyBeds.find((b) => {
-                    if (b.room_id !== rId) return false
-                    const eff = getEffectiveBedStatus(b, currentPropertyRooms, currentPropertyTenants)
-                    return eff.isAvailable
-                  })
-                  setTenantFormBedId(availBed?.id || 'unassigned')
-                } else {
-                  setTenantFormBedId('unassigned')
-                }
-                setShowTenantModal(true)
-              }}
-              onEditTenant={(t: Tenant) => setEditingTenant(t)}
-              onVacateTenant={handleVacateTenant}
-              onDeleteTenant={handleDeleteTenant}
-              onSharePortalLink={handleOpenPortalModal}
-              onRecordPayment={(t: Tenant) => {
-                setPaymentFormTenantId(t.id)
-                setPaymentFormAmount(t.rent)
-                setShowPaymentModal(true)
-              }}
-              ownerPaymentDetails={ownerPaymentDetails}
-              onOpenPaymentSettings={() => setActive('Settings')}
-              searchQuery={q}
-              onClearSearch={() => setSearch('')}
-            />
-          )}
+              {active === 'Rooms & Beds' && (
+                <RoomsTab
+                  rooms={filteredRooms.filter((r) => !property.id || !r.property_id || r.property_id === property.id)}
+                  beds={currentPropertyBeds}
+                  tenants={currentPropertyTenants}
+                  onAddRoom={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to add rooms.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setShowRoomModal(true)
+                  }}
+                  onEditRoom={(r: Room) => setEditingRoom(r)}
+                  onDeleteRoom={handleDeleteRoom}
+                  onAddBed={(roomId: string, roomNumber: string) => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to add beds.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setShowAddBedModal({ open: true, roomId, roomNumber })
+                  }}
+                  onEditBed={(b: Bed) => setEditingBed(b)}
+                  onToggleBedStatus={handleToggleBedStatus}
+                  onDeleteBed={handleDeleteBed}
+                  searchQuery={q}
+                  onClearSearch={() => setSearch('')}
+                  onViewRentSchedule={(t: Tenant) => setSelectedTenantForSchedule(t)}
+                  onOnboardTenantForRoom={(roomId: string, bedId?: string) => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to onboard residents.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    const targetRoom = currentPropertyRooms.find((r) => r.id === roomId)
+                    setTenantFormRoomId(roomId)
+                    setTenantFormRent(targetRoom?.base_rent || 0)
+                    if (bedId) {
+                      setTenantFormBedId(bedId)
+                    }
+                    setShowTenantModal(true)
+                  }}
+                />
+              )}
 
-          {active === 'Rent & Payments' && (
-            <PaymentsTab
-              payments={filteredPayments.filter((p) => !property.id || !p.property_id || p.property_id === property.id)}
-              tenants={currentPropertyTenants}
-              locale={locale}
-              onRecordPayment={() => {
-                if (currentPropertyTenants.length) {
-                  setPaymentFormTenantId(currentPropertyTenants[0].id)
-                  setPaymentFormAmount(currentPropertyTenants[0].rent)
-                }
-                setShowPaymentModal(true)
-              }}
-              onViewReceipt={(p: any) => setSelectedReceipt(p)}
-              onEditPayment={(p: PaymentRecord) => setEditingPayment(p)}
-              onDeletePayment={handleDeletePayment}
-              searchQuery={q}
-              onClearSearch={() => setSearch('')}
-            />
-          )}
+              {active === 'Tenants' && (
+                <TenantsTab
+                  tenants={filteredTenants.filter((t) => !property.id || !t.property_id || t.property_id === property.id)}
+                  rooms={currentPropertyRooms}
+                  property={property}
+                  locale={locale}
+                  payments={payments}
+                  onViewRentSchedule={(t: Tenant) => setSelectedTenantForSchedule(t)}
+                  onAddTenant={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to onboard residents.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    const availableRoom = currentPropertyRooms.find((r) => {
+                      const cap = getRoomMaxCapacity(r.room_type)
+                      const cur = currentPropertyTenants.filter((t) => t.room_id === r.id && t.status !== 'Vacated').length
+                      return cur < cap
+                    })
+                    const rId = availableRoom?.id || 'unassigned'
+                    setTenantFormRoomId(rId)
+                    setTenantFormRent(availableRoom?.base_rent || 0)
 
-          {active === 'Electricity' && (
-            <ElectricityTab
-              records={filteredElectricity.filter((el) => !property.id || !el.property_id || el.property_id === property.id)}
-              rooms={currentPropertyRooms}
-              onAddReading={() => {
-                const firstRoom = currentPropertyRooms[0]
-                if (firstRoom) {
-                  const lastReading = currentPropertyElectricity.find((el) => el.room_id === firstRoom.id)?.current_reading || 0
-                  setElecFormRoomId(firstRoom.id)
-                  setElecFormPrevReading(lastReading)
-                }
-                setShowElectricityModal(true)
-              }}
-              onAddMidCycle={() => setShowMidCycleModal(true)}
-              onViewSplitBreakdown={(el: ElectricityRecord) => setViewingSplitRecord(el)}
-              onEditReading={(el: ElectricityRecord) => setEditingElectricity(el)}
-              onDeleteReading={handleDeleteElectricity}
-              searchQuery={q}
-              onClearSearch={() => setSearch('')}
-            />
-          )}
+                    if (rId !== 'unassigned') {
+                      const availBed = currentPropertyBeds.find((b) => {
+                        if (b.room_id !== rId) return false
+                        const eff = getEffectiveBedStatus(b, currentPropertyRooms, currentPropertyTenants)
+                        return eff.isAvailable
+                      })
+                      setTenantFormBedId(availBed?.id || 'unassigned')
+                    } else {
+                      setTenantFormBedId('unassigned')
+                    }
+                    setShowTenantModal(true)
+                  }}
+                  onEditTenant={(t: Tenant) => setEditingTenant(t)}
+                  onVacateTenant={handleVacateTenant}
+                  onDeleteTenant={handleDeleteTenant}
+                  onSharePortalLink={handleOpenPortalModal}
+                  onRecordPayment={(t: Tenant) => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to record payments.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setPaymentFormTenantId(t.id)
+                    setPaymentFormAmount(t.rent)
+                    setShowPaymentModal(true)
+                  }}
+                  ownerPaymentDetails={ownerPaymentDetails}
+                  onOpenPaymentSettings={() => setActive('Settings')}
+                  searchQuery={q}
+                  onClearSearch={() => setSearch('')}
+                />
+              )}
 
-          {active === 'Expenses' && (
-            <ExpensesTab
-              expenses={filteredExpenses.filter((e) => !property.id || !e.property_id || e.property_id === property.id)}
-              totalMonth={totalExpensesMonth}
-              onAddExpense={() => setShowExpenseModal(true)}
-              onEditExpense={(e: Expense) => setEditingExpense(e)}
-              onDeleteExpense={handleDeleteExpense}
-              searchQuery={q}
-              onClearSearch={() => setSearch('')}
-            />
-          )}
+              {active === 'Rent & Payments' && (
+                <PaymentsTab
+                  payments={filteredPayments.filter((p) => !property.id || !p.property_id || p.property_id === property.id)}
+                  tenants={currentPropertyTenants}
+                  locale={locale}
+                  onRecordPayment={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to record payments.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    if (currentPropertyTenants.length) {
+                      setPaymentFormTenantId(currentPropertyTenants[0].id)
+                      setPaymentFormAmount(currentPropertyTenants[0].rent)
+                    }
+                    setShowPaymentModal(true)
+                  }}
+                  onViewReceipt={(p: any) => setSelectedReceipt(p)}
+                  onEditPayment={(p: PaymentRecord) => setEditingPayment(p)}
+                  onDeletePayment={handleDeletePayment}
+                  searchQuery={q}
+                  onClearSearch={() => setSearch('')}
+                />
+              )}
 
-          {active === 'Complaints' && (
-            <ComplaintsTab
-              complaints={filteredComplaints.filter((c) => !property.id || !c.property_id || c.property_id === property.id)}
-              onAddComplaint={() => setShowComplaintModal(true)}
-              onEditComplaint={(c: Complaint) => setEditingComplaint(c)}
-              onResolve={handleResolveComplaint}
-              onDelete={handleDeleteComplaint}
-              searchQuery={q}
-              onClearSearch={() => setSearch('')}
-            />
-          )}
+              {active === 'Electricity' && (
+                <ElectricityTab
+                  records={filteredElectricity.filter((el) => !property.id || !el.property_id || el.property_id === property.id)}
+                  rooms={currentPropertyRooms}
+                  onAddReading={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to log electricity readings.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    const firstRoom = currentPropertyRooms[0]
+                    if (firstRoom) {
+                      const lastReading = currentPropertyElectricity.find((el) => el.room_id === firstRoom.id)?.current_reading || 0
+                      setElecFormRoomId(firstRoom.id)
+                      setElecFormPrevReading(lastReading)
+                    }
+                    setShowElectricityModal(true)
+                  }}
+                  onAddMidCycle={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to split electricity bills.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setShowMidCycleModal(true)
+                  }}
+                  onViewSplitBreakdown={(el: ElectricityRecord) => setViewingSplitRecord(el)}
+                  onEditReading={(el: ElectricityRecord) => setEditingElectricity(el)}
+                  onDeleteReading={handleDeleteElectricity}
+                  searchQuery={q}
+                  onClearSearch={() => setSearch('')}
+                />
+              )}
 
-          {active === 'Reports' && (
-            <ReportsTab
-              property={property}
-              rooms={currentPropertyRooms}
-              beds={currentPropertyBeds}
-              tenants={currentPropertyTenants}
-              payments={currentPropertyPayments}
-              expenses={currentPropertyExpenses}
-              electricity={currentPropertyElectricity}
-              revenueMonth={totalCollectedMonth}
-              expensesMonth={totalExpensesMonth}
-              rentPending={totalRentPending}
-              electricityPending={totalElectricityPending}
-              locale={locale}
-            />
-          )}
+              {active === 'Expenses' && (
+                <ExpensesTab
+                  expenses={filteredExpenses.filter((e) => !property.id || !e.property_id || e.property_id === property.id)}
+                  totalMonth={totalExpensesMonth}
+                  onAddExpense={() => {
+                    if (isTrialExpired) {
+                      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to log expenses.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setShowExpenseModal(true)
+                  }}
+                  onEditExpense={(e: Expense) => setEditingExpense(e)}
+                  onDeleteExpense={handleDeleteExpense}
+                  searchQuery={q}
+                  onClearSearch={() => setSearch('')}
+                />
+              )}
 
-          {active === 'Deleted Records' && (
-            <DeletedRecordsTab
-              trashRecords={trashRecords}
-              isLoading={isLoadingTrash}
-              isRestoringId={isRestoringTrashId}
-              locale={locale}
-              onRestore={handleRestoreTrashRecord}
-              onPermanentDelete={(record: TrashRecord) => setPurgeTarget(record)}
-              onRefresh={loadTrashRecords}
-            />
-          )}
+              {active === 'Complaints' && (
+                <ComplaintsTab
+                  complaints={filteredComplaints.filter((c) => !property.id || !c.property_id || c.property_id === property.id)}
+                  onAddComplaint={() => setShowComplaintModal(true)}
+                  onEditComplaint={(c: Complaint) => setEditingComplaint(c)}
+                  onResolve={handleResolveComplaint}
+                  onDelete={handleDeleteComplaint}
+                  searchQuery={q}
+                  onClearSearch={() => setSearch('')}
+                />
+              )}
 
-          {active === 'Settings' && (
-            <SettingsTab
-              userName={userName}
-              userEmail={userEmail}
-              isSuperAdminUser={isSuperAdminUser}
-              property={property}
-              properties={properties}
-              selectedPropertyId={selectedPropertyId || property.id}
-              onSelectProperty={(id: string) => setSelectedPropertyId(id)}
-              onAddProperty={() => {
-                if (!entitlement.canCreateProperty) {
-                  flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
-                  setShowPricingModal(true)
-                  return
-                }
-                setEditingPropertyId(null)
-                setShowPropertyModal(true)
-              }}
-              entitlement={entitlement}
-              trialStart={trialStart}
-              trialEnd={trialEnd}
-              daysRemaining={daysRemaining}
-              hoursRemaining={hoursRemaining}
-              isEndingSoon={isEndingSoon}
-              isTrialExpired={isTrialExpired}
-              subscriptionPlan={subscriptionPlan}
-              subscriptionStatus={subscriptionStatus}
-              onEditProperty={() => {
-                setEditingPropertyId(property.id)
-                setShowPropertyModal(true)
-              }}
-              onEditSpecificProperty={(id: string) => {
-                setEditingPropertyId(id)
-                setShowPropertyModal(true)
-              }}
-              ownerPaymentDetails={ownerPaymentDetails}
-              setOwnerPaymentDetails={setOwnerPaymentDetails}
-              onSavePaymentDetails={handleSavePaymentDetails}
-              onQrImageUpload={handleQrImageUpload}
-              isSavingPaymentDetails={isSavingPaymentDetails}
-              isDecodingQr={isDecodingQr}
-              paymentValidationErrors={paymentValidationErrors}
-              setPaymentValidationErrors={setPaymentValidationErrors}
-              paymentSuccessMessage={paymentSuccessMessage}
-              onDeleteProperty={() => setShowDeletePropertyModal(true)}
-              onViewPlans={() => setShowPricingModal(true)}
-              onSignOut={() => setShowLogoutModal(true)}
-            />
+              {active === 'Reports' && (
+                <ReportsTab
+                  property={property}
+                  rooms={currentPropertyRooms}
+                  beds={currentPropertyBeds}
+                  tenants={currentPropertyTenants}
+                  payments={currentPropertyPayments}
+                  expenses={currentPropertyExpenses}
+                  electricity={currentPropertyElectricity}
+                  revenueMonth={totalCollectedMonth}
+                  expensesMonth={totalExpensesMonth}
+                  rentPending={totalRentPending}
+                  electricityPending={totalElectricityPending}
+                  locale={locale}
+                />
+              )}
+
+              {active === 'Deleted Records' && (
+                <DeletedRecordsTab
+                  trashRecords={trashRecords}
+                  isLoading={isLoadingTrash}
+                  isRestoringId={isRestoringTrashId}
+                  locale={locale}
+                  onRestore={handleRestoreTrashRecord}
+                  onPermanentDelete={(record: TrashRecord) => setPurgeTarget(record)}
+                  onRefresh={loadTrashRecords}
+                />
+              )}
+
+              {active === 'Settings' && (
+                <SettingsTab
+                  userName={userName}
+                  userEmail={userEmail}
+                  isSuperAdminUser={isSuperAdminUser}
+                  property={property}
+                  properties={properties}
+                  selectedPropertyId={selectedPropertyId || property.id}
+                  onSelectProperty={(id: string) => setSelectedPropertyId(id)}
+                  onAddProperty={() => {
+                    if (isTrialExpired) {
+                      flash('Your free trial has expired. Please upgrade your subscription to add properties.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    if (!entitlement.canCreateProperty) {
+                      flash(entitlement.reason || 'Cannot add property: subscription property limit reached. Please visit Subscription or Settings to upgrade your plan.')
+                      setShowPricingModal(true)
+                      return
+                    }
+                    setEditingPropertyId(null)
+                    setShowPropertyModal(true)
+                  }}
+                  entitlement={entitlement}
+                  trialStart={trialStart}
+                  trialEnd={trialEnd}
+                  daysRemaining={daysRemaining}
+                  hoursRemaining={hoursRemaining}
+                  isEndingSoon={isEndingSoon}
+                  isTrialExpired={isTrialExpired}
+                  subscriptionPlan={subscriptionPlan}
+                  subscriptionStatus={subscriptionStatus}
+                  onEditProperty={() => {
+                    setEditingPropertyId(property.id)
+                    setShowPropertyModal(true)
+                  }}
+                  onEditSpecificProperty={(id: string) => {
+                    setEditingPropertyId(id)
+                    setShowPropertyModal(true)
+                  }}
+                  ownerPaymentDetails={ownerPaymentDetails}
+                  setOwnerPaymentDetails={setOwnerPaymentDetails}
+                  onSavePaymentDetails={handleSavePaymentDetails}
+                  onQrImageUpload={handleQrImageUpload}
+                  isSavingPaymentDetails={isSavingPaymentDetails}
+                  isDecodingQr={isDecodingQr}
+                  paymentValidationErrors={paymentValidationErrors}
+                  setPaymentValidationErrors={setPaymentValidationErrors}
+                  paymentSuccessMessage={paymentSuccessMessage}
+                  onDeleteProperty={() => setShowDeletePropertyModal(true)}
+                  onViewPlans={() => setShowPricingModal(true)}
+                  onSignOut={() => setShowLogoutModal(true)}
+                />
+              )}
+            </>
           )}
         </div>
       </main>
@@ -6922,6 +7144,225 @@ function PropertyTab({
   )
 }
 
+function RoomResidentsModal({
+  room,
+  beds,
+  tenants,
+  onClose,
+  onViewRentSchedule,
+  onAddBed,
+  onOnboardTenant,
+}: {
+  room: Room
+  beds: Bed[]
+  tenants: Tenant[]
+  onClose: () => void
+  onViewRentSchedule?: (t: Tenant) => void
+  onAddBed?: () => void
+  onOnboardTenant?: (bedId?: string) => void
+}) {
+  const maxCap = getRoomMaxCapacity(room.room_type, beds.length)
+  const isFull = tenants.length >= maxCap
+
+  return (
+    <Modal title={`Room ${room.room_number} Residents & Bed Allocation`} onClose={onClose}>
+      <div className="space-y-5">
+        {/* Room Summary Header */}
+        <div className="rounded-2xl border border-[#e8dfd4] bg-[#faf7f2] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-md bg-[#8b5a2b] px-2 py-0.5 text-[10px] font-bold text-white uppercase">
+                  Floor {room.floor}
+                </span>
+                <span className="rounded-md bg-white border border-[#d8c2aa] px-2 py-0.5 text-[10px] font-semibold text-[#8b5a2b]">
+                  {room.room_type}
+                </span>
+              </div>
+              <h3 className="mt-1.5 text-base font-bold text-[#2c221e]">Room {room.room_number}</h3>
+            </div>
+            <div className="text-right">
+              <p className="text-[11px] text-[#85899a]">Base Monthly Rent</p>
+              <p className="text-sm font-bold text-[#8b5a2b]">{currency(room.base_rent)}</p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between border-t border-[#ede4d8] pt-2.5 text-xs">
+            <span className="text-[#6c635a]">Occupancy Status:</span>
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                isFull ? 'bg-[#ffebe8] text-[#b95c3c]' : 'bg-[#e7f7f0] text-[#328d68]'
+              }`}
+            >
+              {tenants.length} / {maxCap} Beds Occupied ({isFull ? 'FULL' : 'Available'})
+            </span>
+          </div>
+        </div>
+
+        {/* Assigned Residents List */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-bold text-[#2c221e] uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="size-3.5 text-[#8b5a2b]" /> Assigned Residents ({tenants.length})
+            </h4>
+            {!isFull && onOnboardTenant && (
+              <button
+                type="button"
+                onClick={() => onOnboardTenant()}
+                className="text-xs font-bold text-[#8b5a2b] hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="size-3" /> Onboard Resident
+              </button>
+            )}
+          </div>
+
+          {tenants.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[#d8c2aa] bg-white p-4 text-center">
+              <p className="text-xs text-[#85899a]">No residents are currently assigned to Room {room.room_number}.</p>
+              {!isFull && onOnboardTenant && (
+                <button
+                  type="button"
+                  onClick={() => onOnboardTenant()}
+                  className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[#8b5a2b] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#784b20] transition-colors"
+                >
+                  <Plus className="size-3.5" /> Assign First Resident
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {tenants.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#ebe4da] bg-white p-3.5 shadow-2xs hover:border-[#d8cbbe] transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-9 items-center justify-center rounded-xl bg-[#faf3ea] text-[#8b5a2b] font-bold text-xs shrink-0">
+                      {t.name.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-[#2c221e]">{t.name}</span>
+                        {t.bed_number && (
+                          <span className="rounded bg-[#f0f1f4] px-1.5 py-0.2 text-[10px] font-semibold text-[#555a6c]">
+                            Bed {t.bed_number}
+                          </span>
+                        )}
+                        <span
+                          className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase ${
+                            t.status === 'Paid'
+                              ? 'bg-[#e7f7f0] text-[#328d68]'
+                              : t.status === 'Overdue'
+                              ? 'bg-[#ffebe8] text-[#b95c3c]'
+                              : 'bg-[#fff4e5] text-[#b46b1a]'
+                          }`}
+                        >
+                          {t.status}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#85899a]">
+                        <span>📞 {t.phone || 'No phone'}</span>
+                        <span>₹{t.rent || room.base_rent}/mo</span>
+                        {t.rent_due_day && <span>Due Day: {t.rent_due_day}st</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {onViewRentSchedule && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose()
+                        onViewRentSchedule(t)
+                      }}
+                      className="self-start sm:self-auto rounded-lg border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-[11px] font-semibold text-[#8b5a2b] hover:bg-[#8b5a2b] hover:text-white transition-colors cursor-pointer"
+                    >
+                      Rent Schedule
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Bed Configuration Inventory */}
+        <div className="border-t border-[#f2ede4] pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-xs font-bold text-[#2c221e] uppercase tracking-wider flex items-center gap-1.5">
+              <BedDouble className="size-3.5 text-[#8b5a2b]" /> Bed Inventory ({beds.length})
+            </h4>
+            {onAddBed && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose()
+                  onAddBed()
+                }}
+                className="text-xs font-bold text-[#8b5a2b] hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="size-3" /> Add Bed
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {beds.map((b) => {
+              const occupant = tenants.find((t) => t.bed_id === b.id || t.bed_number === b.bed_number)
+              const isOccupied = b.status === 'occupied' || Boolean(occupant)
+
+              return (
+                <div
+                  key={b.id}
+                  className={`flex items-center justify-between rounded-xl border p-2.5 text-xs ${
+                    isOccupied
+                      ? 'border-[#e8dfd4] bg-[#faf7f2]'
+                      : 'border-[#d0e5d9] bg-[#f4faf6]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-[#2c221e]">{b.bed_number}</span>
+                    <span
+                      className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase ${
+                        isOccupied ? 'bg-[#fff4e5] text-[#b46b1a]' : 'bg-[#e7f7f0] text-[#328d68]'
+                      }`}
+                    >
+                      {isOccupied ? 'Occupied' : 'Available'}
+                    </span>
+                  </div>
+                  {isOccupied ? (
+                    <span className="text-[11px] font-medium text-[#6c635a] truncate max-w-[120px]">
+                      {occupant?.name || 'Resident'}
+                    </span>
+                  ) : onOnboardTenant ? (
+                    <button
+                      type="button"
+                      onClick={() => onOnboardTenant(b.id)}
+                      className="text-[10px] font-bold text-[#236b4e] hover:underline cursor-pointer"
+                    >
+                      + Assign
+                    </button>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="border-t border-[#f2ede4] pt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[#d6d9e0] bg-white px-4 py-2 text-xs font-semibold text-[#555a6c] hover:bg-[#faf7f2] cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function RoomsTab({
   rooms,
   beds,
@@ -6935,7 +7376,11 @@ function RoomsTab({
   onDeleteBed,
   searchQuery,
   onClearSearch,
+  onViewRentSchedule,
+  onOnboardTenantForRoom,
 }: any) {
+  const [viewingRoom, setViewingRoom] = useState<Room | null>(null)
+
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -7016,8 +7461,45 @@ function RoomsTab({
                     </div>
                   </div>
 
+                  {/* Room-wise Resident Names List */}
+                  <div className="mt-4 border-t border-[#f2ede4] pt-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-[11px] font-bold text-[#676b7d] flex items-center gap-1.5">
+                        <Users className="size-3 text-[#8b5a2b]" /> Occupants ({assignedTenants.length})
+                      </p>
+                      {assignedTenants.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setViewingRoom(r)}
+                          className="text-[10px] text-[#8b5a2b] font-bold hover:underline cursor-pointer"
+                        >
+                          View Details
+                        </button>
+                      )}
+                    </div>
+                    {assignedTenants.length === 0 ? (
+                      <p className="text-[11px] italic text-[#a0a3af]">No residents in this room</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {assignedTenants.map((t: Tenant) => (
+                          <span
+                            key={t.id}
+                            className="inline-flex items-center gap-1 rounded-lg border border-[#e8dfd4] bg-[#faf7f2] px-2 py-1 text-[11px] font-semibold text-[#2c221e]"
+                            title={`${t.name} (${t.bed_number || 'Bed'}) - Status: ${t.status}`}
+                          >
+                            <span className="size-1.5 rounded-full bg-[#8b5a2b]" />
+                            {t.name}
+                            {t.bed_number && (
+                              <span className="text-[10px] font-normal text-[#85899a]">({t.bed_number})</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Bed Inventory Inside Room */}
-                  <div className="mt-5 border-t border-[#f0f1f4] pt-4">
+                  <div className="mt-4 border-t border-[#f0f1f4] pt-3">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-[11px] font-semibold text-[#676b7d]">Beds ({roomBeds.length})</p>
                       <button
@@ -7067,11 +7549,36 @@ function RoomsTab({
                       ))}
                     </div>
                   </div>
+
+                  {/* View Room & Residents Action Button */}
+                  <button
+                    type="button"
+                    onClick={() => setViewingRoom(r)}
+                    className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#d8c2aa] bg-[#faf7f2] py-2 text-xs font-bold text-[#8b5a2b] hover:bg-[#8b5a2b] hover:text-white transition-all shadow-2xs cursor-pointer"
+                  >
+                    <Users className="size-3.5" /> Room & Resident Details ({assignedTenants.length})
+                  </button>
                 </div>
               </div>
             )
           })}
         </div>
+      )}
+
+      {/* Dedicated Room-wise Resident & Bed Modal */}
+      {viewingRoom && (
+        <RoomResidentsModal
+          room={viewingRoom}
+          beds={beds.filter((b: Bed) => b.room_id === viewingRoom.id)}
+          tenants={tenants.filter((t: Tenant) => t.room_id === viewingRoom.id && t.status !== 'Vacated')}
+          onClose={() => setViewingRoom(null)}
+          onViewRentSchedule={onViewRentSchedule}
+          onAddBed={() => onAddBed(viewingRoom.id, viewingRoom.room_number)}
+          onOnboardTenant={(bedId?: string) => {
+            setViewingRoom(null)
+            onOnboardTenantForRoom?.(viewingRoom.id, bedId)
+          }}
+        />
       )}
     </div>
   )
@@ -7510,6 +8017,7 @@ function PaymentsTab({
   searchQuery,
   onClearSearch,
 }: any) {
+  const HISTORICAL_START_YEAR = 2026
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(currentMonth)
@@ -7519,6 +8027,28 @@ function PaymentsTab({
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ]
+
+  const availableYears = useMemo(() => {
+    const years: number[] = []
+    const maxYear = Math.max(HISTORICAL_START_YEAR + 1, currentYear + 1)
+    for (let yr = HISTORICAL_START_YEAR; yr <= maxYear; yr++) {
+      years.push(yr)
+    }
+    return years
+  }, [currentYear])
+
+  const availableMonths = useMemo(() => {
+    return MONTH_NAMES.map((name, idx) => ({ name, idx })).filter(({ idx }) => {
+      if (selectedYear === 2026) {
+        const hasOlderRecord = payments.some((p: PaymentRecord) => {
+          const d = new Date(p.paid_at)
+          return d.getFullYear() === 2026 && d.getMonth() === idx
+        })
+        return idx >= 9 || hasOlderRecord
+      }
+      return true
+    })
+  }, [selectedYear, payments])
 
   const displayedPayments = useMemo(() => {
     if (selectedMonth === 'all') return payments
@@ -7559,7 +8089,7 @@ function PaymentsTab({
             className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
           >
             <option value="all">All Months (Historical)</option>
-            {MONTH_NAMES.map((name, idx) => (
+            {availableMonths.map(({ name, idx }) => (
               <option key={name} value={idx}>
                 {name}
               </option>
@@ -7570,7 +8100,7 @@ function PaymentsTab({
             onChange={(e) => setSelectedYear(Number(e.target.value))}
             className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
           >
-            {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((yr) => (
+            {availableYears.map((yr) => (
               <option key={yr} value={yr}>
                 {yr}
               </option>
@@ -8017,6 +8547,7 @@ function ElectricityTab({
   searchQuery,
   onClearSearch,
 }: any) {
+  const HISTORICAL_START_YEAR = 2026
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(currentMonth)
@@ -8026,6 +8557,28 @@ function ElectricityTab({
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ]
+
+  const availableYears = useMemo(() => {
+    const years: number[] = []
+    const maxYear = Math.max(HISTORICAL_START_YEAR + 1, currentYear + 1)
+    for (let yr = HISTORICAL_START_YEAR; yr <= maxYear; yr++) {
+      years.push(yr)
+    }
+    return years
+  }, [currentYear])
+
+  const availableMonths = useMemo(() => {
+    return MONTH_NAMES.map((name, idx) => ({ name, idx })).filter(({ idx }) => {
+      if (selectedYear === 2026) {
+        const hasOlderRecord = records.some((el: ElectricityRecord) => {
+          const d = new Date(el.reading_date)
+          return d.getFullYear() === 2026 && d.getMonth() === idx
+        })
+        return idx >= 9 || hasOlderRecord
+      }
+      return true
+    })
+  }, [selectedYear, records])
 
   const displayedRecords = useMemo(() => {
     if (selectedMonth === 'all') return records
@@ -8083,7 +8636,7 @@ function ElectricityTab({
             className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
           >
             <option value="all">All Months (Historical)</option>
-            {MONTH_NAMES.map((name, idx) => (
+            {availableMonths.map(({ name, idx }) => (
               <option key={name} value={idx}>
                 {name}
               </option>
@@ -8094,7 +8647,7 @@ function ElectricityTab({
             onChange={(e) => setSelectedYear(Number(e.target.value))}
             className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
           >
-            {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((yr) => (
+            {availableYears.map((yr) => (
               <option key={yr} value={yr}>
                 {yr}
               </option>
@@ -8241,6 +8794,7 @@ function ElectricityTab({
 }
 
 function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDeleteExpense, searchQuery, onClearSearch }: any) {
+  const HISTORICAL_START_YEAR = 2026
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(currentMonth)
@@ -8250,6 +8804,28 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ]
+
+  const availableYears = useMemo(() => {
+    const years: number[] = []
+    const maxYear = Math.max(HISTORICAL_START_YEAR + 1, currentYear + 1)
+    for (let yr = HISTORICAL_START_YEAR; yr <= maxYear; yr++) {
+      years.push(yr)
+    }
+    return years
+  }, [currentYear])
+
+  const availableMonths = useMemo(() => {
+    return MONTH_NAMES.map((name, idx) => ({ name, idx })).filter(({ idx }) => {
+      if (selectedYear === 2026) {
+        const hasOlderRecord = expenses.some((e: Expense) => {
+          const d = new Date(e.expense_date)
+          return d.getFullYear() === 2026 && d.getMonth() === idx
+        })
+        return idx >= 9 || hasOlderRecord
+      }
+      return true
+    })
+  }, [selectedYear, expenses])
 
   const displayedExpenses = useMemo(() => {
     if (selectedMonth === 'all') return expenses
@@ -8290,7 +8866,7 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
             className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
           >
             <option value="all">All Months (Historical)</option>
-            {MONTH_NAMES.map((name, idx) => (
+            {availableMonths.map(({ name, idx }) => (
               <option key={name} value={idx}>
                 {name}
               </option>
@@ -8301,7 +8877,7 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
             onChange={(e) => setSelectedYear(Number(e.target.value))}
             className="rounded-xl border border-[#d8c2aa] bg-white px-3 py-1.5 font-semibold text-[#2c221e] shadow-2xs outline-none cursor-pointer"
           >
-            {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((yr) => (
+            {availableYears.map((yr) => (
               <option key={yr} value={yr}>
                 {yr}
               </option>
@@ -8511,9 +9087,12 @@ function ReportsTab({
   electricityPending = 0,
   locale = 'en',
 }: any) {
+  const HISTORICAL_START_YEAR = 2026
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
-  const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth)
+  const [selectedMonth, setSelectedMonth] = useState<number>(() => {
+    return currentYear === 2026 ? Math.max(9, currentMonth) : currentMonth
+  })
   const [selectedYear, setSelectedYear] = useState<number>(currentYear)
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'rent' | 'expenses' | 'electricity' | 'occupancy'>('overview')
 
@@ -8521,6 +9100,37 @@ function ReportsTab({
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
   ]
+
+  const availableYears = useMemo(() => {
+    const years: number[] = []
+    const maxYear = Math.max(HISTORICAL_START_YEAR + 1, currentYear + 1)
+    for (let yr = HISTORICAL_START_YEAR; yr <= maxYear; yr++) {
+      years.push(yr)
+    }
+    return years
+  }, [currentYear])
+
+  const availableMonths = useMemo(() => {
+    return MONTH_NAMES.map((name, idx) => ({ name, idx })).filter(({ idx }) => {
+      if (selectedYear === 2026) {
+        const hasOlderRecord =
+          payments.some((p: PaymentRecord) => {
+            const d = new Date(p.paid_at)
+            return d.getFullYear() === 2026 && d.getMonth() === idx
+          }) ||
+          expenses.some((e: Expense) => {
+            const d = new Date(e.expense_date)
+            return d.getFullYear() === 2026 && d.getMonth() === idx
+          }) ||
+          electricity.some((el: ElectricityRecord) => {
+            const d = new Date(el.reading_date)
+            return d.getFullYear() === 2026 && d.getMonth() === idx
+          })
+        return idx >= 9 || hasOlderRecord
+      }
+      return true
+    })
+  }, [selectedYear, payments, expenses, electricity])
 
   const periodLabel = `${MONTH_NAMES[selectedMonth]} ${selectedYear}`
   const isCurrentMonth = selectedMonth === currentMonth && selectedYear === currentYear
@@ -8639,7 +9249,7 @@ function ReportsTab({
               onChange={(e) => setSelectedMonth(Number(e.target.value))}
               className="bg-transparent font-semibold text-xs text-[#2c221e] outline-none cursor-pointer py-1 pr-1"
             >
-              {MONTH_NAMES.map((name, idx) => (
+              {availableMonths.map(({ name, idx }) => (
                 <option key={name} value={idx}>
                   {name}
                 </option>
@@ -8650,7 +9260,7 @@ function ReportsTab({
               onChange={(e) => setSelectedYear(Number(e.target.value))}
               className="bg-transparent font-semibold text-xs text-[#2c221e] outline-none cursor-pointer py-1 pr-1"
             >
-              {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map((yr) => (
+              {availableYears.map((yr) => (
                 <option key={yr} value={yr}>
                   {yr}
                 </option>
