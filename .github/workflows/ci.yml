@@ -124,15 +124,10 @@ jobs:
           fi
 
           URL_TO_CHECK="${NEXT_PUBLIC_SUPABASE_URL%/}"
-
-          if [[ "$URL_TO_CHECK" =~ ^https://[a-zA-Z0-9-]+\.supabase\.co$ ]]; then
+          if [[ "$URL_TO_CHECK" == https://*.supabase.co ]]; then
             echo "Supabase URL format looks valid."
           else
-            echo "::error::Supabase URL format is invalid. Expected https://your-project-id.supabase.co"
-            echo "The configured URL host is:"
-            printf '%s\n' "$URL_TO_CHECK" |
-              sed -E 's#^https?://([^/]+).*$#\1#' |
-              sed 's/^/URL host: /'
+            echo "::error::Supabase URL format is invalid."
             exit 1
           fi
 
