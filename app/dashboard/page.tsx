@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient, ensureFreshSession } from '@/lib/supabase/client'
 import { resolveAuthoritativeSubscription, resolveCustomerEntitlements, type CustomerEntitlement } from '@/lib/subscription'
@@ -17,6 +17,7 @@ import {
   restoreTrashRecordAction,
   permanentlyDeleteTrashAction,
   type TrashRecord,
+  type TrashEntityType,
 } from './actions'
 import {
   generateTenantLinkAction,
@@ -948,7 +949,7 @@ export default function DashboardPage() {
         supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at,updated_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
         supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,deleted_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
         supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
-        supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,meter_number,period_start,period_end,calculation_type,split_breakdown').eq('owner_id', user.id).order('reading_date', { ascending: false }),
+        supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,meter_number').eq('owner_id', user.id).order('reading_date', { ascending: false }),
         supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
         supabase.from('profiles').select('phone,upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
       ])
@@ -1263,25 +1264,31 @@ export default function DashboardPage() {
         Promise.all(missingPropertyUpdates).catch(() => {})
       }
 
-      // Fetch real Trash / Deleted Records
-      try {
-        const trashRes = await getTrashRecordsAction()
+      // Load trash records asynchronously in background so initial dashboard render is never blocked
+      void getTrashRecordsAction().then((trashRes) => {
         if (trashRes.success && trashRes.records) {
           setTrashRecords(trashRes.records)
-          }
-        } catch (e) {
-          console.error('Failed to load trash records:', e)
         }
-      } catch (err) {
-        console.error('Failed to load dashboard records:', err)
-      } finally {
-        setLoading(false)
-      }
+      }).catch((e) => {
+        console.error('Failed to load trash records:', e)
+      })
+    } catch (err) {
+      console.error('Failed to load dashboard records:', err)
+    } finally {
+      setLoading(false)
     }
+  }
 
   useEffect(() => {
     void fetchDashboardData()
   }, [])
+
+  // Lazy-load trash records if owner navigates to Deleted Records tab before background fetch finished
+  useEffect(() => {
+    if (active === 'Deleted Records' && trashRecords.length === 0 && !isLoadingTrash) {
+      void loadTrashRecords()
+    }
+  }, [active])
 
   const loadTrashRecords = async () => {
     setIsLoadingTrash(true)
@@ -1295,6 +1302,23 @@ export default function DashboardPage() {
     } finally {
       setIsLoadingTrash(false)
     }
+  }
+
+  // Fast optimistic trash insertion to avoid blocking delete operations with heavy audit queries
+  const addOptimisticTrash = (entityType: TrashEntityType, targetId: string, entityName: string, details: string) => {
+    setTrashRecords((prev) => [
+      {
+        id: `trash_${Date.now()}`,
+        target_id: String(targetId),
+        entity_type: entityType,
+        entity_name: entityName,
+        details,
+        deleted_at: new Date().toISOString(),
+        deleted_by: userEmail || 'PG Owner',
+        snapshot: {},
+      },
+      ...prev,
+    ])
   }
 
   // ----------------------------------------------------------------------------
@@ -1608,7 +1632,7 @@ export default function DashboardPage() {
       setShowDeletePropertyModal(false)
       setDeletePropertyInput('')
       flash('Property moved to Deleted Records.')
-      void loadTrashRecords()
+      addOptimisticTrash('property', deletedId, property.name, `${property.city || 'Property'} · ${rooms.filter((r) => r.property_id === deletedId).length} rooms`)
     } catch (err) {
       flash('Failed to delete property.')
     } finally {
@@ -1761,7 +1785,7 @@ export default function DashboardPage() {
         setBeds((prev) => prev.filter((b) => b.room_id !== roomId))
         setTenants((prev) => prev.map((t) => (t.room_id === roomId ? { ...t, room: 'Unassigned', room_id: null, bed_id: null, bed_number: '' } : t)))
         flash('Room moved to Deleted Records.')
-        void loadTrashRecords()
+        addOptimisticTrash('room', roomId, `Room ${roomNumber}`, `${targetRoom?.room_type || 'Room'} · Floor ${targetRoom?.floor || 0}`)
       },
     })
   }
@@ -1906,7 +1930,7 @@ export default function DashboardPage() {
         }
         setBeds((prev) => prev.filter((b) => b.id !== bedId))
         flash('Bed moved to Deleted Records.')
-        void loadTrashRecords()
+        addOptimisticTrash('bed', bedId, `Bed ${bedNumber}`, 'Bed Inventory Unit')
       },
     })
   }
@@ -2039,9 +2063,11 @@ export default function DashboardPage() {
         createdTenant = newTenant
       }
 
-      // If bed was assigned, set bed status to 'occupied'
+      // If bed was assigned, set bed status to 'occupied' (skip redundant DB update if server action already handled it)
       if (createdTenant.bed_id) {
-        await supabase.from('beds').update({ status: 'occupied' }).eq('id', createdTenant.bed_id)
+        if (!actionRes?.success) {
+          await supabase.from('beds').update({ status: 'occupied' }).eq('id', createdTenant.bed_id)
+        }
         setBeds((prev) => prev.map((b) => (b.id === createdTenant.bed_id ? { ...b, status: 'occupied' } : b)))
       }
 
@@ -2228,16 +2254,23 @@ export default function DashboardPage() {
         }
       }
 
-      // Sync Bed Statuses
+      // Sync Bed Statuses (skip redundant DB update if server action already handled it)
+      if (!updateRes?.success) {
+        if (editingTenant.bed_id && editingTenant.bed_id !== finalBedId) {
+          await supabase.from('beds').update({ status: 'available' }).eq('id', editingTenant.bed_id)
+        }
+        if (finalBedId && finalStatus !== 'Vacated') {
+          await supabase.from('beds').update({ status: 'occupied' }).eq('id', finalBedId)
+        } else if (finalBedId && finalStatus === 'Vacated') {
+          await supabase.from('beds').update({ status: 'available' }).eq('id', finalBedId)
+        }
+      }
       if (editingTenant.bed_id && editingTenant.bed_id !== finalBedId) {
-        await supabase.from('beds').update({ status: 'available' }).eq('id', editingTenant.bed_id)
         setBeds((prev) => prev.map((b) => (b.id === editingTenant.bed_id ? { ...b, status: 'available' } : b)))
       }
       if (finalBedId && finalStatus !== 'Vacated') {
-        await supabase.from('beds').update({ status: 'occupied' }).eq('id', finalBedId)
         setBeds((prev) => prev.map((b) => (b.id === finalBedId ? { ...b, status: 'occupied' } : b)))
       } else if (finalBedId && finalStatus === 'Vacated') {
-        await supabase.from('beds').update({ status: 'available' }).eq('id', finalBedId)
         setBeds((prev) => prev.map((b) => (b.id === finalBedId ? { ...b, status: 'available' } : b)))
       }
 
@@ -2332,7 +2365,7 @@ export default function DashboardPage() {
 
         setTenants((prev) => prev.filter((t) => t.id !== tenantId))
         flash('Resident moved to Deleted Records.')
-        void loadTrashRecords()
+        addOptimisticTrash('tenant', tenantId, tenantName, `Room ${target.room || 'Unassigned'} · Rent: ₹${target.rent || 0}`)
       },
     })
   }
@@ -2585,34 +2618,34 @@ export default function DashboardPage() {
 
           const targetPaymentPropId = property.id || selectedPropertyId || targetTenant.property_id || properties[0]?.id || null
 
-          const { data: newPayment, error } = await supabase
-            .from('payments')
-            .insert({
-              owner_id: userId,
-              property_id: targetPaymentPropId,
-              tenant_id: tenantId,
-              amount,
-              payment_method: method,
-              payment_type: type,
-              month_covered: monthCovered || null,
-              paid_at: now,
-              notes: combinedNotes || null,
-            })
-            .select('id,property_id,tenant_id,amount,payment_method,payment_type,month_covered,paid_at,notes')
-            .single()
+          const [{ data: newPayment, error: payError }, { error: tenantErr }] = await Promise.all([
+            supabase
+              .from('payments')
+              .insert({
+                owner_id: userId,
+                property_id: targetPaymentPropId,
+                tenant_id: tenantId,
+                amount,
+                payment_method: method,
+                payment_type: type,
+                month_covered: monthCovered || null,
+                paid_at: now,
+                notes: combinedNotes || null,
+              })
+              .select('id,property_id,tenant_id,amount,payment_method,payment_type,month_covered,paid_at,notes')
+              .single(),
+            supabase.from('tenants').update({ status: 'Paid', updated_at: now }).eq('id', tenantId),
+          ])
 
-          if (error) {
-            if (error.code === 'PGRST303' || error.message?.includes('JWT') || error.message?.includes('expired')) {
+          if (payError || !newPayment) {
+            if (payError?.code === 'PGRST303' || payError?.message?.includes('JWT') || payError?.message?.includes('expired')) {
               flash('Your session has expired. Please sign in again.')
               router.push('/login?next=/dashboard')
               return
             }
-            flash(`Could not save payment to ledger: ${error.message}`)
+            flash(`Could not save payment to ledger: ${payError?.message || 'Database error'}`)
             return
           }
-
-          // Update tenant status to 'Paid'
-          await supabase.from('tenants').update({ status: 'Paid' }).eq('id', tenantId)
 
           const recordedPayment: PaymentRecord = {
             id: newPayment.id,
@@ -2760,7 +2793,7 @@ export default function DashboardPage() {
         }
 
         flash(`Payment #${paymentId.slice(0, 8).toUpperCase()} reversed and moved to Deleted Records.`)
-        void loadTrashRecords()
+        addOptimisticTrash('payment', paymentId, `Payment Receipt REC-${paymentId.slice(0, 8).toUpperCase()}`, `₹${amount} for ${tenantDisplayName} (Reversed)`)
       },
     })
   }
@@ -2934,7 +2967,7 @@ export default function DashboardPage() {
         }
         setExpenses((prev) => prev.filter((e) => e.id !== id))
         flash('Expense moved to Deleted Records.')
-        void loadTrashRecords()
+        addOptimisticTrash('expense', id, title, `${target?.category || 'Expense'} · ₹${target?.amount || 0}`)
       },
     })
   }
@@ -3028,7 +3061,7 @@ export default function DashboardPage() {
         }
         setElectricity((prev) => prev.filter((el) => el.id !== id))
         flash('Meter reading moved to Deleted Records.')
-        void loadTrashRecords()
+        addOptimisticTrash('electricity', id, `Meter Reading for Room ${room}`, `Date: ${target?.reading_date || 'N/A'} · Rate: ₹${target?.rate_per_unit || 10}/unit`)
       },
     })
   }
@@ -3389,9 +3422,8 @@ export default function DashboardPage() {
         split_breakdown: midCycleCalculatedSplit.residentShares,
       })
 
-      // 1. Insert master electricity reading
-      let readingData: any = null
-      const fullReadingPayload = {
+      // 1. Direct clean insert for master electricity reading (eliminates failed round-trips)
+      const baseReadingPayload = {
         owner_id: userId,
         property_id: targetSplitPropId,
         room_id: finalRoomId,
@@ -3399,87 +3431,38 @@ export default function DashboardPage() {
         previous_reading: 0,
         current_reading: midCycleCalculatedSplit.totalUnits,
         rate_per_unit: midCycleCalculatedSplit.ratePerUnit,
-        total_units: midCycleCalculatedSplit.totalUnits,
-        total_amount: midCycleCalculatedSplit.totalAmount,
         reading_date: midCyclePeriodEnd,
-        period_start: midCyclePeriodStart,
-        period_end: midCyclePeriodEnd,
-        calculation_type: midCycleCalculatedSplit.calculationMethod,
-        split_breakdown: midCycleCalculatedSplit.residentShares,
       }
-
-      const { data: extData, error: extErr } = await supabase
+      const { data: readingData, error: baseErr } = await supabase
         .from('electricity_readings')
-        .insert(fullReadingPayload)
-        .select('*')
+        .insert(baseReadingPayload)
+        .select('id,property_id,room_id,previous_reading,current_reading,rate_per_unit,reading_date,meter_number')
         .single()
 
-      if (!extErr && extData) {
-        readingData = extData
-      } else {
-        // Fallback to base columns (metadata securely stored in meter_number)
-        const baseReadingPayload = {
-          owner_id: userId,
-          property_id: targetSplitPropId,
-          room_id: finalRoomId,
-          meter_number: splitMetadata,
-          previous_reading: 0,
-          current_reading: midCycleCalculatedSplit.totalUnits,
-          rate_per_unit: midCycleCalculatedSplit.ratePerUnit,
-          total_units: midCycleCalculatedSplit.totalUnits,
-          total_amount: midCycleCalculatedSplit.totalAmount,
-          reading_date: midCyclePeriodEnd,
-        }
-        const { data: baseData, error: baseErr } = await supabase
-          .from('electricity_readings')
-          .insert(baseReadingPayload)
-          .select('*')
-          .single()
-
-        if (baseErr) {
-          throw new Error('Failed to record electricity bill: ' + baseErr.message)
-        }
-        readingData = baseData
+      if (baseErr || !readingData) {
+        throw new Error('Failed to record electricity bill: ' + (baseErr?.message || 'Database insert error'))
       }
 
-      // 2. Insert individual tenant shares into tenant_electricity_shares
-      const extendedShares = midCycleCalculatedSplit.residentShares.map((s) => ({
+      // 2. Direct clean insert for individual tenant shares
+      const baseShares = midCycleCalculatedSplit.residentShares.map((s) => ({
         owner_id: userId,
         reading_id: readingData.id,
         tenant_id: s.residentId,
         property_id: targetSplitPropId,
         room_id: finalRoomId,
-        period_start: midCyclePeriodStart,
-        period_end: midCyclePeriodEnd,
-        occupied_days: s.occupiedDays,
-        total_period_days: s.totalPeriodDays,
-        share_percentage: s.sharePercentage,
-        units_consumed: s.unitsConsumed ?? null,
-        amount_due: s.amountDue,
-        calculation_method: s.calculationMethod,
-        calculation_explanation: s.calculationExplanation,
         allocated_units: s.unitsConsumed ?? Math.round((s.sharePercentage / 100) * midCycleCalculatedSplit.totalUnits * 100) / 100,
         rate_per_unit: midCycleCalculatedSplit.ratePerUnit,
+        amount_due: s.amountDue,
+        amount_paid: 0,
+        is_settled: false,
         billing_month: midCyclePeriodStart.slice(0, 7),
       }))
 
-      const { error: shareExtErr } = await supabase.from('tenant_electricity_shares').insert(extendedShares)
-      if (shareExtErr) {
-        // Fallback to base columns
-        const baseShares = midCycleCalculatedSplit.residentShares.map((s) => ({
-          owner_id: userId,
-          reading_id: readingData.id,
-          tenant_id: s.residentId,
-          property_id: targetSplitPropId,
-          room_id: finalRoomId,
-          allocated_units: s.unitsConsumed ?? Math.round((s.sharePercentage / 100) * midCycleCalculatedSplit.totalUnits * 100) / 100,
-          rate_per_unit: midCycleCalculatedSplit.ratePerUnit,
-          amount_due: s.amountDue,
-          amount_paid: 0,
-          is_settled: false,
-          billing_month: midCyclePeriodStart.slice(0, 7),
-        }))
-        await supabase.from('tenant_electricity_shares').insert(baseShares)
+      if (baseShares.length > 0) {
+        const { error: shareErr } = await supabase.from('tenant_electricity_shares').insert(baseShares)
+        if (shareErr) {
+          console.warn('Could not insert tenant shares:', shareErr.message)
+        }
       }
 
       // 3. Update local state
@@ -7158,7 +7141,7 @@ function GuidedSetupWizard({
   )
 }
 
-function OverviewTab({
+const OverviewTab = memo(function OverviewTab({
   property,
   properties = [],
   rooms = [],
@@ -7570,9 +7553,9 @@ function OverviewTab({
       </div>
     </>
   )
-}
+})
 
-function PropertyTab({
+const PropertyTab = memo(function PropertyTab({
   property,
   properties = [],
   selectedPropertyId,
@@ -7738,7 +7721,7 @@ function PropertyTab({
       </div>
     </div>
   )
-}
+})
 
 function RoomResidentsModal({
   room,
@@ -7959,7 +7942,7 @@ function RoomResidentsModal({
   )
 }
 
-function RoomsTab({
+const RoomsTab = memo(function RoomsTab({
   rooms,
   beds,
   tenants,
@@ -8178,9 +8161,9 @@ function RoomsTab({
       )}
     </div>
   )
-}
+})
 
-function TenantsTab({
+const TenantsTab = memo(function TenantsTab({
   tenants,
   rooms,
   property,
@@ -8600,9 +8583,9 @@ function TenantsTab({
       )}
     </div>
   )
-}
+})
 
-function PaymentsTab({
+const PaymentsTab = memo(function PaymentsTab({
   payments,
   tenants,
   locale = 'en',
@@ -8887,9 +8870,9 @@ function PaymentsTab({
       )}
     </div>
   )
-}
+})
 
-function DeletedRecordsTab({
+const DeletedRecordsTab = memo(function DeletedRecordsTab({
   trashRecords,
   isLoading = false,
   isRestoringId = null,
@@ -9130,9 +9113,9 @@ function DeletedRecordsTab({
       )}
     </div>
   )
-}
+})
 
-function ElectricityTab({
+const ElectricityTab = memo(function ElectricityTab({
   records,
   rooms,
   onAddReading,
@@ -9387,9 +9370,9 @@ function ElectricityTab({
       )}
     </div>
   )
-}
+})
 
-function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDeleteExpense, searchQuery, onClearSearch }: any) {
+const ExpensesTab = memo(function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDeleteExpense, searchQuery, onClearSearch }: any) {
   const HISTORICAL_START_YEAR = 2026
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
@@ -9577,9 +9560,9 @@ function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDele
       )}
     </div>
   )
-}
+})
 
-function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve, onDelete, searchQuery, onClearSearch }: any) {
+const ComplaintsTab = memo(function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve, onDelete, searchQuery, onClearSearch }: any) {
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -9667,9 +9650,9 @@ function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve,
       )}
     </div>
   )
-}
+})
 
-function ReportsTab({
+const ReportsTab = memo(function ReportsTab({
   property,
   rooms = [],
   beds = [],
@@ -10392,9 +10375,9 @@ function ReportsTab({
       </div>
     </div>
   )
-}
+})
 
-function SettingsTab({
+const SettingsTab = memo(function SettingsTab({
   userName,
   userEmail,
   property,
@@ -10870,7 +10853,7 @@ function SettingsTab({
       </div>
     </div>
   )
-}
+})
 
 function MetricCard({ label, value, note, Icon, i }: any) {
   return (
