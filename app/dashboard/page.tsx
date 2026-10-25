@@ -55,7 +55,13 @@ import {
   validateUpiId,
   validatePaymentLink,
 } from '@/lib/payment-validation'
-import { calculateMidCycleElectricitySplit } from '@/lib/electricity-split'
+import {
+  calculateMidCycleElectricitySplit,
+  suggestPreviousBillingCycle,
+  getSuggestedRate,
+  validateMidCycleInputs,
+  type MidCycleSplitResult,
+} from '@/lib/electricity-split'
 import { BaseraBookLogo, BaseraBookIcon } from '@/components/ui/BaseraBookLogo'
 import {
   Activity,
@@ -66,6 +72,7 @@ import {
   BedDouble,
   Bell,
   Building2,
+  Calculator,
   Calendar,
   CalendarRange,
   Check,
@@ -150,6 +157,7 @@ type Tenant = {
   joiningDate?: string
   rent_due_day?: number
   deleted_at?: string | null
+  updated_at?: string | null
   status: 'Paid' | 'Pending' | 'Overdue' | 'Vacated'
 }
 
@@ -671,24 +679,19 @@ export default function DashboardPage() {
   // Mid-Cycle Electricity Split Modal State
   const [showMidCycleModal, setShowMidCycleModal] = useState(false)
   const [midCycleRoomId, setMidCycleRoomId] = useState<string>('all')
-  const [midCyclePeriodStart, setMidCyclePeriodStart] = useState<string>(() => {
-    const d = new Date()
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    return `${y}-${m}-01`
-  })
-  const [midCyclePeriodEnd, setMidCyclePeriodEnd] = useState<string>(() => {
-    const d = new Date()
-    const y = d.getFullYear()
-    const m = d.getMonth() + 1
-    const lastDay = new Date(y, m, 0).getDate()
-    return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
-  })
-  const [midCycleBillAmount, setMidCycleBillAmount] = useState<number>(1200)
+  const [midCyclePeriodStart, setMidCyclePeriodStart] = useState<string>('')
+  const [midCyclePeriodEnd, setMidCyclePeriodEnd] = useState<string>('')
+  const [midCycleBillAmount, setMidCycleBillAmount] = useState<number>(0)
   const [midCycleRatePerUnit, setMidCycleRatePerUnit] = useState<number>(10)
-  const [midCycleTotalUnits, setMidCycleTotalUnits] = useState<number>(120)
+  const [midCycleTotalUnits, setMidCycleTotalUnits] = useState<number>(0)
   const [midCycleUseMeterReadings, setMidCycleUseMeterReadings] = useState<boolean>(false)
   const [midCycleResidentReadings, setMidCycleResidentReadings] = useState<Record<string, { opening: number; closing: number }>>({})
+  const [midCycleResidentDates, setMidCycleResidentDates] = useState<Record<string, { joiningDate: string; vacatedDate: string | null }>>({})
+  const [midCycleCalculatedSplit, setMidCycleCalculatedSplit] = useState<MidCycleSplitResult | null>(null)
+  const [isCalculatingMidCycle, setIsCalculatingMidCycle] = useState(false)
+  const [midCycleError, setMidCycleError] = useState<string | null>(null)
+  const [midCycleSuccessMessage, setMidCycleSuccessMessage] = useState<string | null>(null)
+  const [midCycleShowAdvanced, setMidCycleShowAdvanced] = useState(false)
   const [isSavingMidCycleSplit, setIsSavingMidCycleSplit] = useState(false)
   const [viewingSplitRecord, setViewingSplitRecord] = useState<ElectricityRecord | null>(null)
 
@@ -942,10 +945,10 @@ export default function DashboardPage() {
         supabase.from('properties').select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url').eq('owner_id', user.id).order('created_at', { ascending: true }),
         supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
         supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
-        supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at,updated_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
         supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,deleted_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
         supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
-        supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,period_start,period_end,calculation_type,split_breakdown').eq('owner_id', user.id).order('reading_date', { ascending: false }),
+        supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,meter_number,period_start,period_end,calculation_type,split_breakdown').eq('owner_id', user.id).order('reading_date', { ascending: false }),
         supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
         supabase.from('profiles').select('phone,upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
       ])
@@ -1126,6 +1129,7 @@ export default function DashboardPage() {
           joiningDate: t.joining_date,
           rent_due_day: dueDay,
           deleted_at: t.deleted_at || null,
+          updated_at: t.updated_at || null,
           status: accurateStatus,
         }
       })
@@ -1190,7 +1194,7 @@ export default function DashboardPage() {
         console.warn('Initial electricity query encountered error, falling back to base columns:', elecRes.error)
         const { data: fallbackElec, error: fbErr } = await supabase
           .from('electricity_readings')
-          .select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id')
+          .select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,meter_number')
           .eq('owner_id', user.id)
           .order('reading_date', { ascending: false })
         if (!fbErr && fallbackElec) {
@@ -1206,6 +1210,26 @@ export default function DashboardPage() {
             supabase.from('electricity_readings').update({ property_id: resolvedElecProp }).eq('id', el.id)
           )
         }
+
+        let parsedBreakdown = el.split_breakdown || null
+        let pStart = el.period_start || null
+        let pEnd = el.period_end || null
+        let calcType = el.calculation_type || 'standard'
+
+        if (el.meter_number && typeof el.meter_number === 'string') {
+          try {
+            if (el.meter_number.startsWith('{') && el.meter_number.includes('"split_breakdown"')) {
+              const meta = JSON.parse(el.meter_number)
+              parsedBreakdown = meta.split_breakdown || parsedBreakdown
+              pStart = meta.period_start || pStart
+              pEnd = meta.period_end || pEnd
+              calcType = meta.calculation_type || calcType
+            }
+          } catch {
+            // non-json meter number
+          }
+        }
+
         return {
           ...el,
           property_id: resolvedElecProp,
@@ -1214,10 +1238,10 @@ export default function DashboardPage() {
           previous_reading: Number(el.previous_reading),
           current_reading: Number(el.current_reading),
           rate_per_unit: Number(el.rate_per_unit),
-          period_start: el.period_start || null,
-          period_end: el.period_end || null,
-          calculation_type: el.calculation_type || 'standard',
-          split_breakdown: el.split_breakdown || null,
+          period_start: pStart,
+          period_end: pEnd,
+          calculation_type: calcType,
+          split_breakdown: parsedBreakdown,
         }
       }))
 
@@ -3222,86 +3246,204 @@ export default function DashboardPage() {
     }
   }
 
-  // Save Mid-Cycle Electricity Bill & Individual Tenant Shares
-  async function handleSaveMidCycleSplit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (isSavingMidCycleSplit) return
-    if (!userId) return
+  // Calculate Mid-Cycle Electricity Split
+  function handleCalculateMidCycleSplit() {
+    setMidCycleError(null)
+    setMidCycleSuccessMessage(null)
+    setIsCalculatingMidCycle(true)
 
-    // Get candidate tenants in this room/property
-    const candidateTenants = currentPropertyTenants.filter((t) => {
-      if (midCycleRoomId !== 'all' && t.room_id !== midCycleRoomId) return false
-      return true
-    })
-
-    if (candidateTenants.length === 0) {
-      flash('No residents found for the selected room/period.')
-      return
-    }
-
-    const residentsForCalculation = candidateTenants.map((t) => {
-      const readings = midCycleResidentReadings[t.id]
-      return {
-        id: t.id,
-        name: t.name,
-        room: t.room,
-        joiningDate: t.joiningDate || midCyclePeriodStart,
-        vacatedDate: t.status === 'Vacated' ? new Date().toISOString().slice(0, 10) : null,
-        moveInReading: readings?.opening !== undefined ? readings.opening : null,
-        closingReading: readings?.closing !== undefined ? readings.closing : null,
-      }
-    })
-
-    let splitResult
     try {
-      splitResult = calculateMidCycleElectricitySplit({
-        periodStart: midCyclePeriodStart,
-        periodEnd: midCyclePeriodEnd,
-        totalAmount: midCycleBillAmount,
-        totalUnits: midCycleTotalUnits,
-        ratePerUnit: midCycleRatePerUnit,
-        useMeterReadings: midCycleUseMeterReadings,
-        residents: residentsForCalculation,
+      const candidateTenants = currentPropertyTenants.filter((t) => {
+        if (midCycleRoomId !== 'all' && t.room_id !== midCycleRoomId) return false
+        return true
       })
-    } catch (calcErr: any) {
-      flash(calcErr?.message || 'Error calculating electricity split.')
-      return
-    }
 
-    setIsSavingMidCycleSplit(true)
-    try {
-      const finalRoomId = midCycleRoomId !== 'all' ? midCycleRoomId : null
-      const roomName = finalRoomId ? rooms.find((r) => r.id === finalRoomId)?.room_number || 'Room' : 'General'
-
-      const targetRoomObj = finalRoomId ? rooms.find((r) => r.id === finalRoomId) : null
-      const targetSplitPropId = property.id || selectedPropertyId || targetRoomObj?.property_id || properties[0]?.id || null
-
-      // 1. Insert master electricity reading
-      const { data: readingData, error: readingErr } = await supabase
-        .from('electricity_readings')
-        .insert({
-          owner_id: userId,
-          property_id: targetSplitPropId,
-          room_id: finalRoomId,
-          previous_reading: 0,
-          current_reading: splitResult.totalUnits,
-          rate_per_unit: splitResult.ratePerUnit,
-          reading_date: midCyclePeriodEnd,
-          period_start: midCyclePeriodStart,
-          period_end: midCyclePeriodEnd,
-          calculation_type: splitResult.calculationMethod,
-          split_breakdown: splitResult.residentShares,
-        })
-        .select('*')
-        .single()
-
-      if (readingErr) {
-        flash('Could not record mid-cycle electricity bill: ' + readingErr.message)
+      if (candidateTenants.length === 0) {
+        setMidCycleError('No residents found for the selected room or property. Please assign residents first.')
+        setMidCycleCalculatedSplit(null)
+        setIsCalculatingMidCycle(false)
         return
       }
 
-      // 2. Insert individual tenant shares
-      const shareInserts = splitResult.residentShares.map((s) => ({
+      if (!midCyclePeriodStart || !midCyclePeriodEnd) {
+        setMidCycleError('Please specify both billing period start and end dates.')
+        setMidCycleCalculatedSplit(null)
+        setIsCalculatingMidCycle(false)
+        return
+      }
+
+      if (midCyclePeriodEnd < midCyclePeriodStart) {
+        setMidCycleError('Billing period end date cannot be earlier than start date.')
+        setMidCycleCalculatedSplit(null)
+        setIsCalculatingMidCycle(false)
+        return
+      }
+
+      if (midCycleRatePerUnit <= 0) {
+        setMidCycleError('Rate per unit must be greater than zero.')
+        setMidCycleCalculatedSplit(null)
+        setIsCalculatingMidCycle(false)
+        return
+      }
+
+      const billUnits = Number(midCycleTotalUnits) || 0
+      const billAmt = Number(midCycleBillAmount) || (billUnits * Number(midCycleRatePerUnit))
+
+      if (billUnits <= 0 && billAmt <= 0 && !midCycleUseMeterReadings) {
+        setMidCycleError('Please enter total units consumed or a valid bill amount.')
+        setMidCycleCalculatedSplit(null)
+        setIsCalculatingMidCycle(false)
+        return
+      }
+
+      // Check for duplicate bill in same property, room, and period
+      const finalRoomId = midCycleRoomId !== 'all' ? midCycleRoomId : null
+      const targetRoomObj = finalRoomId ? rooms.find((r) => r.id === finalRoomId) : null
+      const scopeLabel = finalRoomId ? `Room ${targetRoomObj?.room_number || ''}` : 'Property General Meter'
+      const duplicate = currentPropertyElectricity.find((el) => {
+        if (el.room_id !== finalRoomId) return false
+        if (el.period_start && el.period_end && el.period_start === midCyclePeriodStart && el.period_end === midCyclePeriodEnd) return true
+        if (el.reading_date === midCyclePeriodEnd && (!el.period_start || el.period_start === midCyclePeriodStart)) return true
+        return false
+      })
+
+      const residentsForCalculation = candidateTenants.map((t) => {
+        const readings = midCycleResidentReadings[t.id]
+        const customDates = midCycleResidentDates[t.id]
+        const joinDate = customDates?.joiningDate || t.joiningDate || midCyclePeriodStart
+        let vacDate: string | null = null
+        if (customDates?.vacatedDate !== undefined) {
+          vacDate = customDates.vacatedDate
+        } else if (t.status === 'Vacated') {
+          vacDate = t.updated_at ? t.updated_at.slice(0, 10) : new Date().toISOString().slice(0, 10)
+        }
+
+        return {
+          id: t.id,
+          name: t.name,
+          room: t.room,
+          joiningDate: joinDate,
+          vacatedDate: vacDate,
+          moveInReading: readings?.opening !== undefined ? readings.opening : null,
+          closingReading: readings?.closing !== undefined ? readings.closing : null,
+        }
+      })
+
+      const splitResult = calculateMidCycleElectricitySplit({
+        periodStart: midCyclePeriodStart,
+        periodEnd: midCyclePeriodEnd,
+        totalAmount: billAmt,
+        totalUnits: billUnits,
+        ratePerUnit: Number(midCycleRatePerUnit),
+        useMeterReadings: midCycleUseMeterReadings,
+        residents: residentsForCalculation,
+      })
+
+      // Sync computed units and bill amount in state
+      if (splitResult.totalUnits > 0 && billUnits <= 0) {
+        setMidCycleTotalUnits(splitResult.totalUnits)
+      }
+      if (splitResult.totalAmount > 0 && billAmt <= 0) {
+        setMidCycleBillAmount(splitResult.totalAmount)
+      }
+
+      setMidCycleCalculatedSplit(splitResult)
+      if (duplicate) {
+        setMidCycleError(`Notice: An electricity bill for ${scopeLabel} covering ${midCyclePeriodStart} to ${midCyclePeriodEnd} is already recorded. Confirm the details below before saving.`)
+      } else {
+        setMidCycleSuccessMessage(`Split calculated successfully across ${splitResult.residentShares.length} resident(s). Review breakdown below and click "Save Bill" to record.`)
+      }
+    } catch (err: any) {
+      setMidCycleError(err?.message || 'Error calculating electricity split.')
+      setMidCycleCalculatedSplit(null)
+    } finally {
+      setIsCalculatingMidCycle(false)
+    }
+  }
+
+  // Save Mid-Cycle Electricity Bill & Individual Tenant Shares
+  async function handleSaveMidCycleSplit(e?: React.FormEvent) {
+    if (e) e.preventDefault()
+    if (isSavingMidCycleSplit) return
+    if (!userId) return
+
+    if (!midCycleCalculatedSplit) {
+      setMidCycleError('Please calculate the bill first by clicking "Calculate Bill".')
+      return
+    }
+
+    const finalRoomId = midCycleRoomId !== 'all' ? midCycleRoomId : null
+    const targetRoomObj = finalRoomId ? rooms.find((r) => r.id === finalRoomId) : null
+    const roomName = finalRoomId ? targetRoomObj?.room_number || 'Room' : 'General'
+    const targetSplitPropId = property.id || selectedPropertyId || targetRoomObj?.property_id || properties[0]?.id || null
+
+    setIsSavingMidCycleSplit(true)
+    setMidCycleError(null)
+
+    try {
+      const splitMetadata = JSON.stringify({
+        type: 'mid_cycle_split',
+        period_start: midCyclePeriodStart,
+        period_end: midCyclePeriodEnd,
+        calculation_type: midCycleCalculatedSplit.calculationMethod,
+        split_breakdown: midCycleCalculatedSplit.residentShares,
+      })
+
+      // 1. Insert master electricity reading
+      let readingData: any = null
+      const fullReadingPayload = {
+        owner_id: userId,
+        property_id: targetSplitPropId,
+        room_id: finalRoomId,
+        meter_number: splitMetadata,
+        previous_reading: 0,
+        current_reading: midCycleCalculatedSplit.totalUnits,
+        rate_per_unit: midCycleCalculatedSplit.ratePerUnit,
+        total_units: midCycleCalculatedSplit.totalUnits,
+        total_amount: midCycleCalculatedSplit.totalAmount,
+        reading_date: midCyclePeriodEnd,
+        period_start: midCyclePeriodStart,
+        period_end: midCyclePeriodEnd,
+        calculation_type: midCycleCalculatedSplit.calculationMethod,
+        split_breakdown: midCycleCalculatedSplit.residentShares,
+      }
+
+      const { data: extData, error: extErr } = await supabase
+        .from('electricity_readings')
+        .insert(fullReadingPayload)
+        .select('*')
+        .single()
+
+      if (!extErr && extData) {
+        readingData = extData
+      } else {
+        // Fallback to base columns (metadata securely stored in meter_number)
+        const baseReadingPayload = {
+          owner_id: userId,
+          property_id: targetSplitPropId,
+          room_id: finalRoomId,
+          meter_number: splitMetadata,
+          previous_reading: 0,
+          current_reading: midCycleCalculatedSplit.totalUnits,
+          rate_per_unit: midCycleCalculatedSplit.ratePerUnit,
+          total_units: midCycleCalculatedSplit.totalUnits,
+          total_amount: midCycleCalculatedSplit.totalAmount,
+          reading_date: midCyclePeriodEnd,
+        }
+        const { data: baseData, error: baseErr } = await supabase
+          .from('electricity_readings')
+          .insert(baseReadingPayload)
+          .select('*')
+          .single()
+
+        if (baseErr) {
+          throw new Error('Failed to record electricity bill: ' + baseErr.message)
+        }
+        readingData = baseData
+      }
+
+      // 2. Insert individual tenant shares into tenant_electricity_shares
+      const extendedShares = midCycleCalculatedSplit.residentShares.map((s) => ({
         owner_id: userId,
         reading_id: readingData.id,
         tenant_id: s.residentId,
@@ -3316,9 +3458,29 @@ export default function DashboardPage() {
         amount_due: s.amountDue,
         calculation_method: s.calculationMethod,
         calculation_explanation: s.calculationExplanation,
+        allocated_units: s.unitsConsumed ?? Math.round((s.sharePercentage / 100) * midCycleCalculatedSplit.totalUnits * 100) / 100,
+        rate_per_unit: midCycleCalculatedSplit.ratePerUnit,
+        billing_month: midCyclePeriodStart.slice(0, 7),
       }))
 
-      await supabase.from('tenant_electricity_shares').insert(shareInserts)
+      const { error: shareExtErr } = await supabase.from('tenant_electricity_shares').insert(extendedShares)
+      if (shareExtErr) {
+        // Fallback to base columns
+        const baseShares = midCycleCalculatedSplit.residentShares.map((s) => ({
+          owner_id: userId,
+          reading_id: readingData.id,
+          tenant_id: s.residentId,
+          property_id: targetSplitPropId,
+          room_id: finalRoomId,
+          allocated_units: s.unitsConsumed ?? Math.round((s.sharePercentage / 100) * midCycleCalculatedSplit.totalUnits * 100) / 100,
+          rate_per_unit: midCycleCalculatedSplit.ratePerUnit,
+          amount_due: s.amountDue,
+          amount_paid: 0,
+          is_settled: false,
+          billing_month: midCyclePeriodStart.slice(0, 7),
+        }))
+        await supabase.from('tenant_electricity_shares').insert(baseShares)
+      }
 
       // 3. Update local state
       setElectricity((prev) => [
@@ -3331,18 +3493,23 @@ export default function DashboardPage() {
           current_reading: Number(readingData.current_reading),
           rate_per_unit: Number(readingData.rate_per_unit),
           reading_date: readingData.reading_date,
-          period_start: readingData.period_start,
-          period_end: readingData.period_end,
-          calculation_type: readingData.calculation_type,
-          split_breakdown: readingData.split_breakdown,
+          period_start: midCyclePeriodStart,
+          period_end: midCyclePeriodEnd,
+          calculation_type: midCycleCalculatedSplit.calculationMethod,
+          split_breakdown: midCycleCalculatedSplit.residentShares,
         },
         ...prev,
       ])
 
+      // Remember rate for property
+      if (typeof window !== 'undefined' && targetSplitPropId) {
+        localStorage.setItem(`baserabook_elec_rate_${targetSplitPropId}`, String(midCycleCalculatedSplit.ratePerUnit))
+      }
+
       setShowMidCycleModal(false)
-      flash(`Mid-cycle electricity split recorded for ${splitResult.residentShares.length} resident(s).`)
+      flash(`Electricity split bill saved for ${midCycleCalculatedSplit.residentShares.length} resident(s).`)
     } catch (err: any) {
-      flash(err?.message || 'Failed to save mid-cycle electricity split.')
+      setMidCycleError(err?.message || 'Failed to save electricity split.')
     } finally {
       setIsSavingMidCycleSplit(false)
     }
@@ -4032,6 +4199,24 @@ export default function DashboardPage() {
                       setShowPricingModal(true)
                       return
                     }
+                    const suggestedCycle = suggestPreviousBillingCycle(currentPropertyElectricity)
+                    const activePropId = property.id || selectedPropertyId
+                    const rememberedRate = typeof window !== 'undefined' && activePropId ? localStorage.getItem(`baserabook_elec_rate_${activePropId}`) : null
+                    const suggestedRate = rememberedRate ? Number(rememberedRate) : getSuggestedRate(currentPropertyElectricity, activePropId)
+
+                    setMidCycleRoomId('all')
+                    setMidCyclePeriodStart(suggestedCycle.periodStart)
+                    setMidCyclePeriodEnd(suggestedCycle.periodEnd)
+                    setMidCycleRatePerUnit(suggestedRate || 10)
+                    setMidCycleTotalUnits(0)
+                    setMidCycleBillAmount(0)
+                    setMidCycleUseMeterReadings(false)
+                    setMidCycleResidentReadings({})
+                    setMidCycleResidentDates({})
+                    setMidCycleCalculatedSplit(null)
+                    setMidCycleError(null)
+                    setMidCycleSuccessMessage(null)
+                    setMidCycleShowAdvanced(false)
                     setShowMidCycleModal(true)
                   }}
                   onViewSplitBreakdown={(el: ElectricityRecord) => setViewingSplitRecord(el)}
@@ -5936,294 +6121,555 @@ export default function DashboardPage() {
           return true
         })
 
-        const liveResidents = candidateTenants.map((t) => {
-          const readings = midCycleResidentReadings[t.id]
-          return {
-            id: t.id,
-            name: t.name,
-            room: t.room,
-            joiningDate: t.joiningDate || midCyclePeriodStart,
-            vacatedDate: t.status === 'Vacated' ? new Date().toISOString().slice(0, 10) : null,
-            moveInReading: readings?.opening !== undefined ? readings.opening : null,
-            closingReading: readings?.closing !== undefined ? readings.closing : null,
-          }
-        })
+        const cycleDays = (midCyclePeriodStart && midCyclePeriodEnd && midCyclePeriodEnd >= midCyclePeriodStart)
+          ? Math.round((new Date(midCyclePeriodEnd).getTime() - new Date(midCyclePeriodStart).getTime()) / (1000 * 60 * 60 * 24)) + 1
+          : 0
 
-        let liveSplit: any = null
-        let liveSplitError: string | null = null
-        if (liveResidents.length > 0 && midCycleBillAmount > 0 && midCyclePeriodStart && midCyclePeriodEnd) {
-          try {
-            liveSplit = calculateMidCycleElectricitySplit({
-              periodStart: midCyclePeriodStart,
-              periodEnd: midCyclePeriodEnd,
-              totalAmount: Number(midCycleBillAmount),
-              totalUnits: Number(midCycleTotalUnits),
-              ratePerUnit: Number(midCycleRatePerUnit),
-              useMeterReadings: midCycleUseMeterReadings,
-              residents: liveResidents,
-            })
-          } catch (err: any) {
-            liveSplitError = err?.message || 'Error calculating split.'
+        const handleSetQuickPeriod = (type: 'prev_month' | 'curr_month') => {
+          const now = new Date()
+          const y = now.getFullYear()
+          const m = now.getMonth()
+
+          let start = ''
+          let end = ''
+          if (type === 'prev_month') {
+            const prev = new Date(y, m - 1, 1)
+            const py = prev.getFullYear()
+            const pm = prev.getMonth() + 1
+            const lastDay = new Date(py, pm, 0).getDate()
+            start = `${py}-${String(pm).padStart(2, '0')}-01`
+            end = `${py}-${String(pm).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+          } else {
+            const cm = m + 1
+            const lastDay = new Date(y, cm, 0).getDate()
+            start = `${y}-${String(cm).padStart(2, '0')}-01`
+            end = `${y}-${String(cm).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
           }
+
+          setMidCyclePeriodStart(start)
+          setMidCyclePeriodEnd(end)
+          setMidCycleCalculatedSplit(null)
+          setMidCycleError(null)
+          setMidCycleSuccessMessage(null)
         }
 
         return (
           <Modal
-            title="Mid-Cycle Electricity Bill Sharing Calculator"
+            title="Fair Electricity Bill Split Calculator"
             onClose={() => !isSavingMidCycleSplit && setShowMidCycleModal(false)}
           >
-            <form onSubmit={handleSaveMidCycleSplit} className="flex flex-col gap-4 text-xs">
-              <div className="rounded-xl border border-[#ebe4da] bg-[#faf7f2] p-3 text-[11px] text-[#676b7d] flex items-start gap-2">
+            <div className="flex flex-col gap-4 text-xs max-h-[80vh] overflow-y-auto pr-1">
+              {/* Introduction Banner */}
+              <div className="rounded-xl border border-[#ebe4da] bg-[#faf7f2] p-3 text-[11px] text-[#676b7d] flex items-start gap-2.5">
                 <Sparkles className="size-4 text-[#8b5a2b] shrink-0 mt-0.5" />
-                <span>
-                  <strong>Mid-Cycle Fair Share:</strong> Calculates exact electricity shares based on each resident&apos;s occupancy dates during the billing period. Residents who joined mid-cycle are <strong>never charged</strong> for days before their move-in date.
-                </span>
+                <div className="leading-relaxed">
+                  <strong className="text-[#2c221e]">Fair Mid-Cycle Occupancy Allocation:</strong> Calculates mathematically proportional electricity charges based on each resident&apos;s active occupancy dates. Residents who joined mid-cycle are <strong className="text-[#8b5a2b]">never charged</strong> for days before their move-in date.
+                </div>
               </div>
 
-              {/* Room and Period Selection */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <label className="flex flex-col gap-1.5 font-semibold text-[#555a6c]">
-                  <span>Scope / Room</span>
-                  <select
-                    value={midCycleRoomId}
-                    onChange={(e) => setMidCycleRoomId(e.target.value)}
-                    className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2 text-xs font-normal outline-none focus:border-[#8b5a2b]"
-                  >
-                    <option value="all">Entire Property (All Residents)</option>
-                    {currentPropertyRooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        Room {r.room_number} ({r.room_type})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <Field
-                  label="Billing Period Start"
-                  name="period_start"
-                  type="date"
-                  value={midCyclePeriodStart}
-                  onChange={(e: any) => setMidCyclePeriodStart(e.target.value)}
-                  required
-                />
-
-                <Field
-                  label="Billing Period End"
-                  name="period_end"
-                  type="date"
-                  value={midCyclePeriodEnd}
-                  onChange={(e: any) => setMidCyclePeriodEnd(e.target.value)}
-                  required
-                />
-              </div>
-
-              {/* Bill Details */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Field
-                  label="Total Bill (₹)"
-                  name="bill_amount"
-                  type="number"
-                  min="1"
-                  value={midCycleBillAmount}
-                  onChange={(e: any) => {
-                    const amt = Number(e.target.value)
-                    setMidCycleBillAmount(amt)
-                    if (midCycleRatePerUnit > 0) {
-                      setMidCycleTotalUnits(Math.round(amt / midCycleRatePerUnit))
-                    }
-                  }}
-                  required
-                />
-
-                <Field
-                  label="Rate per Unit (₹)"
-                  name="rate_per_unit"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  value={midCycleRatePerUnit}
-                  onChange={(e: any) => {
-                    const rate = Number(e.target.value)
-                    setMidCycleRatePerUnit(rate)
-                    if (rate > 0) {
-                      setMidCycleTotalUnits(Math.round(midCycleBillAmount / rate))
-                    }
-                  }}
-                  required
-                />
-
-                <Field
-                  label="Total Units (kWh)"
-                  name="total_units"
-                  type="number"
-                  min="0"
-                  value={midCycleTotalUnits}
-                  onChange={(e: any) => setMidCycleTotalUnits(Number(e.target.value))}
-                  required
-                />
-              </div>
-
-              {/* Meter Readings Option Toggle */}
-              <div className="rounded-xl border border-[#e8dfd4] bg-[#fdfcf9] p-3">
-                <label className="flex items-center gap-2 cursor-pointer font-semibold text-[#3d3934]">
-                  <input
-                    type="checkbox"
-                    checked={midCycleUseMeterReadings}
-                    onChange={(e) => setMidCycleUseMeterReadings(e.target.checked)}
-                    className="size-4 rounded accent-[#8b5a2b]"
-                  />
-                  <span>Use Move-In / Move-Out Meter Readings (if individual meters recorded)</span>
-                </label>
-                <p className="mt-1 text-[11px] text-[#85899a] pl-6">
-                  When enabled, exact units consumed between move-in and closing readings will be used. Otherwise, shares are split proportionally by active occupied days.
-                </p>
-
-                {midCycleUseMeterReadings && (
-                  <div className="mt-3 space-y-2 border-t border-[#eee6dc] pt-3 pl-6">
-                    <p className="text-[11px] font-bold text-[#555a6c]">Resident Meter Readings:</p>
-                    {candidateTenants.map((t) => (
-                      <div key={t.id} className="flex flex-wrap items-center gap-2">
-                        <span className="w-28 truncate font-medium text-[#3d3934]">{t.name}</span>
-                        <input
-                          type="number"
-                          placeholder="Move-in reading"
-                          value={midCycleResidentReadings[t.id]?.opening ?? ''}
-                          onChange={(e) => {
-                            const val = e.target.value === '' ? undefined : Number(e.target.value)
-                            setMidCycleResidentReadings((prev) => ({
-                              ...prev,
-                              [t.id]: {
-                                opening: val ?? 0,
-                                closing: prev[t.id]?.closing ?? 0,
-                              },
-                            }))
-                          }}
-                          className="w-28 rounded-lg border border-[#e4e6ec] px-2 py-1 text-xs outline-none focus:border-[#8b5a2b]"
-                        />
-                        <span className="text-[#85899a]">to</span>
-                        <input
-                          type="number"
-                          placeholder="Closing reading"
-                          value={midCycleResidentReadings[t.id]?.closing ?? ''}
-                          onChange={(e) => {
-                            const val = e.target.value === '' ? undefined : Number(e.target.value)
-                            setMidCycleResidentReadings((prev) => ({
-                              ...prev,
-                              [t.id]: {
-                                opening: prev[t.id]?.opening ?? 0,
-                                closing: val ?? 0,
-                              },
-                            }))
-                          }}
-                          className="w-28 rounded-lg border border-[#e4e6ec] px-2 py-1 text-xs outline-none focus:border-[#8b5a2b]"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Real-time Calculation Breakdown Preview */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#3d3934]">Live Fair-Share Calculation Preview</span>
-                  {liveSplit && (
-                    <span className="text-[11px] font-semibold text-[#8b5a2b]">
-                      Cycle Duration: {liveSplit.totalPeriodDays} days
+              {/* 1. Scope and Billing Cycle */}
+              <div className="space-y-3 rounded-2xl border border-[#e8dfd4] bg-white p-3.5 sm:p-4">
+                <div className="flex items-center justify-between border-b border-[#eee6dc] pb-2.5">
+                  <span className="font-bold text-sm text-[#2c221e] flex items-center gap-1.5">
+                    <Building2 className="size-4 text-[#8b5a2b]" /> Scope & Billing Period
+                  </span>
+                  {cycleDays > 0 && (
+                    <span className="rounded-lg bg-[#faf0e6] border border-[#d8c2aa] px-2 py-0.5 text-[11px] font-bold text-[#8b5a2b]">
+                      {cycleDays} Days Cycle
                     </span>
                   )}
                 </div>
 
-                {liveSplitError ? (
-                  <div className="rounded-xl border border-[#ffe0e0] bg-[#fff5f5] p-3 text-xs text-[#b95c3c]">
-                    {liveSplitError}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <label className="flex flex-col gap-1.5 font-semibold text-[#555a6c]">
+                    <span>Scope / Room</span>
+                    <select
+                      value={midCycleRoomId}
+                      onChange={(e) => {
+                        setMidCycleRoomId(e.target.value)
+                        setMidCycleCalculatedSplit(null)
+                        setMidCycleError(null)
+                        setMidCycleSuccessMessage(null)
+                      }}
+                      className="rounded-xl border border-[#e4e6ec] bg-white px-3 py-2 text-xs font-normal outline-none focus:border-[#8b5a2b]"
+                    >
+                      <option value="all">Entire Property (All Residents)</option>
+                      {currentPropertyRooms.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          Room {r.room_number} ({r.room_type})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <Field
+                    label="Billing Period Start"
+                    name="period_start"
+                    type="date"
+                    value={midCyclePeriodStart}
+                    onChange={(e: any) => {
+                      setMidCyclePeriodStart(e.target.value)
+                      setMidCycleCalculatedSplit(null)
+                      setMidCycleError(null)
+                      setMidCycleSuccessMessage(null)
+                    }}
+                    required
+                  />
+
+                  <Field
+                    label="Billing Period End"
+                    name="period_end"
+                    type="date"
+                    value={midCyclePeriodEnd}
+                    onChange={(e: any) => {
+                      setMidCyclePeriodEnd(e.target.value)
+                      setMidCycleCalculatedSplit(null)
+                      setMidCycleError(null)
+                      setMidCycleSuccessMessage(null)
+                    }}
+                    required
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]">
+                  <span className="text-[#85899a] font-medium">Quick Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSetQuickPeriod('prev_month')}
+                    className="rounded-lg border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 font-semibold text-[#8b5a2b] hover:bg-[#f1e8dc] transition-colors"
+                  >
+                    Previous Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetQuickPeriod('curr_month')}
+                    className="rounded-lg border border-[#e4e6ec] bg-white px-2.5 py-1 font-semibold text-[#555a6c] hover:bg-[#faf7f2] transition-colors"
+                  >
+                    Current Month
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Consumption & Bill Amounts */}
+              <div className="space-y-3 rounded-2xl border border-[#e8dfd4] bg-white p-3.5 sm:p-4">
+                <div className="flex items-center justify-between border-b border-[#eee6dc] pb-2.5">
+                  <span className="font-bold text-sm text-[#2c221e] flex items-center gap-1.5">
+                    <Zap className="size-4 text-[#8b5a2b]" /> Bill Details
+                  </span>
+                  <span className="text-[11px] text-[#85899a]">
+                    Total Bill = Units × Rate
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Field
+                    label="Total Units (kWh)"
+                    name="total_units"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={midCycleTotalUnits === 0 ? '' : midCycleTotalUnits}
+                    placeholder="e.g. 150"
+                    onChange={(e: any) => {
+                      const units = Number(e.target.value) || 0
+                      setMidCycleTotalUnits(units)
+                      if (midCycleRatePerUnit > 0) {
+                        setMidCycleBillAmount(Math.round(units * midCycleRatePerUnit * 100) / 100)
+                      }
+                      setMidCycleCalculatedSplit(null)
+                    }}
+                    required
+                  />
+
+                  <Field
+                    label="Rate per Unit (₹)"
+                    name="rate_per_unit"
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={midCycleRatePerUnit || ''}
+                    placeholder="e.g. 10"
+                    onChange={(e: any) => {
+                      const rate = Number(e.target.value) || 0
+                      setMidCycleRatePerUnit(rate)
+                      if (midCycleTotalUnits > 0) {
+                        setMidCycleBillAmount(Math.round(midCycleTotalUnits * rate * 100) / 100)
+                      } else if (midCycleBillAmount > 0 && rate > 0) {
+                        setMidCycleTotalUnits(Math.round(midCycleBillAmount / rate))
+                      }
+                      setMidCycleCalculatedSplit(null)
+                    }}
+                    required
+                  />
+
+                  <Field
+                    label="Total Bill (₹)"
+                    name="bill_amount"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={midCycleBillAmount === 0 ? '' : midCycleBillAmount}
+                    placeholder="e.g. 1500"
+                    onChange={(e: any) => {
+                      const amt = Number(e.target.value) || 0
+                      setMidCycleBillAmount(amt)
+                      if (midCycleRatePerUnit > 0) {
+                        setMidCycleTotalUnits(Math.round(amt / midCycleRatePerUnit))
+                      }
+                      setMidCycleCalculatedSplit(null)
+                    }}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* 3. Automatic Resident Loading & Occupancy Dates */}
+              <div className="space-y-3 rounded-2xl border border-[#e8dfd4] bg-white p-3.5 sm:p-4">
+                <div className="flex items-center justify-between border-b border-[#eee6dc] pb-2.5">
+                  <span className="font-bold text-sm text-[#2c221e] flex items-center gap-1.5">
+                    <Users className="size-4 text-[#8b5a2b]" /> Loaded Residents ({candidateTenants.length})
+                  </span>
+                  <span className="text-[11px] text-[#85899a]">
+                    Move-in & move-out dates loaded from database
+                  </span>
+                </div>
+
+                {candidateTenants.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-[#d8c2aa] bg-[#faf7f2] p-5 text-center text-xs text-[#85899a]">
+                    No residents found in the selected scope. Choose another room or select &quot;Entire Property&quot;.
                   </div>
-                ) : candidateTenants.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-[#d8c2aa] bg-[#faf7f2] p-4 text-center text-xs text-[#85899a]">
-                    No residents found in the selected room.
+                ) : (
+                  <div className="space-y-2.5">
+                    {candidateTenants.map((t) => {
+                      const joinVal = midCycleResidentDates[t.id]?.joiningDate || t.joiningDate || midCyclePeriodStart
+                      const vacVal = midCycleResidentDates[t.id]?.vacatedDate !== undefined
+                        ? (midCycleResidentDates[t.id].vacatedDate || '')
+                        : (t.status === 'Vacated' ? (t.updated_at ? t.updated_at.slice(0, 10) : '') : '')
+
+                      return (
+                        <div
+                          key={t.id}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-[#f0e8df] bg-[#fdfcf9] p-2.5 sm:p-3"
+                        >
+                          <div className="min-w-[140px]">
+                            <p className="font-bold text-[#2c221e]">{t.name}</p>
+                            <div className="flex items-center gap-1.5 text-[11px] text-[#85899a] mt-0.5">
+                              <span>Room {t.room}</span>
+                              {t.status === 'Vacated' && (
+                                <span className="rounded bg-[#ffebe6] text-[#b91c1c] px-1.5 py-0.2 text-[10px] font-semibold">
+                                  Vacated
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="flex items-center gap-1 text-[11px] text-[#676b7d]">
+                              <span>Move-in:</span>
+                              <input
+                                type="date"
+                                value={joinVal}
+                                onChange={(e) => {
+                                  const newVal = e.target.value
+                                  setMidCycleResidentDates((prev) => ({
+                                    ...prev,
+                                    [t.id]: {
+                                      joiningDate: newVal,
+                                      vacatedDate: prev[t.id]?.vacatedDate !== undefined ? prev[t.id].vacatedDate : vacVal,
+                                    },
+                                  }))
+                                  setMidCycleCalculatedSplit(null)
+                                }}
+                                className="rounded-lg border border-[#e4e6ec] bg-white px-2 py-1 text-xs outline-none focus:border-[#8b5a2b]"
+                              />
+                            </label>
+
+                            <label className="flex items-center gap-1 text-[11px] text-[#676b7d]">
+                              <span>Move-out (optional):</span>
+                              <input
+                                type="date"
+                                value={vacVal}
+                                placeholder="Vacate date"
+                                onChange={(e) => {
+                                  const newVal = e.target.value || null
+                                  setMidCycleResidentDates((prev) => ({
+                                    ...prev,
+                                    [t.id]: {
+                                      joiningDate: joinVal,
+                                      vacatedDate: newVal,
+                                    },
+                                  }))
+                                  setMidCycleCalculatedSplit(null)
+                                }}
+                                className="rounded-lg border border-[#e4e6ec] bg-white px-2 py-1 text-xs outline-none focus:border-[#8b5a2b]"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                ) : liveSplit?.residentShares ? (
+                )}
+              </div>
+
+              {/* 4. Collapsible Advanced Settings: Meter Readings */}
+              <div className="rounded-2xl border border-[#e8dfd4] bg-white overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setMidCycleShowAdvanced(!midCycleShowAdvanced)}
+                  className="flex items-center justify-between w-full p-3.5 sm:p-4 text-left hover:bg-[#faf7f2] transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Settings className="size-4 text-[#8b5a2b]" />
+                    <div>
+                      <p className="font-bold text-sm text-[#2c221e]">Advanced Settings & Meter Readings</p>
+                      <p className="text-[11px] text-[#85899a]">
+                        Optional individual meter readings per resident. Default: proportional daily occupancy.
+                      </p>
+                    </div>
+                  </div>
+                  {midCycleShowAdvanced ? (
+                    <ChevronUp className="size-4 text-[#8b5a2b]" />
+                  ) : (
+                    <ChevronDown className="size-4 text-[#8b5a2b]" />
+                  )}
+                </button>
+
+                {midCycleShowAdvanced && (
+                  <div className="border-t border-[#eee6dc] bg-[#faf7f2] p-3.5 sm:p-4 space-y-3">
+                    <label className="flex items-center gap-2.5 cursor-pointer font-semibold text-[#2c221e]">
+                      <input
+                        type="checkbox"
+                        checked={midCycleUseMeterReadings}
+                        onChange={(e) => {
+                          setMidCycleUseMeterReadings(e.target.checked)
+                          setMidCycleCalculatedSplit(null)
+                        }}
+                        className="size-4 rounded accent-[#8b5a2b]"
+                      />
+                      <span>Calculate split using Individual Resident Meter Readings</span>
+                    </label>
+
+                    {midCycleUseMeterReadings && (
+                      <div className="mt-3 space-y-2.5 pl-6 border-l-2 border-[#8b5a2b]/30">
+                        <p className="text-[11px] font-bold text-[#555a6c]">
+                          Enter opening and closing readings for each resident:
+                        </p>
+                        {candidateTenants.map((t) => {
+                          const opening = midCycleResidentReadings[t.id]?.opening
+                          const closing = midCycleResidentReadings[t.id]?.closing
+                          const hasBoth = opening !== undefined && closing !== undefined
+                          const diff = hasBoth ? closing - opening : null
+                          const isInvalid = hasBoth && diff! < 0
+
+                          return (
+                            <div key={t.id} className="flex flex-wrap items-center gap-2 text-xs">
+                              <span className="w-28 truncate font-medium text-[#2c221e]">{t.name}</span>
+                              <input
+                                type="number"
+                                placeholder="Opening reading"
+                                value={opening ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? undefined : Number(e.target.value)
+                                  setMidCycleResidentReadings((prev) => ({
+                                    ...prev,
+                                    [t.id]: {
+                                      opening: val ?? 0,
+                                      closing: prev[t.id]?.closing ?? 0,
+                                    },
+                                  }))
+                                  setMidCycleCalculatedSplit(null)
+                                }}
+                                className="w-28 rounded-lg border border-[#e4e6ec] bg-white px-2 py-1 text-xs outline-none focus:border-[#8b5a2b]"
+                              />
+                              <span className="text-[#85899a]">to</span>
+                              <input
+                                type="number"
+                                placeholder="Closing reading"
+                                value={closing ?? ''}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? undefined : Number(e.target.value)
+                                  setMidCycleResidentReadings((prev) => ({
+                                    ...prev,
+                                    [t.id]: {
+                                      opening: prev[t.id]?.opening ?? 0,
+                                      closing: val ?? 0,
+                                    },
+                                  }))
+                                  setMidCycleCalculatedSplit(null)
+                                }}
+                                className="w-28 rounded-lg border border-[#e4e6ec] bg-white px-2 py-1 text-xs outline-none focus:border-[#8b5a2b]"
+                              />
+                              {hasBoth && (
+                                isInvalid ? (
+                                  <span className="text-[10px] font-bold text-[#b91c1c]">
+                                    Closing must be ≥ opening
+                                  </span>
+                                ) : (
+                                  <span className="rounded bg-[#eaf5ea] text-[#2e7d32] px-1.5 py-0.5 text-[10px] font-semibold">
+                                    {diff} kWh
+                                  </span>
+                                )
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Step 1: Calculate Button */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <div>
+                  <button
+                    type="button"
+                    disabled={candidateTenants.length === 0 || isCalculatingMidCycle}
+                    onClick={handleCalculateMidCycleSplit}
+                    className="flex items-center gap-2 rounded-xl bg-[#faf7f2] border-2 border-[#8b5a2b] text-[#8b5a2b] hover:bg-[#8b5a2b] hover:text-white px-5 py-2.5 font-bold shadow-xs transition-all disabled:opacity-50"
+                  >
+                    {isCalculatingMidCycle ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Calculator className="size-4" />
+                    )}
+                    {isCalculatingMidCycle ? 'Calculating Split...' : 'Calculate Bill Split'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#85899a]">
+                  Preview resident shares before saving to the database.
+                </p>
+              </div>
+
+              {/* Status & Validation Messages */}
+              {midCycleError && (
+                <div className="rounded-xl border border-[#ffe0e0] bg-[#fff5f5] p-3 text-xs text-[#b91c1c] flex items-start gap-2">
+                  <AlertCircle className="size-4 text-[#b91c1c] shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{midCycleError}</span>
+                </div>
+              )}
+
+              {midCycleSuccessMessage && (
+                <div className="rounded-xl border border-[#d1e7dd] bg-[#f0fdf4] p-3 text-xs text-[#155724] flex items-start gap-2">
+                  <CheckCircle2 className="size-4 text-[#155724] shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{midCycleSuccessMessage}</span>
+                </div>
+              )}
+
+              {/* 5. Clear Live Preview (Requirement 5) */}
+              {midCycleCalculatedSplit && (
+                <div className="space-y-3 rounded-2xl border border-[#8b5a2b]/40 bg-white p-3.5 sm:p-4 shadow-sm animate-in fade-in duration-200">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#eee6dc] pb-2.5">
+                    <div>
+                      <span className="font-bold text-sm text-[#2c221e] flex items-center gap-1.5">
+                        <CheckCircle2 className="size-4 text-[#2e7d32]" /> Itemized Resident Share Preview
+                      </span>
+                      <p className="text-[11px] text-[#85899a] mt-0.5">
+                        {midCycleCalculatedSplit.summaryText}
+                      </p>
+                    </div>
+                    <span className="self-start sm:self-auto rounded-lg bg-[#eaf5ea] border border-[#a3cfbb] px-2.5 py-1 text-[11px] font-bold text-[#0f5132]">
+                      Reconciled 100%
+                    </span>
+                  </div>
+
                   <div className="overflow-x-auto rounded-xl border border-[#e8dfd4] bg-white">
-                    <table className="w-full text-left text-xs">
+                    <table className="w-full text-left text-xs min-w-[580px]">
                       <thead className="border-b border-[#eee6dc] bg-[#faf7f2] font-semibold text-[#85899a]">
                         <tr>
                           <th className="px-3 py-2.5">Resident</th>
-                          <th className="px-3 py-2.5">Move-in Date</th>
-                          <th className="px-3 py-2.5">Days Active</th>
-                          <th className="px-3 py-2.5">Status</th>
+                          <th className="px-3 py-2.5">Occupancy Period</th>
+                          <th className="px-3 py-2.5">Eligible Days</th>
+                          <th className="px-3 py-2.5">Method</th>
                           <th className="px-3 py-2.5">Share %</th>
-                          <th className="px-3 py-2.5 text-right">Amount Due</th>
+                          <th className="px-3 py-2.5 text-right">Amount Payable</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#eee6dc]">
-                        {liveSplit.residentShares.map((s: any) => {
-                          const isMidCycleJoiner = s.occupiedDays < liveSplit.totalPeriodDays
+                        {midCycleCalculatedSplit.residentShares.map((s) => {
+                          const isMidCycleJoiner = s.occupiedDays < midCycleCalculatedSplit.totalPeriodDays
                           return (
-                            <tr key={s.residentId} className="hover:bg-[#fbf8f3]">
-                              <td className="px-3 py-2.5 font-bold text-[#3d3934]">
-                                {s.residentName}
+                            <tr key={s.residentId} className="hover:bg-[#fbf8f3] transition-colors">
+                              <td className="px-3 py-2.5 font-bold text-[#2c221e]">
+                                <div>{s.residentName}</div>
+                                <div className="text-[10px] font-normal text-[#85899a]">Room {s.room}</div>
                               </td>
                               <td className="px-3 py-2.5 text-[#676b7d]">
-                                {s.moveInDate ? new Date(s.moveInDate).toLocaleDateString('en-IN') : 'Existing'}
+                                <div className="font-medium text-[#2c221e]">
+                                  {new Date(s.joiningDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                                  {s.vacatedDate ? ` – ${new Date(s.vacatedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ' – Active'}
+                                </div>
+                                <div className="text-[10px] text-[#85899a]">
+                                  {isMidCycleJoiner ? 'Joined Mid-Cycle' : 'Full Month'}
+                                </div>
                               </td>
                               <td className="px-3 py-2.5 text-[#676b7d]">
-                                {s.occupiedDays} / {s.totalPeriodDays} days
-                              </td>
-                              <td className="px-3 py-2.5">
-                                {isMidCycleJoiner ? (
-                                  <span className="inline-flex items-center rounded-md bg-[#faf3ea] px-1.5 py-0.5 text-[10px] font-semibold text-[#8b5a2b]">
-                                    Joined Mid-Cycle (0 charge before move-in)
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center rounded-md bg-[#eaf5ea] px-1.5 py-0.5 text-[10px] font-semibold text-[#2e7d32]">
-                                    Full Cycle
-                                  </span>
-                                )}
+                                <span className="font-bold text-[#2c221e]">{s.occupiedDays}</span> / {s.totalPeriodDays} days
                               </td>
                               <td className="px-3 py-2.5 text-[#676b7d]">
+                                <span className="inline-flex items-center rounded-md bg-[#faf3ea] px-1.5 py-0.5 text-[10px] font-semibold text-[#8b5a2b]">
+                                  {s.calculationMethod === 'meter_readings' ? 'Meter Reading' : 'Daily Occupancy'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5 text-[#676b7d] font-semibold">
                                 {s.sharePercentage.toFixed(1)}%
                               </td>
-                              <td className="px-3 py-2.5 font-bold text-right text-[#3d3934]">
+                              <td className="px-3 py-2.5 font-bold text-right text-[#2c221e] text-sm">
                                 {currency(s.amountDue)}
                               </td>
                             </tr>
                           )
                         })}
                       </tbody>
-                      <tfoot className="border-t border-[#eee6dc] bg-[#faf7f2] font-bold text-[#3d3934]">
+                      <tfoot className="border-t-2 border-[#d8c2aa] bg-[#faf7f2] font-bold text-[#2c221e]">
                         <tr>
-                          <td colSpan={5} className="px-3 py-2 text-right">
-                            Total Split Reconciled:
+                          <td colSpan={4} className="px-3 py-2 text-right text-[#676b7d]">
+                            Total Bill: <span className="text-[#2c221e]">{currency(midCycleCalculatedSplit.totalAmount)}</span>
+                            {midCycleCalculatedSplit.roundingDifference !== 0 && (
+                              <span className="text-[10px] text-[#85899a] font-normal ml-2">
+                                (Rounding adjustment: {currency(midCycleCalculatedSplit.roundingDifference)})
+                              </span>
+                            )}
                           </td>
-                          <td className="px-3 py-2 text-right text-[#8b5a2b]">
-                            {currency(liveSplit.residentShares.reduce((acc: number, cur: any) => acc + cur.amountDue, 0))}
+                          <td className="px-3 py-2 text-right text-[#85899a]">
+                            Total Allocated:
+                          </td>
+                          <td className="px-3 py-2 text-right text-base font-extrabold text-[#8b5a2b]">
+                            {currency(midCycleCalculatedSplit.totalAllocatedAmount)}
                           </td>
                         </tr>
                       </tfoot>
                     </table>
                   </div>
-                ) : null}
-              </div>
+                </div>
+              )}
 
-              <div className="flex justify-end gap-2.5 pt-2">
+              {/* Modal Footer Actions (Step 2: Save Bill) */}
+              <div className="flex flex-col-reverse sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[#eee6dc]">
                 <button
                   type="button"
                   disabled={isSavingMidCycleSplit}
                   onClick={() => setShowMidCycleModal(false)}
-                  className="rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] disabled:opacity-50"
+                  className="w-full sm:w-auto rounded-xl border border-[#e4e6ec] px-4 py-2.5 text-xs font-semibold text-[#676b7d] hover:bg-[#faf7f2] disabled:opacity-50 transition-colors"
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSavingMidCycleSplit || candidateTenants.length === 0 || !liveSplit}
-                  className="flex items-center gap-1.5 rounded-xl bg-[#8b5a2b] px-5 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#784b20] disabled:opacity-50 transition-colors"
-                >
-                  {isSavingMidCycleSplit && <Loader2 className="size-3.5 animate-spin" />}
-                  {isSavingMidCycleSplit ? 'Recording Split...' : 'Record Split Bill'}
-                </button>
+
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    disabled={isSavingMidCycleSplit || !midCycleCalculatedSplit}
+                    onClick={() => handleSaveMidCycleSplit()}
+                    className="flex-1 sm:flex-initial flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-6 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#784b20] disabled:opacity-50 transition-colors cursor-pointer"
+                  >
+                    {isSavingMidCycleSplit && <Loader2 className="size-4 animate-spin" />}
+                    <Check className="size-4" />
+                    {isSavingMidCycleSplit ? 'Saving Bill Record...' : 'Save & Record Bill'}
+                  </button>
+                </div>
               </div>
-            </form>
+            </div>
           </Modal>
         )
       })()}
