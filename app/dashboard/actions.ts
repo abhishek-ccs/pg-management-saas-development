@@ -42,7 +42,7 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
     const joiningDate = input.joiningDate || new Date().toISOString().slice(0, 10)
     let roomId = input.roomId && input.roomId !== 'unassigned' ? input.roomId : null
     const bedId = input.bedId && input.bedId !== 'unassigned' ? input.bedId : null
-    const propertyId = input.propertyId && input.propertyId !== 'unassigned' ? input.propertyId : null
+    let propertyId = input.propertyId && input.propertyId !== 'unassigned' ? input.propertyId : null
 
     if (!name || rent <= 0) {
       return { success: false, error: 'Please provide a valid tenant name and monthly rent.' }
@@ -58,6 +58,31 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
       return {
         success: false,
         error: 'Your 7-day free trial has expired. Please upgrade to a paid subscription to add residents.',
+      }
+    }
+
+    // Auto-resolve propertyId if missing or unassigned
+    if (!propertyId && roomId) {
+      const { data: roomObj } = await supabase
+        .from('rooms')
+        .select('property_id')
+        .eq('id', roomId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+      if (roomObj?.property_id) {
+        propertyId = roomObj.property_id
+      }
+    }
+    if (!propertyId) {
+      const { data: defaultProp } = await supabase
+        .from('properties')
+        .select('id')
+        .eq('owner_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (defaultProp?.id) {
+        propertyId = defaultProp.id
       }
     }
 
@@ -234,6 +259,7 @@ export async function updateTenantAction(
     phone: string
     roomId: string | null
     bedId: string | null
+    propertyId?: string | null
     rent: number
     deposit: number
     joiningDate: string
@@ -342,6 +368,31 @@ export async function updateTenantAction(
 
     const safeDueDay = input.dueDay !== undefined ? Math.min(Math.max(Number(input.dueDay), 1), 31) : undefined
 
+    let targetPropertyId = input.propertyId && input.propertyId !== 'unassigned' ? input.propertyId : null
+    if (!targetPropertyId && targetRoomId) {
+      const { data: roomObj } = await supabase
+        .from('rooms')
+        .select('property_id')
+        .eq('id', targetRoomId)
+        .eq('owner_id', user.id)
+        .maybeSingle()
+      if (roomObj?.property_id) {
+        targetPropertyId = roomObj.property_id
+      }
+    }
+    if (!targetPropertyId) {
+      const { data: defaultProp } = await supabase
+        .from('properties')
+        .select('id')
+        .eq('owner_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      if (defaultProp?.id) {
+        targetPropertyId = defaultProp.id
+      }
+    }
+
     const updatePayload: Record<string, any> = {
       full_name: input.name.trim(),
       phone: input.phone.trim(),
@@ -352,6 +403,10 @@ export async function updateTenantAction(
       joining_date: input.joiningDate,
       status: input.status,
       updated_at: new Date().toISOString(),
+    }
+
+    if (targetPropertyId) {
+      updatePayload.property_id = targetPropertyId
     }
 
     if (safeDueDay !== undefined) {

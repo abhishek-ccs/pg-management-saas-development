@@ -904,191 +904,239 @@ export default function DashboardPage() {
   async function fetchDashboardData() {
     try {
       setLoading(true)
+      const sessionCheck = await ensureFreshSession(supabase)
       const { data: authData } = await supabase.auth.getUser()
-      if (!authData.user) {
+      const user = authData?.user || sessionCheck?.session?.user
+      if (!user) {
         router.push('/login?next=/dashboard')
         return
       }
 
-      const user = authData.user
+      setUserId(user.id)
+      setUserEmail(user.email ?? '')
+      setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Property Owner')
 
-        setUserId(user.id)
-        setUserEmail(user.email ?? '')
-        setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Property Owner')
+      // Parallel fetch for all real customer records
+      const [
+        subRes,
+        propRes,
+        roomRes,
+        bedRes,
+        tenantRes,
+        paymentRes,
+        expenseRes,
+        elecRes,
+        complaintRes,
+        profileRes,
+      ] = await Promise.all([
+        supabase.from('subscriptions').select('*').eq('owner_id', user.id).order('updated_at', { ascending: false }),
+        supabase.from('properties').select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url').eq('owner_id', user.id).order('created_at', { ascending: true }),
+        supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
+        supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
+        supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,deleted_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
+        supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
+        supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,period_start,period_end,calculation_type,split_breakdown').eq('owner_id', user.id).order('reading_date', { ascending: false }),
+        supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('profiles').select('phone,upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
+      ])
 
-        // Parallel fetch for all real customer records
-        const [
-          subRes,
-          propRes,
-          roomRes,
-          bedRes,
-          tenantRes,
-          paymentRes,
-          expenseRes,
-          elecRes,
-          complaintRes,
-          profileRes,
-        ] = await Promise.all([
-          supabase.from('subscriptions').select('*').eq('owner_id', user.id).order('updated_at', { ascending: false }),
-          supabase.from('properties').select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url').eq('owner_id', user.id).order('created_at', { ascending: true }),
-          supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
-          supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
-          supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,deleted_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
-          supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
-          supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,period_start,period_end,calculation_type,split_breakdown').eq('owner_id', user.id).order('reading_date', { ascending: false }),
-          supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('profiles').select('phone,upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
-        ])
+      if (propRes.error) console.error('Failed to load properties:', propRes.error)
+      if (roomRes.error) console.error('Failed to load rooms:', roomRes.error)
+      if (bedRes.error) console.error('Failed to load beds:', bedRes.error)
+      if (tenantRes.error) console.error('Failed to load tenants:', tenantRes.error)
+      if (paymentRes.error) console.error('Failed to load payments:', paymentRes.error)
+      if (expenseRes.error) console.error('Failed to load expenses:', expenseRes.error)
+      if (elecRes.error) console.error('Failed to load electricity:', elecRes.error)
+      if (complaintRes.error) console.error('Failed to load complaints:', complaintRes.error)
 
-        const loadedPhone = (user.phone || user.user_metadata?.phone || profileRes?.data?.phone || '').trim()
-        setUserPhone(loadedPhone)
-        setPhoneInput(loadedPhone)
+      const loadedPhone = (user.phone || user.user_metadata?.phone || profileRes?.data?.phone || '').trim()
+      setUserPhone(loadedPhone)
+      setPhoneInput(loadedPhone)
 
-        // Saved Payment Options (UPI ID, payment link, QR Code image)
-        const loadedUpi = profileRes?.data?.upi_id || propRes?.data?.[0]?.upi_id || ''
-        const loadedLink = profileRes?.data?.payment_link || propRes?.data?.[0]?.payment_link || ''
-        const loadedQr = profileRes?.data?.upi_qr_url || propRes?.data?.[0]?.upi_qr_url || ''
+      // Multiple properties handling
+      const propList = (propRes.data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name || '',
+        address: p.address || '',
+        contact: p.contact_number || '',
+        city: p.city || '',
+        rules: p.rules || null,
+        upi_id: p.upi_id || null,
+        payment_link: p.payment_link || null,
+        upi_qr_url: p.upi_qr_url || null,
+      }))
+      setProperties(propList)
+      setSelectedPropertyId((curr) => {
+        const savedPropId = typeof window !== 'undefined' ? localStorage.getItem('baserabook_active_property_id') : null
+        const candidate = curr || savedPropId
+        if (candidate && propList.some((p: any) => p.id === candidate)) {
+          if (typeof window !== 'undefined') localStorage.setItem('baserabook_active_property_id', candidate)
+          return candidate
+        }
+        const fallback = propList[0]?.id || ''
+        if (typeof window !== 'undefined' && fallback) {
+          localStorage.setItem('baserabook_active_property_id', fallback)
+        }
+        return fallback
+      })
 
-        setOwnerPaymentDetails({
-          upiId: loadedUpi,
-          paymentLink: loadedLink,
-          qrCodeUrl: loadedQr,
-        })
+      // Saved Payment Options (UPI ID, payment link, QR Code image) - prefer active property then profile
+      const activePropCandidate = propList.find((p: any) => p.id === (typeof window !== 'undefined' ? localStorage.getItem('baserabook_active_property_id') : null)) || propList[0]
+      const loadedUpi = activePropCandidate?.upi_id || profileRes?.data?.upi_id || ''
+      const loadedLink = activePropCandidate?.payment_link || profileRes?.data?.payment_link || ''
+      const loadedQr = activePropCandidate?.upi_qr_url || profileRes?.data?.upi_qr_url || ''
 
-        // Authoritative Subscription & Paid Access Resolution
-        const subRecords = Array.isArray(subRes?.data) ? subRes.data : subRes?.data ? [subRes.data] : []
-        const authSub = resolveAuthoritativeSubscription(subRecords)
+      setOwnerPaymentDetails({
+        upiId: loadedUpi,
+        paymentLink: loadedLink,
+        qrCodeUrl: loadedQr,
+      })
 
-        setTrialStart(authSub.trialStart)
-        setTrialEnd(authSub.trialEnd)
-        setSubscriptionStatus(authSub.status)
-        setSubscriptionPlan(authSub.plan)
-        setIsTrialExpired(authSub.isTrialExpired)
+      // Authoritative Subscription & Paid Access Resolution
+      const subRecords = Array.isArray(subRes?.data) ? subRes.data : subRes?.data ? [subRes.data] : []
+      const authSub = resolveAuthoritativeSubscription(subRecords)
 
-        // Multiple properties handling
-        const propList = (propRes.data || []).map((p: any) => ({
-          id: p.id,
-          name: p.name || '',
-          address: p.address || '',
-          contact: p.contact_number || '',
-          city: p.city || '',
-          rules: p.rules || null,
-          upi_id: p.upi_id || null,
-          payment_link: p.payment_link || null,
-          upi_qr_url: p.upi_qr_url || null,
-        }))
-        setProperties(propList)
-        setSelectedPropertyId((curr) => {
-          const savedPropId = typeof window !== 'undefined' ? localStorage.getItem('baserabook_active_property_id') : null
-          const candidate = curr || savedPropId
-          if (candidate && propList.some((p: any) => p.id === candidate)) {
-            if (typeof window !== 'undefined') localStorage.setItem('baserabook_active_property_id', candidate)
-            return candidate
-          }
-          const fallback = propList[0]?.id || ''
-          if (typeof window !== 'undefined' && fallback) {
-            localStorage.setItem('baserabook_active_property_id', fallback)
-          }
-          return fallback
-        })
+      setTrialStart(authSub.trialStart)
+      setTrialEnd(authSub.trialEnd)
+      setSubscriptionStatus(authSub.status)
+      setSubscriptionPlan(authSub.plan)
+      setIsTrialExpired(authSub.isTrialExpired)
 
-        // Rooms
-        const roomList: Room[] = roomRes.data || []
-        setRooms(roomList)
+      // Database self-healing queue for records with missing property_id
+      const missingPropertyUpdates: Promise<any>[] = []
 
-        // Beds
-        const bedList: Bed[] = (bedRes.data || []).map((b: any) => ({
+      // Rooms
+      const roomList: Room[] = (roomRes.data || []).map((r: any) => {
+        const resolvedRoomProp = r.property_id || propList[0]?.id || null
+        if (!r.property_id && resolvedRoomProp) {
+          missingPropertyUpdates.push(
+            supabase.from('rooms').update({ property_id: resolvedRoomProp }).eq('id', r.id)
+          )
+        }
+        return {
+          ...r,
+          property_id: resolvedRoomProp,
+        }
+      })
+      setRooms(roomList)
+
+      // Beds
+      const bedList: Bed[] = (bedRes.data || []).map((b: any) => {
+        const roomObj = roomList.find((r) => r.id === b.room_id)
+        const resolvedBedProp = b.property_id || roomObj?.property_id || propList[0]?.id || null
+        if (!b.property_id && resolvedBedProp) {
+          missingPropertyUpdates.push(
+            supabase.from('beds').update({ property_id: resolvedBedProp }).eq('id', b.id)
+          )
+        }
+        return {
           id: b.id,
-          property_id: b.property_id,
+          property_id: resolvedBedProp,
           room_id: b.room_id,
           bed_number: b.bed_number,
           status: b.status || 'available',
           monthly_rate: Number(b.monthly_rate || 0),
-        }))
-        setBeds(bedList)
+        }
+      })
+      setBeds(bedList)
 
-        // Map helpers
-        const roomMap = new Map(roomList.map((r) => [r.id, r.room_number]))
-        const bedMap = new Map(bedList.map((b) => [b.id, b.bed_number]))
+      // Map helpers
+      const roomMap = new Map(roomList.map((r) => [r.id, r.room_number]))
+      const bedMap = new Map(bedList.map((b) => [b.id, b.bed_number]))
 
-        // Process payments first to identify current-month rent payers
-        const currentMonth = new Date().getMonth()
-        const currentYear = new Date().getFullYear()
-        const currentDate = new Date().getDate()
-        const currentMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
+      // Process payments first to identify current-month rent payers
+      const currentMonth = new Date().getMonth()
+      const currentYear = new Date().getFullYear()
+      const currentMonthStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
 
-        const rawPayments = paymentRes.data || []
-        const rentPaidTenantIds = new Set<string>()
-        for (const p of rawPayments) {
-          if (!p.tenant_id || p.deleted_at) continue
-          if (!p.payment_type || p.payment_type === 'rent') {
-            const pDate = new Date(p.paid_at)
-            const isSameMonth = pDate.getMonth() === currentMonth && pDate.getFullYear() === currentYear
-            const isCoveredMonth = p.month_covered && p.month_covered.includes(currentMonthStr)
-            const daysSincePayment = (Date.now() - pDate.getTime()) / (1000 * 60 * 60 * 24)
-            if (isSameMonth || isCoveredMonth || (daysSincePayment >= 0 && daysSincePayment <= 28)) {
-              rentPaidTenantIds.add(p.tenant_id)
-            }
+      const rawPayments = paymentRes.data || []
+      const rentPaidTenantIds = new Set<string>()
+      for (const p of rawPayments) {
+        if (!p.tenant_id || p.deleted_at) continue
+        if (!p.payment_type || p.payment_type === 'rent') {
+          const pDate = new Date(p.paid_at)
+          const isSameMonth = pDate.getMonth() === currentMonth && pDate.getFullYear() === currentYear
+          const isCoveredMonth = p.month_covered && p.month_covered.includes(currentMonthStr)
+          const daysSincePayment = (Date.now() - pDate.getTime()) / (1000 * 60 * 60 * 24)
+          if (isSameMonth || isCoveredMonth || (daysSincePayment >= 0 && daysSincePayment <= 28)) {
+            rentPaidTenantIds.add(p.tenant_id)
+          }
+        }
+      }
+
+      const staleStatusUpdates: { id: string; status: 'Paid' | 'Pending' | 'Overdue' }[] = []
+
+      // Tenants (Synchronize live rent status against actual payment records and due dates using single source of truth)
+      const allTenants: Tenant[] = (tenantRes.data || []).map((t: any) => {
+        const dueDay = Math.min(Math.max(Number(t.rent_due_day) || 5, 1), 31)
+        let accurateStatus: 'Paid' | 'Pending' | 'Overdue' | 'Vacated' = t.status || 'Pending'
+
+        if (t.status === 'Vacated') {
+          accurateStatus = 'Vacated'
+        } else {
+          const rentStatus = calculateTenantRentStatus({
+            tenant: t,
+            payments: paymentRes.data || [],
+            referenceDate: new Date(),
+          })
+
+          if (rentStatus.status === 'paid') {
+            accurateStatus = 'Paid'
+          } else if (rentStatus.status === 'overdue') {
+            accurateStatus = 'Overdue'
+          } else {
+            // 'due_soon' or 'due_today'
+            accurateStatus = 'Pending'
           }
         }
 
-        const staleStatusUpdates: { id: string; status: 'Paid' | 'Pending' | 'Overdue' }[] = []
+        if (t.status !== accurateStatus && !t.deleted_at) {
+          staleStatusUpdates.push({ id: t.id, status: accurateStatus as any })
+        }
 
-        // Tenants (Synchronize live rent status against actual payment records and due dates using single source of truth)
-        const allTenants: Tenant[] = (tenantRes.data || []).map((t: any) => {
-          const dueDay = Math.min(Math.max(Number(t.rent_due_day) || 5, 1), 31)
-          let accurateStatus: 'Paid' | 'Pending' | 'Overdue' | 'Vacated' = t.status || 'Pending'
+        const roomObj = roomList.find((r) => r.id === t.room_id)
+        const resolvedTenantProp = t.property_id || roomObj?.property_id || propList[0]?.id || null
+        if (!t.property_id && resolvedTenantProp) {
+          missingPropertyUpdates.push(
+            supabase.from('tenants').update({ property_id: resolvedTenantProp }).eq('id', t.id)
+          )
+        }
 
-          if (t.status === 'Vacated') {
-            accurateStatus = 'Vacated'
-          } else {
-            const rentStatus = calculateTenantRentStatus({
-              tenant: t,
-              payments: paymentRes.data || [],
-              referenceDate: new Date(),
-            })
+        return {
+          id: t.id,
+          property_id: resolvedTenantProp,
+          name: t.full_name,
+          phone: t.phone || '',
+          room_id: t.room_id,
+          bed_id: t.bed_id,
+          bed_number: t.bed_id ? bedMap.get(t.bed_id) || '' : '',
+          room: t.room_id ? roomMap.get(t.room_id) || 'Unassigned' : 'Unassigned',
+          rent: Number(t.monthly_rent || 0),
+          deposit: Number(t.security_deposit || 0),
+          joiningDate: t.joining_date,
+          rent_due_day: dueDay,
+          deleted_at: t.deleted_at || null,
+          status: accurateStatus,
+        }
+      })
+      setTenants(allTenants.filter((t) => !t.deleted_at))
+      setDeletedTenants(allTenants.filter((t) => !!t.deleted_at))
 
-            if (rentStatus.status === 'paid') {
-              accurateStatus = 'Paid'
-            } else if (rentStatus.status === 'overdue') {
-              accurateStatus = 'Overdue'
-            } else {
-              // 'due_soon' or 'due_today'
-              accurateStatus = 'Pending'
-            }
-          }
-
-          if (t.status !== accurateStatus && !t.deleted_at) {
-            staleStatusUpdates.push({ id: t.id, status: accurateStatus as any })
-          }
-
-          return {
-            id: t.id,
-            property_id: t.property_id,
-            name: t.full_name,
-            phone: t.phone || '',
-            room_id: t.room_id,
-            bed_id: t.bed_id,
-            bed_number: t.bed_id ? bedMap.get(t.bed_id) || '' : '',
-            room: t.room_id ? roomMap.get(t.room_id) || 'Unassigned' : 'Unassigned',
-            rent: Number(t.monthly_rent || 0),
-            deposit: Number(t.security_deposit || 0),
-            joiningDate: t.joining_date,
-            rent_due_day: dueDay,
-            deleted_at: t.deleted_at || null,
-            status: accurateStatus,
-          }
-        })
-        setTenants(allTenants.filter((t) => !t.deleted_at))
-        setDeletedTenants(allTenants.filter((t) => !!t.deleted_at))
-
-        // Populate Payments with accurate tenant names and rooms
-        const tenantNameMap = new Map(allTenants.map((t) => [t.id, t.name]))
-        const tenantRoomMap = new Map(allTenants.map((t) => [t.id, t.room]))
-        const allPayments: PaymentRecord[] = rawPayments.map((p: any) => ({
+      // Populate Payments with accurate tenant names and rooms
+      const tenantNameMap = new Map(allTenants.map((t) => [t.id, t.name]))
+      const tenantRoomMap = new Map(allTenants.map((t) => [t.id, t.room]))
+      const allPayments: PaymentRecord[] = rawPayments.map((p: any) => {
+        const tenantObj = allTenants.find((t) => t.id === p.tenant_id)
+        const resolvedPayProp = p.property_id || tenantObj?.property_id || propList[0]?.id || null
+        if (!p.property_id && resolvedPayProp) {
+          missingPropertyUpdates.push(
+            supabase.from('payments').update({ property_id: resolvedPayProp }).eq('id', p.id)
+          )
+        }
+        return {
           id: p.id,
-          property_id: p.property_id,
+          property_id: resolvedPayProp,
           tenant_id: p.tenant_id,
           tenant_name: tenantNameMap.get(p.tenant_id) || 'Unknown Resident',
           room_number: tenantRoomMap.get(p.tenant_id) || 'N/A',
@@ -1099,23 +1147,46 @@ export default function DashboardPage() {
           month_covered: p.month_covered || undefined,
           deleted_at: p.deleted_at || null,
           notes: p.notes,
-        }))
-        setPayments(allPayments.filter((p) => !p.deleted_at))
-        setDeletedPayments(allPayments.filter((p) => !!p.deleted_at))
-
-        // Background synchronization to keep database status in sync with calculated due dates
-        if (staleStatusUpdates.length > 0) {
-          Promise.all(
-            staleStatusUpdates.map((item) =>
-              supabase.from('tenants').update({ status: item.status, updated_at: new Date().toISOString() }).eq('id', item.id)
-            )
-          ).catch(() => {})
         }
+      })
+      setPayments(allPayments.filter((p) => !p.deleted_at))
+      setDeletedPayments(allPayments.filter((p) => !!p.deleted_at))
 
-        // Expenses, Electricity, Complaints
-        setExpenses((expenseRes.data || []).map((e: any) => ({ ...e, amount: Number(e.amount) })))
-        setElectricity((elecRes.data || []).map((el: any) => ({
+      // Background synchronization to keep database status in sync with calculated due dates
+      if (staleStatusUpdates.length > 0) {
+        Promise.all(
+          staleStatusUpdates.map((item) =>
+            supabase.from('tenants').update({ status: item.status, updated_at: new Date().toISOString() }).eq('id', item.id)
+          )
+        ).catch(() => {})
+      }
+
+      // Expenses, Electricity, Complaints with self-healing property links
+      setExpenses((expenseRes.data || []).map((e: any) => {
+        const resolvedExpProp = e.property_id || propList[0]?.id || null
+        if (!e.property_id && resolvedExpProp) {
+          missingPropertyUpdates.push(
+            supabase.from('expenses').update({ property_id: resolvedExpProp }).eq('id', e.id)
+          )
+        }
+        return {
+          ...e,
+          property_id: resolvedExpProp,
+          amount: Number(e.amount),
+        }
+      }))
+
+      setElectricity((elecRes.data || []).map((el: any) => {
+        const roomObj = roomList.find((r) => r.id === el.room_id)
+        const resolvedElecProp = el.property_id || roomObj?.property_id || propList[0]?.id || null
+        if (!el.property_id && resolvedElecProp) {
+          missingPropertyUpdates.push(
+            supabase.from('electricity_readings').update({ property_id: resolvedElecProp }).eq('id', el.id)
+          )
+        }
+        return {
           ...el,
+          property_id: resolvedElecProp,
           room_id: el.room_id,
           room: el.room_id ? roomMap.get(el.room_id) || 'General' : 'General',
           previous_reading: Number(el.previous_reading),
@@ -1125,14 +1196,32 @@ export default function DashboardPage() {
           period_end: el.period_end || null,
           calculation_type: el.calculation_type || 'standard',
           split_breakdown: el.split_breakdown || null,
-        })))
-        setComplaints(complaintRes.data || [])
+        }
+      }))
 
-        // Fetch real Trash / Deleted Records
-        try {
-          const trashRes = await getTrashRecordsAction()
-          if (trashRes.success && trashRes.records) {
-            setTrashRecords(trashRes.records)
+      setComplaints((complaintRes.data || []).map((c: any) => {
+        const resolvedCompProp = c.property_id || propList[0]?.id || null
+        if (!c.property_id && resolvedCompProp) {
+          missingPropertyUpdates.push(
+            supabase.from('complaints').update({ property_id: resolvedCompProp }).eq('id', c.id)
+          )
+        }
+        return {
+          ...c,
+          property_id: resolvedCompProp,
+        }
+      }))
+
+      // Execute background self-healing updates if any were detected
+      if (missingPropertyUpdates.length > 0) {
+        Promise.all(missingPropertyUpdates).catch(() => {})
+      }
+
+      // Fetch real Trash / Deleted Records
+      try {
+        const trashRes = await getTrashRecordsAction()
+        if (trashRes.success && trashRes.records) {
+          setTrashRecords(trashRes.records)
           }
         } catch (e) {
           console.error('Failed to load trash records:', e)
@@ -1485,7 +1574,8 @@ export default function DashboardPage() {
   async function handleAddRoom(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (isSavingRoom) return
-    if (!userId || !property.id) {
+    const targetPropId = property.id || selectedPropertyId || properties[0]?.id
+    if (!userId || !targetPropId) {
       flash('Please set up your property before adding rooms.')
       setShowPropertyModal(true)
       return
@@ -1507,13 +1597,13 @@ export default function DashboardPage() {
         .from('rooms')
         .insert({
           owner_id: userId,
-          property_id: property.id,
+          property_id: targetPropId,
           room_number: roomNumber,
           floor,
           room_type: roomType,
           base_rent: baseRent,
         })
-        .select('id,room_number,floor,room_type,base_rent')
+        .select('id,property_id,room_number,floor,room_type,base_rent')
         .single()
 
       if (roomErr) {
@@ -1524,7 +1614,7 @@ export default function DashboardPage() {
       // Auto-create associated beds matching capacity
       const bedsToInsert = Array.from({ length: bedsCount }, (_, i) => ({
         owner_id: userId,
-        property_id: property.id,
+        property_id: targetPropId,
         room_id: newRoom.id,
         bed_number: `${roomNumber}-${String.fromCharCode(65 + i)}`,
         status: 'available',
@@ -1533,9 +1623,13 @@ export default function DashboardPage() {
 
       const { data: insertedBeds } = await supabase.from('beds').insert(bedsToInsert).select('id,property_id,room_id,bed_number,status,monthly_rate')
 
-      setRooms((prev) => [...prev, newRoom])
+      const createdRoom: Room = {
+        ...newRoom,
+        property_id: newRoom.property_id || targetPropId,
+      }
+      setRooms((prev) => [...prev, createdRoom])
       if (insertedBeds) {
-        setBeds((prev) => [...prev, ...insertedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate) }))])
+        setBeds((prev) => [...prev, ...insertedBeds.map((b: any) => ({ ...b, property_id: b.property_id || targetPropId, monthly_rate: Number(b.monthly_rate) }))])
       }
       setShowRoomModal(false)
       flash(`Room ${roomNumber} added with ${bedsCount} bed${bedsCount > 1 ? 's' : ''}.`)
@@ -1557,6 +1651,7 @@ export default function DashboardPage() {
     const floor = Number(fd.get('floor') || 0)
     const roomType = String(fd.get('room_type') || 'Single')
     const baseRent = Number(fd.get('base_rent') || 0)
+    const targetPropId = editingRoom.property_id || property.id || selectedPropertyId || properties[0]?.id
 
     if (!roomNumber) return
 
@@ -1573,7 +1668,7 @@ export default function DashboardPage() {
         })
         .eq('id', editingRoom.id)
         .eq('owner_id', userId)
-        .select('id,room_number,floor,room_type,base_rent')
+        .select('id,property_id,room_number,floor,room_type,base_rent')
         .single()
 
       if (error) {
@@ -1581,7 +1676,12 @@ export default function DashboardPage() {
         return
       }
 
-      setRooms((prev) => prev.map((r) => (r.id === editingRoom.id ? updated : r)))
+      const updatedRoom: Room = {
+        ...editingRoom,
+        ...updated,
+        property_id: updated?.property_id || targetPropId,
+      }
+      setRooms((prev) => prev.map((r) => (r.id === editingRoom.id ? updatedRoom : r)))
       setEditingRoom(null)
       flash(`Room ${roomNumber} updated successfully.`)
     } catch {
@@ -1624,7 +1724,12 @@ export default function DashboardPage() {
   async function handleAddBed(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (isSavingBed) return
-    if (!userId || !property.id || !showAddBedModal.roomId) return
+    const targetRoom = rooms.find((r) => r.id === showAddBedModal.roomId)
+    const targetPropId = targetRoom?.property_id || property.id || selectedPropertyId || properties[0]?.id
+    if (!userId || !targetPropId || !showAddBedModal.roomId) {
+      flash('Could not determine property for room.')
+      return
+    }
 
     const fd = new FormData(e.currentTarget)
     const bedNumber = String(fd.get('bed_number')).trim()
@@ -1638,7 +1743,7 @@ export default function DashboardPage() {
         .from('beds')
         .insert({
           owner_id: userId,
-          property_id: property.id,
+          property_id: targetPropId,
           room_id: showAddBedModal.roomId,
           bed_number: bedNumber,
           status: 'available',
@@ -1652,7 +1757,7 @@ export default function DashboardPage() {
         return
       }
 
-      setBeds((prev) => [...prev, { ...data, monthly_rate: Number(data.monthly_rate) }])
+      setBeds((prev) => [...prev, { ...data, property_id: data.property_id || targetPropId, monthly_rate: Number(data.monthly_rate) }])
       setShowAddBedModal({ open: false, roomId: '', roomNumber: '' })
       flash(`Bed ${bedNumber} added.`)
     } catch {
@@ -1830,12 +1935,15 @@ export default function DashboardPage() {
 
       // 3. Server Action Execution (with resilient client fallback)
       let createdTenant: any = null
+      const targetRoomObj = rooms.find((r) => r.id === roomId)
+      const targetPropId = property.id || selectedPropertyId || targetRoomObj?.property_id || properties[0]?.id || null
+
       const actionRes = await createTenantAction({
         name,
         phone,
         roomId,
         bedId,
-        propertyId: property.id || null,
+        propertyId: targetPropId,
         rent,
         deposit,
         joiningDate,
@@ -1859,7 +1967,7 @@ export default function DashboardPage() {
           .from('tenants')
           .insert({
             owner_id: userId,
-            property_id: property.id || null,
+            property_id: targetPropId,
             room_id: roomId && roomId !== 'unassigned' ? roomId : null,
             bed_id: bedId && bedId !== 'unassigned' ? bedId : null,
             full_name: name,
@@ -1898,7 +2006,7 @@ export default function DashboardPage() {
       setTenants((prev) => [
         {
           id: createdTenant.id,
-          property_id: createdTenant.property_id || property.id,
+          property_id: createdTenant.property_id || targetPropId || property.id,
           name: createdTenant.full_name,
           phone: createdTenant.phone,
           room_id: createdTenant.room_id,
@@ -2017,12 +2125,16 @@ export default function DashboardPage() {
         }
       }
 
+      const targetRoomObj = rooms.find((r) => r.id === finalRoomId)
+      const targetPropId = editingTenant.property_id || property.id || selectedPropertyId || targetRoomObj?.property_id || properties[0]?.id || null
+
       // Server action execution with client fallback
       const updateRes = await updateTenantAction(editingTenant.id, {
         name,
         phone,
         roomId: finalRoomId,
         bedId: finalBedId,
+        propertyId: targetPropId,
         rent,
         deposit,
         joiningDate,
@@ -2037,20 +2149,25 @@ export default function DashboardPage() {
           return
         }
 
+        const updateData: Record<string, any> = {
+          full_name: name,
+          phone,
+          room_id: finalRoomId,
+          bed_id: finalBedId,
+          monthly_rent: rent,
+          security_deposit: deposit,
+          joining_date: joiningDate,
+          rent_due_day: dueDay,
+          status: finalStatus,
+          updated_at: new Date().toISOString(),
+        }
+        if (targetPropId) {
+          updateData.property_id = targetPropId
+        }
+
         const { error: clientUpdateErr } = await supabase
           .from('tenants')
-          .update({
-            full_name: name,
-            phone,
-            room_id: finalRoomId,
-            bed_id: finalBedId,
-            monthly_rent: rent,
-            security_deposit: deposit,
-            joining_date: joiningDate,
-            rent_due_day: dueDay,
-            status: finalStatus,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updateData)
           .eq('id', editingTenant.id)
           .eq('owner_id', userId)
 
@@ -2086,6 +2203,7 @@ export default function DashboardPage() {
           t.id === editingTenant.id
             ? {
                 ...t,
+                property_id: targetPropId || t.property_id,
                 name,
                 phone,
                 room_id: finalRoomId,
@@ -2251,6 +2369,7 @@ export default function DashboardPage() {
           setTenants(
             refreshedTenants.map((t: any) => ({
               id: t.id,
+              property_id: t.property_id || property.id || selectedPropertyId || properties[0]?.id || null,
               name: t.full_name,
               phone: t.phone || '',
               room_id: t.room_id,
@@ -2267,7 +2386,7 @@ export default function DashboardPage() {
         }
         const { data: refreshedBeds } = await supabase.from('beds').select('*').eq('owner_id', userId)
         if (refreshedBeds) {
-          setBeds(refreshedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate || 0) })))
+          setBeds(refreshedBeds.map((b: any) => ({ ...b, property_id: b.property_id || property.id || properties[0]?.id, monthly_rate: Number(b.monthly_rate || 0) })))
         }
       } else if (record.entity_type === 'property') {
         const { data: refreshedProps } = await supabase.from('properties').select('*').eq('owner_id', userId)
@@ -2280,23 +2399,26 @@ export default function DashboardPage() {
               contact: p.contact_number || '',
               city: p.city || '',
               rules: p.rules || null,
+              upi_id: p.upi_id || null,
+              payment_link: p.payment_link || null,
+              upi_qr_url: p.upi_qr_url || null,
             }))
           )
         }
       } else if (record.entity_type === 'room') {
         const { data: refreshedRooms } = await supabase.from('rooms').select('*').eq('owner_id', userId)
-        if (refreshedRooms) setRooms(refreshedRooms)
+        if (refreshedRooms) setRooms(refreshedRooms.map((r: any) => ({ ...r, property_id: r.property_id || property.id || properties[0]?.id })))
         const { data: refreshedBeds } = await supabase.from('beds').select('*').eq('owner_id', userId)
-        if (refreshedBeds) setBeds(refreshedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate || 0) })))
+        if (refreshedBeds) setBeds(refreshedBeds.map((b: any) => ({ ...b, property_id: b.property_id || property.id || properties[0]?.id, monthly_rate: Number(b.monthly_rate || 0) })))
       } else if (record.entity_type === 'bed') {
         const { data: refreshedBeds } = await supabase.from('beds').select('*').eq('owner_id', userId)
-        if (refreshedBeds) setBeds(refreshedBeds.map((b: any) => ({ ...b, monthly_rate: Number(b.monthly_rate || 0) })))
+        if (refreshedBeds) setBeds(refreshedBeds.map((b: any) => ({ ...b, property_id: b.property_id || property.id || properties[0]?.id, monthly_rate: Number(b.monthly_rate || 0) })))
       } else if (record.entity_type === 'expense') {
         const { data: refreshedExp } = await supabase.from('expenses').select('*').eq('owner_id', userId)
-        if (refreshedExp) setExpenses(refreshedExp.map((e: any) => ({ ...e, amount: Number(e.amount) })))
+        if (refreshedExp) setExpenses(refreshedExp.map((e: any) => ({ ...e, property_id: e.property_id || property.id || properties[0]?.id || null, amount: Number(e.amount) })))
       } else if (record.entity_type === 'complaint') {
         const { data: refreshedComp } = await supabase.from('complaints').select('*').eq('owner_id', userId)
-        if (refreshedComp) setComplaints(refreshedComp)
+        if (refreshedComp) setComplaints(refreshedComp.map((c: any) => ({ ...c, property_id: c.property_id || property.id || properties[0]?.id || null })))
       } else if (record.entity_type === 'payment') {
         const { data: refreshedPay } = await supabase.from('payments').select('*').eq('owner_id', userId)
         if (refreshedPay) {
@@ -2305,6 +2427,7 @@ export default function DashboardPage() {
           setPayments(
             refreshedPay.map((p: any) => ({
               id: p.id,
+              property_id: p.property_id || property.id || selectedPropertyId || properties[0]?.id || null,
               tenant_id: p.tenant_id,
               tenant_name: tenantNameMap.get(p.tenant_id) || 'Unknown Resident',
               room_number: tenantRoomMap.get(p.tenant_id) || 'N/A',
@@ -2414,11 +2537,13 @@ export default function DashboardPage() {
             return
           }
 
+          const targetPaymentPropId = property.id || selectedPropertyId || targetTenant.property_id || properties[0]?.id || null
+
           const { data: newPayment, error } = await supabase
             .from('payments')
             .insert({
               owner_id: userId,
-              property_id: property.id || null,
+              property_id: targetPaymentPropId,
               tenant_id: tenantId,
               amount,
               payment_method: method,
@@ -2445,7 +2570,7 @@ export default function DashboardPage() {
 
           const recordedPayment: PaymentRecord = {
             id: newPayment.id,
-            property_id: newPayment.property_id || property.id,
+            property_id: newPayment.property_id || targetPaymentPropId || property.id,
             tenant_id: newPayment.tenant_id,
             tenant_name: targetTenant.name,
             room_number: targetTenant.room,
@@ -2662,13 +2787,15 @@ export default function DashboardPage() {
       return
     }
 
+    const targetExpensePropId = property.id || selectedPropertyId || properties[0]?.id || null
+
     setIsSavingExpense(true)
     try {
       const { data: newExp, error } = await supabase
         .from('expenses')
         .insert({
           owner_id: userId,
-          property_id: property.id || null,
+          property_id: targetExpensePropId,
           title,
           category,
           amount,
@@ -2683,7 +2810,7 @@ export default function DashboardPage() {
         return
       }
 
-      setExpenses((prev) => [{ ...newExp, property_id: newExp.property_id || property.id, amount: Number(newExp.amount) }, ...prev])
+      setExpenses((prev) => [{ ...newExp, property_id: newExp.property_id || targetExpensePropId || property.id, amount: Number(newExp.amount) }, ...prev])
       setShowExpenseModal(false)
       flash('Expense logged successfully.')
     } catch {
@@ -2784,13 +2911,16 @@ export default function DashboardPage() {
       return
     }
 
+    const targetRoomObj = rooms.find((r) => r.id === roomId)
+    const targetElecPropId = property.id || selectedPropertyId || targetRoomObj?.property_id || properties[0]?.id || null
+
     setIsSavingElectricity(true)
     try {
       const { data, error } = await supabase
         .from('electricity_readings')
         .insert({
           owner_id: userId,
-          property_id: property.id || null,
+          property_id: targetElecPropId,
           room_id: roomId && roomId !== 'general' ? roomId : null,
           previous_reading: prevReading,
           current_reading: currReading,
@@ -2810,7 +2940,7 @@ export default function DashboardPage() {
       setElectricity((prev) => [
         {
           id: data.id,
-          property_id: data.property_id || property.id,
+          property_id: data.property_id || targetElecPropId || property.id,
           room_id: data.room_id,
           room: roomName,
           previous_reading: Number(data.previous_reading),
@@ -3116,12 +3246,15 @@ export default function DashboardPage() {
       const finalRoomId = midCycleRoomId !== 'all' ? midCycleRoomId : null
       const roomName = finalRoomId ? rooms.find((r) => r.id === finalRoomId)?.room_number || 'Room' : 'General'
 
+      const targetRoomObj = finalRoomId ? rooms.find((r) => r.id === finalRoomId) : null
+      const targetSplitPropId = property.id || selectedPropertyId || targetRoomObj?.property_id || properties[0]?.id || null
+
       // 1. Insert master electricity reading
       const { data: readingData, error: readingErr } = await supabase
         .from('electricity_readings')
         .insert({
           owner_id: userId,
-          property_id: property.id || null,
+          property_id: targetSplitPropId,
           room_id: finalRoomId,
           previous_reading: 0,
           current_reading: splitResult.totalUnits,
@@ -3145,7 +3278,7 @@ export default function DashboardPage() {
         owner_id: userId,
         reading_id: readingData.id,
         tenant_id: s.residentId,
-        property_id: property.id || null,
+        property_id: targetSplitPropId,
         room_id: finalRoomId,
         period_start: midCyclePeriodStart,
         period_end: midCyclePeriodEnd,
@@ -3201,13 +3334,15 @@ export default function DashboardPage() {
 
     if (!title) return
 
+    const targetCompPropId = property.id || selectedPropertyId || properties[0]?.id || null
+
     setIsSavingComplaint(true)
     try {
       const { data, error } = await supabase
         .from('complaints')
         .insert({
           owner_id: userId,
-          property_id: property.id || null,
+          property_id: targetCompPropId,
           title,
           tenant: tenantName,
           priority,
@@ -3222,7 +3357,7 @@ export default function DashboardPage() {
         return
       }
 
-      setComplaints((prev) => [{ ...data, property_id: data.property_id || property.id }, ...prev])
+      setComplaints((prev) => [{ ...data, property_id: data.property_id || targetCompPropId || property.id }, ...prev])
       setShowComplaintModal(false)
       flash('Complaint ticket logged.')
     } catch {
