@@ -46,7 +46,7 @@ async function runLiveVerification() {
   const { data: profiles, error: pErr } = await admin
     .from('profiles')
     .select('id, email, full_name, upi_id, payment_link, upi_qr_url')
-    .eq('role', 'super_admin')
+    .in('role', ['pg_owner', 'super_admin'])
     .limit(1)
 
   if (pErr || !profiles || profiles.length === 0) {

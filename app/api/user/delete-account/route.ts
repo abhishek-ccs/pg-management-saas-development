@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { createClient, createAdminClient, writeAudit } from '@/lib/supabase/server'
+import { createClient, createAdminClient } from '@/lib/supabase/server'
 import { apiError, apiSuccess } from '@/lib/api-response'
 
 export const dynamic = 'force-dynamic'
@@ -27,17 +27,6 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = await createAdminClient()
-
-    // 1. Verify user role: prevent super_admin self-deletion via this route
-    const { data: profile } = await admin
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    if (profile?.role === 'super_admin') {
-      return apiError('FORBIDDEN', 'Super Admin accounts cannot be erased via self-service deletion.', 403)
-    }
 
     // 2. Audit log the deletion request prior to record removal
     await admin.from('platform_audit_logs').insert({

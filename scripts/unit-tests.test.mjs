@@ -2122,9 +2122,6 @@ test('46. Password Policy Invariants: 8-128 chars, Complexity, Compromised Rejec
   const resetRoute = fs.readFileSync(path.resolve('app/api/auth/verify-reset-password/route.ts'), 'utf-8')
   assert.ok(resetRoute.includes('validatePassword(newPassword)'), 'verify-reset-password must validate password')
 
-  const adminActions = fs.readFileSync(path.resolve('app/admin/actions.ts'), 'utf-8')
-  assert.ok(adminActions.includes('validatePassword(newPassword)'), 'admin actions must validate password')
-
   const signupUi = fs.readFileSync(path.resolve('app/signup/page.tsx'), 'utf-8')
   assert.ok(signupUi.includes('validatePassword'), 'signup UI must import validatePassword')
 
@@ -2134,7 +2131,6 @@ test('46. Password Policy Invariants: 8-128 chars, Complexity, Compromised Rejec
   // 11. Security Audit: Zero plaintext logging in auth routes
   assert.ok(!signupRoute.includes('console.log(') || !signupRoute.includes('console.log(password'), 'Must not log password')
   assert.ok(!resetRoute.includes('console.log(') || !resetRoute.includes('console.log(newPassword'), 'Must not log newPassword')
-  assert.ok(!adminActions.includes('console.log(') || !adminActions.includes('console.log(newPassword'), 'Must not log admin password')
 })
 
 test('47. Monthly Rent Due Date & Next Cycle Invariants (Issue #1)', () => {

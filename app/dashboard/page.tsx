@@ -223,6 +223,20 @@ type ElectricityRecord = {
   split_breakdown?: any[] | null
 }
 
+function getYearMonthFromDate(dateStr: string | null | undefined): { year: number; month: number } {
+  if (!dateStr) {
+    const now = new Date()
+    return { year: now.getFullYear(), month: now.getMonth() }
+  }
+  const cleanStr = String(dateStr).split('T')[0]
+  const parts = cleanStr.split('-').map(Number)
+  if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+    return { year: parts[0], month: parts[1] - 1 }
+  }
+  const d = new Date(dateStr)
+  return { year: d.getFullYear(), month: d.getMonth() }
+}
+
 const navigation = [
   { label: 'Overview', icon: LayoutDashboard },
   { label: 'Property', icon: Building2 },
@@ -464,11 +478,6 @@ export default function DashboardPage() {
 
   const propertyType = useMemo(() => getPropertyType(property), [property])
   const isPgHostel = propertyType === 'pg_hostel'
-
-  const isSuperAdminUser = useMemo(() => {
-    const email = (userEmail || '').trim().toLowerCase()
-    return email === 'abhishekrawat67320@gmail.com' || email === 'sharmavn258@gmail.com'
-  }, [userEmail])
 
   const [rooms, setRooms] = useState<Room[]>([])
   const [beds, setBeds] = useState<Bed[]>([])
@@ -1176,7 +1185,20 @@ export default function DashboardPage() {
         }
       }))
 
-      setElectricity((elecRes.data || []).map((el: any) => {
+      let rawElecData = elecRes.data
+      if (elecRes.error || !rawElecData) {
+        console.warn('Initial electricity query encountered error, falling back to base columns:', elecRes.error)
+        const { data: fallbackElec, error: fbErr } = await supabase
+          .from('electricity_readings')
+          .select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id')
+          .eq('owner_id', user.id)
+          .order('reading_date', { ascending: false })
+        if (!fbErr && fallbackElec) {
+          rawElecData = fallbackElec
+        }
+      }
+
+      setElectricity((rawElecData || []).map((el: any) => {
         const roomObj = roomList.find((r) => r.id === el.room_id)
         const resolvedElecProp = el.property_id || roomObj?.property_id || propList[0]?.id || null
         if (!el.property_id && resolvedElecProp) {
@@ -3005,12 +3027,16 @@ export default function DashboardPage() {
       return
     }
 
+    const finalRoomId = roomId && roomId !== 'general' ? roomId : null
+    const targetRoomObj = finalRoomId ? rooms.find((r) => r.id === finalRoomId) : null
+    const targetElecPropId = editingElectricity.property_id || property.id || selectedPropertyId || targetRoomObj?.property_id || properties[0]?.id || null
+
     setIsSavingElectricity(true)
     try {
-      const finalRoomId = roomId && roomId !== 'general' ? roomId : null
       const { error } = await supabase
         .from('electricity_readings')
         .update({
+          property_id: targetElecPropId,
           room_id: finalRoomId,
           previous_reading: prevReading,
           current_reading: currReading,
@@ -3032,6 +3058,7 @@ export default function DashboardPage() {
           el.id === editingElectricity.id
             ? {
                 ...el,
+                property_id: targetElecPropId || el.property_id,
                 room_id: finalRoomId,
                 room: roomName,
                 previous_reading: prevReading,
@@ -3297,6 +3324,7 @@ export default function DashboardPage() {
       setElectricity((prev) => [
         {
           id: readingData.id,
+          property_id: readingData.property_id || targetSplitPropId || property.id,
           room_id: readingData.room_id,
           room: roomName,
           previous_reading: 0,
@@ -3611,18 +3639,6 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-
-              {/* Discreet Admin Console Button for Verified Super Admins */}
-              {isSuperAdminUser && (
-                <a
-                  href="/admin"
-                  title="Open BaseraBook Super Admin Console"
-                  className="hidden xl:inline-flex items-center gap-1.5 rounded-full border border-[#d8c2aa] bg-[#faf7f2] px-2.5 py-1 text-xs font-semibold text-[#784b20] hover:bg-[#f1e8dc] transition-colors shadow-2xs"
-                >
-                  <ShieldCheck className="size-3.5 text-[#8b5a2b]" />
-                  <span>Staff Admin</span>
-                </a>
-              )}
 
               {/* Dynamic Multi-Module Search Input (Desktop only to prevent tablet overlap) */}
               <div className="hidden lg:flex relative items-center gap-2 rounded-xl border border-[#ebe4da] bg-[#faf8f5] px-2.5 sm:px-3 py-1.5 text-xs text-[#74798a] focus-within:border-[#8b5a2b] transition-colors">
@@ -4090,7 +4106,6 @@ export default function DashboardPage() {
                 <SettingsTab
                   userName={userName}
                   userEmail={userEmail}
-                  isSuperAdminUser={isSuperAdminUser}
                   property={property}
                   properties={properties}
                   selectedPropertyId={selectedPropertyId || property.id}
@@ -8706,8 +8721,8 @@ function ElectricityTab({
     return MONTH_NAMES.map((name, idx) => ({ name, idx })).filter(({ idx }) => {
       if (selectedYear === 2026) {
         const hasOlderRecord = records.some((el: ElectricityRecord) => {
-          const d = new Date(el.reading_date)
-          return d.getFullYear() === 2026 && d.getMonth() === idx
+          const { year, month } = getYearMonthFromDate(el.reading_date)
+          return year === 2026 && month === idx
         })
         return idx >= 9 || hasOlderRecord
       }
@@ -8718,8 +8733,8 @@ function ElectricityTab({
   const displayedRecords = useMemo(() => {
     if (selectedMonth === 'all') return records
     return records.filter((el: ElectricityRecord) => {
-      const d = new Date(el.reading_date)
-      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+      const { year, month } = getYearMonthFromDate(el.reading_date)
+      return month === selectedMonth && year === selectedYear
     })
   }, [records, selectedMonth, selectedYear])
 
@@ -9258,8 +9273,8 @@ function ReportsTab({
             return d.getFullYear() === 2026 && d.getMonth() === idx
           }) ||
           electricity.some((el: ElectricityRecord) => {
-            const d = new Date(el.reading_date)
-            return d.getFullYear() === 2026 && d.getMonth() === idx
+            const { year, month } = getYearMonthFromDate(el.reading_date)
+            return year === 2026 && month === idx
           })
         return idx >= 9 || hasOlderRecord
       }
@@ -9297,8 +9312,8 @@ function ReportsTab({
   // 3. Scoped Monthly Electricity Utility Charges (from actual DB records)
   const monthElectricity = useMemo(() => {
     return electricity.filter((el: ElectricityRecord) => {
-      const d = new Date(el.reading_date)
-      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+      const { year, month } = getYearMonthFromDate(el.reading_date)
+      return month === selectedMonth && year === selectedYear
     })
   }, [electricity, selectedMonth, selectedYear])
 
@@ -9936,7 +9951,6 @@ function ReportsTab({
 function SettingsTab({
   userName,
   userEmail,
-  isSuperAdminUser,
   property,
   properties = [],
   selectedPropertyId,
@@ -10397,31 +10411,6 @@ function SettingsTab({
           </a>
         </div>
       </div>
-
-      {/* Discreet Platform Admin Console Shortcut for Verified Administrators */}
-      {isSuperAdminUser && (
-        <div className="rounded-2xl border border-[#8b5a2b]/30 bg-[#faf7f2] p-6 shadow-sm">
-          <div className="flex items-center gap-2.5 text-[#8b5a2b]">
-            <ShieldCheck className="size-5" />
-            <h3 className="text-base font-bold text-[#3d3934]">BaseraBook Super Admin Console</h3>
-          </div>
-          <p className="mt-1 text-xs text-[#85899a]">
-            Your email (<strong className="text-[#3d3934]">{userEmail}</strong>) is verified as a platform administrator.
-          </p>
-          <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <p className="text-xs text-[#676b7d]">
-              Manage global customer tenants, subscriptions, audit logs, and platform system health.
-            </p>
-            <a
-              href="/admin"
-              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-[#2c2926] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#1a1816] transition-colors"
-            >
-              <ShieldCheck className="size-4 text-[#d8c2aa]" />
-              Open Admin Console →
-            </a>
-          </div>
-        </div>
-      )}
 
       <div className="rounded-2xl border border-[#ffe4e4] bg-[#fffbfb] p-6">
         <h3 className="text-base font-bold text-[#b95c3c]">Session & Sign Out</h3>

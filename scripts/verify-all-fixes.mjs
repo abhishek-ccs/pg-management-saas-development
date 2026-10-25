@@ -22,56 +22,43 @@ assert.ok(!publicHeader.includes('<LocaleSwitcher'), 'PublicHeader must NOT cont
 const publicFooter = fs.readFileSync('components/public/PublicFooter.tsx', 'utf-8')
 assert.ok(!publicFooter.includes('<LocaleSwitcher'), 'PublicFooter must NOT contain LocaleSwitcher')
 
-const adminPage = fs.readFileSync('app/admin/page.tsx', 'utf-8')
-assert.ok(!adminPage.includes('<LocaleSwitcher'), 'Super Admin (app/admin/page.tsx) must NOT contain LocaleSwitcher')
-
-const consolePage = fs.readFileSync('app/console/page.tsx', 'utf-8')
-assert.ok(!consolePage.includes('<LocaleSwitcher'), 'Super Admin Console (app/console/page.tsx) must NOT contain LocaleSwitcher')
-
 console.log('✔ Language button strictly isolated to public landing page ONLY.\n')
 
 // ---------------------------------------------------------------------------
-// 2. PUBLIC SITE CLEANLINESS & DISCREET /console ROUTE
+// 2. COMPLETE SUPERADMIN REMOVAL VERIFICATION
 // ---------------------------------------------------------------------------
-console.log('2. Checking Clean Public Navigation & Discreet /console Route...')
+console.log('2. Checking Complete Superadmin Feature Removal...')
 
-assert.ok(!publicHeader.includes('Staff Login') && !publicHeader.includes('Admin Login'), 'PublicHeader must not mention Staff/Admin Login')
-assert.ok(!publicFooter.includes('Staff Login') && !publicFooter.includes('Admin Login'), 'PublicFooter must not mention Staff/Admin Login')
-assert.ok(!landingPage.includes('Staff Login') && !landingPage.includes('Admin Login'), 'Landing page must not expose Staff/Admin Login')
+assert.ok(!fs.existsSync('app/admin'), 'app/admin directory must NOT exist')
+assert.ok(!fs.existsSync('app/console'), 'app/console directory must NOT exist')
+assert.ok(!fs.existsSync('app/api/admin'), 'app/api/admin directory must NOT exist')
+assert.ok(!fs.existsSync('components/admin'), 'components/admin directory must NOT exist')
+assert.ok(!fs.existsSync('scripts/bootstrap-super-admin.mjs'), 'bootstrap-super-admin.mjs must NOT exist')
 
-assert.ok(fs.existsSync('app/console/page.tsx'), 'app/console/page.tsx must exist')
-assert.ok(fs.existsSync('app/console/layout.tsx'), 'app/console/layout.tsx must exist')
+// Verify dashboard does not expose any superadmin buttons or shortcuts
+assert.ok(!dashboardPage.includes('Staff Admin'), 'Dashboard topbar must NOT contain Staff Admin button')
+assert.ok(!dashboardPage.includes('BaseraBook Super Admin Console'), 'Dashboard SettingsTab must NOT contain Super Admin Console card')
+assert.ok(!dashboardPage.includes('isSuperAdminUser'), 'Dashboard must NOT define or use isSuperAdminUser')
 
-const consoleLayout = fs.readFileSync('app/console/layout.tsx', 'utf-8')
-assert.ok(consoleLayout.includes('index: false'), 'Console layout must specify noindex')
-assert.ok(consoleLayout.includes('follow: false'), 'Console layout must specify nofollow')
-
-const robotsTxt = fs.readFileSync('app/robots.ts', 'utf-8')
-assert.ok(robotsTxt.includes("'/console'"), 'Robots.ts must disallow /console')
-
-const securityHeaders = fs.readFileSync('lib/security/headers.ts', 'utf-8')
-assert.ok(securityHeaders.includes("pathname.startsWith('/console')"), 'Security headers must tag /console as noindex')
-assert.ok(securityHeaders.includes("no-store, no-cache, must-revalidate"), 'Security headers must set no-store for admin, console, and dashboard')
-
+// Verify proxy.ts does not redirect to super admin routes
 const proxy = fs.readFileSync('lib/supabase/proxy.ts', 'utf-8')
-assert.ok(proxy.includes("pathname === '/console'"), 'proxy.ts must handle /console')
-assert.ok(proxy.includes("profile?.role !== 'super_admin'"), 'proxy.ts must enforce super_admin role check')
-assert.ok(proxy.includes("new URL('/dashboard?error=unauthorized'"), 'proxy.ts must deny non-super_admins and redirect to dashboard')
+assert.ok(!proxy.includes("'/admin'"), 'proxy.ts must NOT contain references to /admin')
+assert.ok(!proxy.includes("'/console'"), 'proxy.ts must NOT contain references to /console')
 
-assert.ok(adminPage.includes('AdminSignOutButton'), 'Admin page must have AdminSignOutButton in header')
+// Verify server.ts does not export superadmin-specific functions
+const serverTs = fs.readFileSync('lib/supabase/server.ts', 'utf-8')
+assert.ok(!serverTs.includes('function requireSuperAdmin'), 'server.ts must NOT contain requireSuperAdmin')
+assert.ok(!serverTs.includes('function ensureSuperAdmin'), 'server.ts must NOT contain ensureSuperAdmin')
+assert.ok(!serverTs.includes('function getPlatformCounts'), 'server.ts must NOT contain getPlatformCounts')
+assert.ok(!serverTs.includes('function deleteCustomerProfile'), 'server.ts must NOT contain deleteCustomerProfile')
 
-const signOutBtn = fs.readFileSync('components/admin/AdminSignOutButton.tsx', 'utf-8')
-assert.ok(signOutBtn.includes('supabase.auth.signOut()'), 'AdminSignOutButton must call supabase.auth.signOut()')
-assert.ok(signOutBtn.includes('/console?logout=true'), 'AdminSignOutButton must redirect to /console?logout=true')
-
-console.log('✔ Discreet /console route verified with strict role-based isolation & clean public navigation.\n')
+console.log('✔ Superadmin feature completely removed with zero leftover routes or UI shortcuts.\n')
 
 // ---------------------------------------------------------------------------
 // 3. RENT / DUE STATUS & DATABASE SYNCHRONIZATION
 // ---------------------------------------------------------------------------
 console.log('3. Checking Rent / Due Status Calculation & Synchronization Logic...')
 
-// Overdue vs Due Today vs Due Soon vs Paid tests
 const refDate = new Date(2026, 9, 15) // Oct 15
 
 // If tenant paid -> 'paid'
@@ -107,25 +94,23 @@ assert.ok(actionsCode.includes('updatePayload.rent_due_day = safeDueDay'), 'upda
 console.log('✔ Rent / Due calculation and status synchronization verified.\n')
 
 // ---------------------------------------------------------------------------
-// 4. SUPER ADMIN LIVE STATS
+// 4. ELECTRICITY BILL PERSISTENCE & DATA INTEGRITY
 // ---------------------------------------------------------------------------
-console.log('4. Checking Super Admin Live Stats & API...')
+console.log('4. Checking Electricity Bill Persistence & Resilience...')
 
-assert.ok(fs.existsSync('app/api/admin/stats/route.ts'), 'app/api/admin/stats/route.ts must exist')
-const statsRoute = fs.readFileSync('app/api/admin/stats/route.ts', 'utf-8')
-assert.ok(statsRoute.includes('requireSuperAdmin()'), 'Stats API must verify requireSuperAdmin()')
-assert.ok(statsRoute.includes('getPlatformCounts()'), 'Stats API must query real database counts via getPlatformCounts()')
-assert.ok(statsRoute.includes('totalRevenue'), 'Stats API must compute real total revenue from payments')
+// Verify timezone-safe date extraction helper exists
+assert.ok(dashboardPage.includes('function getYearMonthFromDate'), 'Dashboard must define getYearMonthFromDate helper')
 
-assert.ok(fs.existsSync('components/admin/AdminLiveOverview.tsx'), 'AdminLiveOverview component must exist')
-const liveOverview = fs.readFileSync('components/admin/AdminLiveOverview.tsx', 'utf-8')
-assert.ok(liveOverview.includes("fetch('/api/admin/stats'"), 'AdminLiveOverview must poll /api/admin/stats')
-assert.ok(liveOverview.includes('setInterval'), 'AdminLiveOverview must auto-refresh via timer')
-assert.ok(liveOverview.includes('Refresh Stats'), 'AdminLiveOverview must include manual refresh button')
+// Verify ElectricityTab uses timezone-safe date helper
+assert.ok(dashboardPage.includes('getYearMonthFromDate(el.reading_date)'), 'ElectricityTab must use getYearMonthFromDate')
 
-assert.ok(adminPage.includes('AdminLiveOverview'), 'app/admin/page.tsx must render AdminLiveOverview')
+// Verify resilient fallback query in fetchDashboardData
+assert.ok(dashboardPage.includes('Initial electricity query encountered error, falling back to base columns'), 'fetchDashboardData must implement resilient fallback for electricity')
 
-console.log('✔ Super Admin live stats verified.\n')
+// Verify handleUpdateElectricity persists property_id
+assert.ok(dashboardPage.includes('property_id: targetElecPropId'), 'handleUpdateElectricity must persist property_id to database')
+
+console.log('✔ Electricity bill persistence and timezone-safe data flow verified.\n')
 
 console.log('=====================================================')
 console.log('🎉 ALL TESTS PASSED! CODEBASE IS 100% COMPLIANT.')
