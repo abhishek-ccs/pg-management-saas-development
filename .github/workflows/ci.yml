@@ -15,6 +15,7 @@ jobs:
   typecheck-and-unit-tests:
     name: 1. Typecheck & Money Logic Tests
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -44,11 +45,13 @@ jobs:
     name: 2. Next.js Production Build
     needs: typecheck-and-unit-tests
     runs-on: ubuntu-latest
+
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://mock.supabase.co' }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'mock-anon-key' }}
       NEXT_PUBLIC_APP_URL: https://baserabook.in
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || 'mock-service-role-key' }}
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -75,6 +78,7 @@ jobs:
     name: 3. E2E & WCAG 2.2 AA Accessibility (axe)
     needs: build-verification
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -98,18 +102,39 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Validate E2E Supabase Configuration
+        shell: bash
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          test -n "$NEXT_PUBLIC_SUPABASE_URL" || (echo "Missing GitHub secret: NEXT_PUBLIC_SUPABASE_URL" && exit 1)
-          test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" || (echo "Missing GitHub secret: NEXT_PUBLIC_SUPABASE_ANON_KEY" && exit 1)
-          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing GitHub secret: SUPABASE_SERVICE_ROLE_KEY" && exit 1)
-          case "$NEXT_PUBLIC_SUPABASE_URL" in
-            https://*.supabase.co) echo "Supabase URL format looks valid." ;;
-            *) echo "NEXT_PUBLIC_SUPABASE_URL must be your project's HTTPS API URL, such as https://your-project-id.supabase.co"; exit 1 ;;
-          esac
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ]; then
+            echo "::error::Missing GitHub secret NEXT_PUBLIC_SUPABASE_URL"
+            exit 1
+          fi
+
+          if [ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
+            echo "::error::Missing GitHub secret NEXT_PUBLIC_SUPABASE_ANON_KEY"
+            exit 1
+          fi
+
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Missing GitHub secret SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          fi
+
+          URL_TO_CHECK="${NEXT_PUBLIC_SUPABASE_URL%/}"
+
+          if [[ "$URL_TO_CHECK" =~ ^https://[a-zA-Z0-9-]+\.supabase\.co$ ]]; then
+            echo "Supabase URL format looks valid."
+          else
+            echo "::error::Supabase URL format is invalid. Expected https://your-project-id.supabase.co"
+            echo "The configured URL host is:"
+            printf '%s\n' "$URL_TO_CHECK" |
+              sed -E 's#^https?://([^/]+).*$#\1#' |
+              sed 's/^/URL host: /'
+            exit 1
+          fi
 
       - name: Build Next.js Bundle for E2E
         run: pnpm run build
@@ -136,6 +161,7 @@ jobs:
     name: 4. Lighthouse Performance & SEO Audit (90+ Target)
     needs: build-verification
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
