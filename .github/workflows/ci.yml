@@ -123,13 +123,39 @@ jobs:
             exit 1
           fi
 
-          URL_TO_CHECK="${NEXT_PUBLIC_SUPABASE_URL%/}"
-          if [[ "$URL_TO_CHECK" == https://*.supabase.co ]]; then
-            echo "Supabase URL format looks valid."
-          else
-            echo "::error::Supabase URL format is invalid."
-            exit 1
-          fi
+          URL_TO_CHECK="$(printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | tr -d '\r\n' | sed 's:/*$::')"
+
+          export URL_TO_CHECK
+
+          python3 - <<'PY'
+          import os
+          import sys
+          from urllib.parse import urlsplit
+
+          value = os.environ.get("URL_TO_CHECK", "")
+          parsed = urlsplit(value)
+
+          valid = (
+              parsed.scheme == "https"
+              and parsed.hostname is not None
+              and parsed.hostname.endswith(".supabase.co")
+              and parsed.hostname != "supabase.co"
+              and parsed.path in ("", "/")
+              and parsed.query == ""
+              and parsed.fragment == ""
+              and parsed.username is None
+              and parsed.password is None
+              and parsed.port in (None, 443)
+          )
+
+          if valid:
+              print("Supabase URL format looks valid.")
+          else:
+              print("::error::Supabase URL format is invalid.")
+              print(f"URL host: {parsed.hostname or '(missing)'}")
+              print("Expected a project URL such as https://your-project-id.supabase.co")
+              sys.exit(1)
+          PY
 
       - name: Build Next.js Bundle for E2E
         run: pnpm run build
