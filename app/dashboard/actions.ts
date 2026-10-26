@@ -12,8 +12,9 @@ export interface CreateTenantInput {
   propertyId: string | null
   rent: number
   deposit: number
-  joiningDate: string
-  dueDay?: number
+  joiningDate?: string
+  dueDay?: number | string
+  firstDueDate?: string
 }
 
 export interface TenantActionResult {
@@ -200,7 +201,15 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
     // If tenant joins on the 10th, the rent due day defaults to 10 and next rent is due on the 10th of following month
     const joiningParsed = new Date(joiningDate)
     const joiningDay = !isNaN(joiningParsed.getTime()) ? joiningParsed.getDate() : 5
-    const safeDueDay = Math.min(Math.max(Number(input.dueDay || joiningDay || 5), 1), 31)
+    let rawDue = input.firstDueDate || input.dueDay
+    let dueDayNum = 5
+    if (typeof rawDue === 'string' && rawDue.includes('-')) {
+      const parts = rawDue.split('-')
+      dueDayNum = Number(parts[2]) || joiningDay || 5
+    } else {
+      dueDayNum = Number(rawDue || joiningDay || 5)
+    }
+    const safeDueDay = Math.min(Math.max(dueDayNum, 1), 31)
     const currentDate = new Date().getDate()
     const initialStatus = currentDate > safeDueDay ? 'Overdue' : 'Pending'
 
@@ -262,8 +271,9 @@ export async function updateTenantAction(
     propertyId?: string | null
     rent: number
     deposit: number
-    joiningDate: string
-    dueDay?: number
+    joiningDate?: string
+    dueDay?: number | string
+    firstDueDate?: string
     status: string
   }
 ): Promise<TenantActionResult> {
@@ -366,7 +376,18 @@ export async function updateTenantAction(
       }
     }
 
-    const safeDueDay = input.dueDay !== undefined ? Math.min(Math.max(Number(input.dueDay), 1), 31) : undefined
+    let safeDueDay: number | undefined = undefined
+    if (input.firstDueDate || input.dueDay !== undefined) {
+      const rawDue = input.firstDueDate || input.dueDay
+      let dueDayNum = 5
+      if (typeof rawDue === 'string' && rawDue.includes('-')) {
+        const parts = rawDue.split('-')
+        dueDayNum = Number(parts[2]) || 5
+      } else {
+        dueDayNum = Number(rawDue) || 5
+      }
+      safeDueDay = Math.min(Math.max(dueDayNum, 1), 31)
+    }
 
     let targetPropertyId = input.propertyId && input.propertyId !== 'unassigned' ? input.propertyId : null
     if (!targetPropertyId && targetRoomId) {

@@ -42,6 +42,8 @@ import {
   calculateNextRentDueDate,
   generateMonthlyRentSchedules,
   calculateTenantRentStatus,
+  computeFirstDueDate,
+  calculateNextMonthlyDueDates,
   isDuplicateRentPayment,
   formatPaymentTimestamp,
   generateWhatsAppReminder,
@@ -157,6 +159,8 @@ type Tenant = {
   deposit?: number
   joiningDate?: string
   rent_due_day?: number
+  first_due_date?: string
+  firstDueDate?: string
   deleted_at?: string | null
   updated_at?: string | null
   status: 'Paid' | 'Pending' | 'Overdue' | 'Vacated'
@@ -633,6 +637,30 @@ export default function DashboardPage() {
   const [paymentFormNotes, setPaymentFormNotes] = useState<string>('')
 
   const [tenantFormDueDay, setTenantFormDueDay] = useState<number>(5)
+  const [tenantFormFirstDueDate, setTenantFormFirstDueDate] = useState<string>(
+    () => new Date().toISOString().slice(0, 10)
+  )
+  const [editTenantFirstDueDate, setEditTenantFirstDueDate] = useState<string>('')
+
+  // Live preview for next monthly rent due dates
+  const onboardingNextDueDates = useMemo(() => {
+    return calculateNextMonthlyDueDates(tenantFormFirstDueDate, 3, 'Asia/Kolkata', locale)
+  }, [tenantFormFirstDueDate, locale])
+
+  const editNextDueDates = useMemo(() => {
+    return calculateNextMonthlyDueDates(editTenantFirstDueDate, 3, 'Asia/Kolkata', locale)
+  }, [editTenantFirstDueDate, locale])
+
+  useEffect(() => {
+    if (editingTenant) {
+      const initialDate =
+        editingTenant.first_due_date ||
+        editingTenant.firstDueDate ||
+        computeFirstDueDate(editingTenant.joiningDate, editingTenant.rent_due_day)
+      setEditTenantFirstDueDate(initialDate)
+    }
+  }, [editingTenant])
+
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [selectedTenantForSchedule, setSelectedTenantForSchedule] = useState<Tenant | null>(null)
   const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null)
@@ -1120,6 +1148,7 @@ export default function DashboardPage() {
           )
         }
 
+        const computedFirstDue = computeFirstDueDate(t.joining_date, dueDay)
         return {
           id: t.id,
           property_id: resolvedTenantProp,
@@ -1133,6 +1162,8 @@ export default function DashboardPage() {
           deposit: Number(t.security_deposit || 0),
           joiningDate: t.joining_date,
           rent_due_day: dueDay,
+          first_due_date: computedFirstDue,
+          firstDueDate: computedFirstDue,
           deleted_at: t.deleted_at || null,
           updated_at: t.updated_at || null,
           status: accurateStatus,
@@ -1987,8 +2018,11 @@ export default function DashboardPage() {
     const bedId = String(fd.get('bed_id') || '') || null
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
-    const dueDay = Math.min(Math.max(Number(fd.get('rent_due_day') || 5), 1), 31)
-    const joiningDate = String(fd.get('joining_date') || '') || new Date().toISOString().slice(0, 10)
+    const firstDueDateRaw = String(fd.get('first_due_date') || '').trim()
+    const dueDay = firstDueDateRaw
+      ? Math.min(Math.max(new Date(firstDueDateRaw).getDate(), 1), 31)
+      : Math.min(Math.max(Number(fd.get('rent_due_day') || 5), 1), 31)
+    const joiningDate = String(fd.get('joining_date') || '') || (firstDueDateRaw || new Date().toISOString().slice(0, 10))
 
     if (!name || rent <= 0) {
       flash('Please provide a valid tenant name and monthly rent.')
@@ -2054,6 +2088,7 @@ export default function DashboardPage() {
         deposit,
         joiningDate,
         dueDay,
+        firstDueDate: firstDueDateRaw || undefined,
       })
 
       if (actionRes.success && actionRes.tenant) {
@@ -2110,6 +2145,7 @@ export default function DashboardPage() {
       const roomName = rooms.find((r) => r.id === createdTenant.room_id)?.room_number || 'Unassigned'
       const bedName = beds.find((b) => b.id === createdTenant.bed_id)?.bed_number || ''
       const tenantStatus = createdTenant.status || (new Date().getDate() > dueDay ? 'Overdue' : 'Pending')
+      const effectiveFirstDue = firstDueDateRaw || computeFirstDueDate(createdTenant.joining_date, dueDay)
 
       setTenants((prev) => [
         {
@@ -2125,6 +2161,8 @@ export default function DashboardPage() {
           deposit: Number(createdTenant.security_deposit || 0),
           joiningDate: createdTenant.joining_date,
           rent_due_day: Number(createdTenant.rent_due_day || dueDay),
+          first_due_date: effectiveFirstDue,
+          firstDueDate: effectiveFirstDue,
           status: tenantStatus,
         },
         ...prev,
@@ -2330,7 +2368,10 @@ export default function DashboardPage() {
     const bedId = String(fd.get('bed_id') || '') || null
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
-    const dueDay = Math.min(Math.max(Number(fd.get('rent_due_day') || editingTenant.rent_due_day || 5), 1), 31)
+    const firstDueDateRaw = String(fd.get('first_due_date') || '').trim()
+    const dueDay = firstDueDateRaw
+      ? Math.min(Math.max(new Date(firstDueDateRaw).getDate(), 1), 31)
+      : Math.min(Math.max(Number(fd.get('rent_due_day') || editingTenant.rent_due_day || 5), 1), 31)
     const joiningDate = String(fd.get('joining_date') || '') || editingTenant.joiningDate || new Date().toISOString().slice(0, 10)
     const status = String(fd.get('status') || editingTenant.status) as Tenant['status']
 
@@ -2422,6 +2463,7 @@ export default function DashboardPage() {
         deposit,
         joiningDate,
         dueDay,
+        firstDueDate: firstDueDateRaw || undefined,
         status: finalStatus,
       })
 
@@ -2517,6 +2559,7 @@ export default function DashboardPage() {
         paymentNotice = ` and rent for ${syncRes.payment?.month_covered || 'billing cycle'} marked Paid`
       }
 
+      const effectiveFirstDue = firstDueDateRaw || computeFirstDueDate(joiningDate, dueDay)
       setTenants((prev) =>
         prev.map((t) =>
           t.id === editingTenant.id
@@ -2533,6 +2576,8 @@ export default function DashboardPage() {
                 deposit,
                 joiningDate,
                 rent_due_day: dueDay,
+                first_due_date: effectiveFirstDue,
+                firstDueDate: effectiveFirstDue,
                 status: finalStatus,
               }
             : t
@@ -4983,7 +5028,7 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field
                 label="Monthly Rent (₹)"
                 name="rent"
@@ -4993,22 +5038,46 @@ export default function DashboardPage() {
                 required
               />
               <Field label="Security Deposit (₹)" name="deposit" type="number" placeholder="10000" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field
-                label="Rent Due Day (1-31)"
-                name="rent_due_day"
-                type="number"
-                defaultValue={5}
+                label="First Rent Due Date"
+                name="first_due_date"
+                type="date"
+                value={tenantFormFirstDueDate}
+                onChange={(e: any) => setTenantFormFirstDueDate(e.target.value)}
+                required
+              />
+              <Field
+                label="Joining Date"
+                name="joining_date"
+                type="date"
+                defaultValue={new Date().toISOString().slice(0, 10)}
                 required
               />
             </div>
 
-            <Field
-              label="Joining Date"
-              name="joining_date"
-              type="date"
-              defaultValue={new Date().toISOString().slice(0, 10)}
-              required
-            />
+            {/* Live Next Monthly Due Dates Preview */}
+            {onboardingNextDueDates.length > 0 && (
+              <div className="rounded-xl border border-[#e8dfd4] bg-[#faf8f5] p-3 text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-[#8b5a2b] mb-1.5">
+                  <Calendar className="size-3.5" />
+                  <span>Upcoming Monthly Rent Due Dates:</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {onboardingNextDueDates.map((d, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#e4d9cc] bg-white px-2.5 py-1 text-[11px] font-medium text-[#2c221e] shadow-2xs"
+                    >
+                      <span className="size-1.5 rounded-full bg-[#8b5a2b]" />
+                      {d.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <button
               type="submit"
@@ -5084,20 +5153,45 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Monthly Rent (₹)" name="rent" type="number" defaultValue={editingTenant.rent} required />
               <Field label="Security Deposit (₹)" name="deposit" type="number" defaultValue={editingTenant.deposit} />
-              <Field
-                label="Rent Due Day (1-31)"
-                name="rent_due_day"
-                type="number"
-                defaultValue={editingTenant.rent_due_day || 5}
-                required
-              />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field
+                label="First Rent Due Date"
+                name="first_due_date"
+                type="date"
+                value={editTenantFirstDueDate}
+                onChange={(e: any) => setEditTenantFirstDueDate(e.target.value)}
+                required
+              />
               <Field label="Joining Date" name="joining_date" type="date" defaultValue={editingTenant.joiningDate} required />
+            </div>
+
+            {/* Live Next Monthly Due Dates Preview */}
+            {editNextDueDates.length > 0 && (
+              <div className="rounded-xl border border-[#e8dfd4] bg-[#faf8f5] p-3 text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-[#8b5a2b] mb-1.5">
+                  <Calendar className="size-3.5" />
+                  <span>Upcoming Monthly Rent Due Dates:</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {editNextDueDates.map((d, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[#e4d9cc] bg-white px-2.5 py-1 text-[11px] font-medium text-[#2c221e] shadow-2xs"
+                    >
+                      <span className="size-1.5 rounded-full bg-[#8b5a2b]" />
+                      {d.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
               <label className="flex flex-col gap-1.5 text-xs font-semibold text-[#555a6c]">
                 Status
                 <select
@@ -11238,6 +11332,7 @@ function MonthlyRentScheduleModal({
       tenantId: tenant.id,
       joiningDate: tenant.joiningDate,
       rentDueDay: tenant.rent_due_day,
+      firstDueDate: tenant.first_due_date || tenant.firstDueDate,
       monthlyRent: tenant.rent,
       payments,
       locale,
@@ -11270,9 +11365,11 @@ function MonthlyRentScheduleModal({
             <p className="font-bold text-[#8b5a2b]">₹{tenant.rent.toLocaleString('en-IN')}</p>
           </div>
           <div>
-            <p className="text-[10px] text-[#8c827a]">Recurring Due Day</p>
+            <p className="text-[10px] text-[#8c827a]">First Rent Due Date</p>
             <p className="font-semibold text-[#2c221e]">
-              {tenant.rent_due_day ? `${tenant.rent_due_day}th of month` : '5th of month'}
+              {tenant.first_due_date || tenant.firstDueDate
+                ? new Date(tenant.first_due_date || tenant.firstDueDate!).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                : (tenant.rent_due_day ? `${tenant.rent_due_day}th of month` : '5th of month')}
             </p>
           </div>
         </div>

@@ -165,6 +165,7 @@ export interface MonthlyRentSchedule {
   monthCovered: string // e.g. "November 2026"
   cycleLabel: string // e.g. "10 Oct 2026 – 09 Nov 2026"
   dueDate: string // YYYY-MM-DD
+  dueDateIso?: string // YYYY-MM-DD alias
   dueDateFormatted: string // e.g. "10 Nov 2026"
   amount: number
   status: 'paid' | 'due_today' | 'due_soon' | 'overdue'
@@ -232,6 +233,7 @@ export function generateMonthlyRentSchedules(params: {
   tenantId: string
   joiningDate?: string | Date | null
   rentDueDay?: number | null
+  firstDueDate?: string | Date | null
   monthlyRent: number
   payments?: any[]
   referenceDate?: Date
@@ -243,6 +245,7 @@ export function generateMonthlyRentSchedules(params: {
     tenantId,
     joiningDate,
     rentDueDay,
+    firstDueDate,
     monthlyRent,
     payments = [],
     referenceDate = new Date(),
@@ -267,9 +270,28 @@ export function generateMonthlyRentSchedules(params: {
 
   const schedules: MonthlyRentSchedule[] = []
 
-  // Iterate month by month from joining month up to reference date + future active cycle
-  let curYear = safeJoining.getFullYear()
-  let curMonth = safeJoining.getMonth()
+  const explicitFirstDue =
+    firstDueDate ||
+    (params as any).first_due_date ||
+    (params as any).firstRentDueDate ||
+    (params as any).first_rent_due_date ||
+    null
+
+  let curYear: number
+  let curMonth: number
+  let targetDay: number
+  const isExplicit = Boolean(explicitFirstDue)
+
+  if (isExplicit) {
+    const safeFirstDue = parseLocalDate(explicitFirstDue, ref)
+    curYear = safeFirstDue.getFullYear()
+    curMonth = safeFirstDue.getMonth()
+    targetDay = rentDueDay && rentDueDay >= 1 && rentDueDay <= 31 ? rentDueDay : safeFirstDue.getDate()
+  } else {
+    curYear = safeJoining.getFullYear()
+    curMonth = safeJoining.getMonth()
+    targetDay = dueDay
+  }
 
   const targetYear = ref.getFullYear()
   const targetMonth = ref.getMonth()
@@ -281,13 +303,20 @@ export function generateMonthlyRentSchedules(params: {
   while (loopCount < maxCycles) {
     loopCount++
 
-    // Determine due date for this monthly cycle:
-    // If curYear/curMonth is joining month, the rent due date is next month on dueDay!
-    const dueYear = curMonth === 11 ? curYear + 1 : curYear
-    const dueMonthIndex = (curMonth + 1) % 12
+    let dueYear: number
+    let dueMonthIndex: number
+
+    if (isExplicit) {
+      dueYear = curYear
+      dueMonthIndex = curMonth
+    } else {
+      // Legacy fallback: cycle starts month after joining
+      dueYear = curMonth === 11 ? curYear + 1 : curYear
+      dueMonthIndex = (curMonth + 1) % 12
+    }
 
     const daysInDueMonth = new Date(dueYear, dueMonthIndex + 1, 0).getDate()
-    const effectiveDueDay = Math.min(dueDay, daysInDueMonth)
+    const effectiveDueDay = Math.min(targetDay, daysInDueMonth)
     const cycleDueDate = new Date(dueYear, dueMonthIndex, effectiveDueDay, 23, 59, 59)
 
     // Formatted names
@@ -302,7 +331,10 @@ export function generateMonthlyRentSchedules(params: {
     }).format(cycleDueDate)
 
     // Cycle range label: e.g. "10 Oct 2026 – 09 Nov 2026"
-    const cycleStartDate = new Date(curYear, curMonth, Math.min(dueDay, new Date(curYear, curMonth + 1, 0).getDate()))
+    const cycleStartMonth = dueMonthIndex === 0 ? 11 : dueMonthIndex - 1
+    const cycleStartYear = dueMonthIndex === 0 ? dueYear - 1 : dueYear
+    const daysInStartMonth = new Date(cycleStartYear, cycleStartMonth + 1, 0).getDate()
+    const cycleStartDate = new Date(cycleStartYear, cycleStartMonth, Math.min(targetDay, daysInStartMonth))
     const cycleStartFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' }).format(cycleStartDate)
     const cycleLabel = `${cycleStartFmt} – ${dueDateFormatted}`
 
@@ -421,6 +453,7 @@ export function generateMonthlyRentSchedules(params: {
       monthCovered,
       cycleLabel,
       dueDate: cycleDueDate.toISOString().slice(0, 10),
+      dueDateIso: cycleDueDate.toISOString().slice(0, 10),
       dueDateFormatted,
       amount: monthlyRent,
       status,
@@ -437,8 +470,13 @@ export function generateMonthlyRentSchedules(params: {
     })
 
     // Advance to next cycle
-    curYear = dueYear
-    curMonth = dueMonthIndex
+    if (isExplicit) {
+      curYear = dueMonthIndex === 11 ? dueYear + 1 : dueYear
+      curMonth = (dueMonthIndex + 1) % 12
+    } else {
+      curYear = dueYear
+      curMonth = dueMonthIndex
+    }
 
     // Automatic rent cycle continuation rule:
     // Once we reach or pass referenceDate, we stop ONLY IF we have at least one upcoming/unpaid cycle generated.
@@ -454,6 +492,88 @@ export function generateMonthlyRentSchedules(params: {
   return schedules
 }
 
+/**
+ * Computes the first due date string (YYYY-MM-DD) from a joining date and due day.
+ */
+export function computeFirstDueDate(
+  joiningDate?: string | Date | null,
+  rentDueDay?: number | null
+): string {
+  const dueDay = rentDueDay && rentDueDay >= 1 && rentDueDay <= 31 ? rentDueDay : 5
+  if (!joiningDate) {
+    const now = new Date()
+    const daysInCur = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    const d = Math.min(dueDay, daysInCur)
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  }
+  const jd = parseLocalDate(joiningDate)
+  if (isNaN(jd.getTime())) {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`
+  }
+  const yr = jd.getFullYear()
+  const mo = jd.getMonth()
+  const daysInMo = new Date(yr, mo + 1, 0).getDate()
+  const d = Math.min(dueDay, daysInMo)
+  return `${yr}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+/**
+ * Calculates consecutive monthly rent due dates starting from a given first due date.
+ * Accurately handles different month lengths (e.g. 31st -> 28th Feb -> 31st Mar)
+ * and year boundaries (e.g. Dec 2026 -> Jan 2027).
+ */
+export function calculateNextMonthlyDueDates(
+  firstDueDate: string | Date,
+  count: number = 3,
+  timeZone: string = 'Asia/Kolkata',
+  locale: 'en' | 'hi' = 'en'
+): Array<{ date: string; isoDate?: string; dateFormatted: string; label?: string; monthCovered: string; cycleNumber: number }> {
+  const start = parseLocalDate(firstDueDate)
+  if (isNaN(start.getTime())) return []
+
+  const targetDay = start.getDate()
+  let curYear = start.getFullYear()
+  let curMonth = start.getMonth()
+
+  const dates: Array<{ date: string; isoDate?: string; dateFormatted: string; label?: string; monthCovered: string; cycleNumber: number }> = []
+
+  for (let i = 0; i <= count; i++) {
+    const daysInMonth = new Date(curYear, curMonth + 1, 0).getDate()
+    const effDay = Math.min(targetDay, daysInMonth)
+    const cycleDate = new Date(curYear, curMonth, effDay, 23, 59, 59)
+
+    const dateStr = `${curYear}-${String(curMonth + 1).padStart(2, '0')}-${String(effDay).padStart(2, '0')}`
+    const dateFormatted = new Intl.DateTimeFormat(locale === 'hi' ? 'hi-IN' : 'en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone,
+    }).format(cycleDate)
+
+    const monthCovered = new Intl.DateTimeFormat(locale === 'hi' ? 'hi-IN' : 'en-IN', {
+      month: 'long',
+      year: 'numeric',
+      timeZone,
+    }).format(new Date(curYear, curMonth, 1))
+
+    dates.push({
+      date: dateStr,
+      isoDate: dateStr,
+      dateFormatted,
+      label: dateFormatted,
+      monthCovered,
+      cycleNumber: i + 1,
+    })
+
+    // Advance to next month
+    curYear = curMonth === 11 ? curYear + 1 : curYear
+    curMonth = (curMonth + 1) % 12
+  }
+
+  return dates
+}
+
 export interface TenantRentStatusResult extends DueStatusResult {
   nextDueDate?: string
   nextDueDateFormatted?: string
@@ -461,6 +581,9 @@ export interface TenantRentStatusResult extends DueStatusResult {
   outstandingBalance: number
   overdueBalance: number
   schedules?: MonthlyRentSchedule[]
+  firstDueDate?: string
+  firstDueDateFormatted?: string
+  nextDueDates?: Array<{ date: string; isoDate?: string; dateFormatted: string; label?: string; monthCovered: string; cycleNumber: number }>
 }
 
 /**
@@ -475,6 +598,10 @@ export function calculateTenantRentStatus(params: {
     joiningDate?: string | Date | null
     rent_due_day?: number | null
     rentDueDay?: number | null
+    first_due_date?: string | Date | null
+    firstDueDate?: string | Date | null
+    first_rent_due_date?: string | Date | null
+    firstRentDueDate?: string | Date | null
     monthly_rent?: number | null
     monthlyRent?: number | null
     rent?: number | null
@@ -485,8 +612,9 @@ export function calculateTenantRentStatus(params: {
   payments?: any[]
   referenceDate?: Date
   locale?: 'en' | 'hi'
+  timeZone?: string
 }): TenantRentStatusResult {
-  const { tenant, payments = [], referenceDate = new Date(), locale = 'en' } = params
+  const { tenant, payments = [], referenceDate = new Date(), locale = 'en', timeZone = 'Asia/Kolkata' } = params
   const ref = parseLocalDate(referenceDate)
 
   const effectiveStatus = (tenant.status || '').trim()
@@ -500,6 +628,7 @@ export function calculateTenantRentStatus(params: {
       outstandingBalance: 0,
       overdueBalance: 0,
       schedules: [],
+      nextDueDates: [],
     }
   }
 
@@ -510,6 +639,12 @@ export function calculateTenantRentStatus(params: {
       : tenant.rentDueDay !== undefined && tenant.rentDueDay !== null
       ? tenant.rentDueDay
       : null
+  const effectiveFirstDue =
+    tenant.first_due_date ||
+    tenant.firstDueDate ||
+    (tenant as any).first_rent_due_date ||
+    (tenant as any).firstRentDueDate ||
+    null
   const effectiveRent = Number(
     tenant.monthly_rent !== undefined && tenant.monthly_rent !== null
       ? tenant.monthly_rent
@@ -529,12 +664,27 @@ export function calculateTenantRentStatus(params: {
     tenantId: tenant.id,
     joiningDate: effectiveJoining,
     rentDueDay: effectiveDueDay,
+    firstDueDate: effectiveFirstDue,
     monthlyRent: effectiveRent,
     payments,
     referenceDate,
     vacatedDate: effectiveVacated,
+    timeZone,
     locale,
   })
+
+  // Compute first due date and multi-month projected due dates
+  const baseFirstDue =
+    effectiveFirstDue ||
+    (schedules.length > 0 ? schedules[0].dueDate : computeFirstDueDate(effectiveJoining, effectiveDueDay))
+  const parsedFirstDue = parseLocalDate(baseFirstDue, ref)
+  const firstDueDateFormatted = new Intl.DateTimeFormat(locale === 'hi' ? 'hi-IN' : 'en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone,
+  }).format(parsedFirstDue)
+  const nextDueDates = calculateNextMonthlyDueDates(baseFirstDue, 3, timeZone, locale)
 
   if (schedules.length === 0) {
     const fallback = calculateRentDueStatus(effectiveDueDay || 5, effectiveStatus === 'Paid', referenceDate)
@@ -544,6 +694,9 @@ export function calculateTenantRentStatus(params: {
       outstandingBalance: isPaid ? 0 : effectiveRent,
       overdueBalance: fallback.status === 'overdue' ? effectiveRent : 0,
       schedules: [],
+      firstDueDate: baseFirstDue ? String(baseFirstDue).slice(0, 10) : undefined,
+      firstDueDateFormatted,
+      nextDueDates,
     }
   }
 
@@ -556,9 +709,6 @@ export function calculateTenantRentStatus(params: {
   }
 
   // Calculate current outstanding balance:
-  // If tenant has overdue cycles, balance is overdue balance (plus any cycle due today).
-  // If tenant has no overdue cycles, balance is the current cycle (due today or next upcoming).
-  // If tenant is fully paid, balance is 0.
   let outstandingBalance = 0
   if (overdueBalance > 0) {
     const dueTodayAmount = schedules
@@ -579,10 +729,18 @@ export function calculateTenantRentStatus(params: {
     }
   }
 
+  // Helper to attach metadata to all returns
+  const attachMeta = (res: any) => ({
+    ...res,
+    firstDueDate: baseFirstDue ? String(baseFirstDue).slice(0, 10) : undefined,
+    firstDueDateFormatted,
+    nextDueDates,
+  })
+
   // 1. Look for overdue schedule entries first (earliest unpaid overdue cycle)
   const overdueEntry = schedules.find((s) => s.status === 'overdue')
   if (overdueEntry) {
-    return {
+    return attachMeta({
       status: 'overdue',
       days: overdueEntry.daysDiff,
       labelEn: overdueEntry.labelEn,
@@ -594,13 +752,13 @@ export function calculateTenantRentStatus(params: {
       outstandingBalance,
       overdueBalance,
       schedules,
-    }
+    })
   }
 
   // 2. Look for due today
   const dueTodayEntry = schedules.find((s) => s.status === 'due_today')
   if (dueTodayEntry) {
-    return {
+    return attachMeta({
       status: 'due_today',
       days: 0,
       labelEn: dueTodayEntry.labelEn,
@@ -612,7 +770,7 @@ export function calculateTenantRentStatus(params: {
       outstandingBalance,
       overdueBalance,
       schedules,
-    }
+    })
   }
 
   // 3. Look for current calendar month cycle:
@@ -620,7 +778,7 @@ export function calculateTenantRentStatus(params: {
   const currentMonthKey = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`
   const currentMonthCycle = schedules.find((s) => !s.isPaid && s.monthKey === currentMonthKey)
   if (currentMonthCycle) {
-    return {
+    return attachMeta({
       status: currentMonthCycle.status,
       days: currentMonthCycle.daysDiff,
       labelEn: currentMonthCycle.labelEn,
@@ -632,7 +790,7 @@ export function calculateTenantRentStatus(params: {
       outstandingBalance,
       overdueBalance,
       schedules,
-    }
+    })
   }
 
   // 4. Check if past and current cycles are paid
@@ -644,7 +802,7 @@ export function calculateTenantRentStatus(params: {
   if (isUpToDate) {
     const nextUpcomingCycle = schedules.find((s) => !s.isPaid)
     const lastPaid = pastAndCurrentCycles[pastAndCurrentCycles.length - 1]
-    return {
+    return attachMeta({
       status: 'paid',
       days: 0,
       labelEn: lastPaid?.labelEn || 'Paid On Time',
@@ -656,13 +814,13 @@ export function calculateTenantRentStatus(params: {
       outstandingBalance: 0,
       overdueBalance: 0,
       schedules,
-    }
+    })
   }
 
   // 5. Look for next unpaid due soon entry (e.g. newly joined resident with first cycle in future)
   const dueSoonEntry = schedules.find((s) => s.status === 'due_soon')
   if (dueSoonEntry) {
-    return {
+    return attachMeta({
       status: 'due_soon',
       days: dueSoonEntry.daysDiff,
       labelEn: dueSoonEntry.labelEn,
@@ -674,13 +832,13 @@ export function calculateTenantRentStatus(params: {
       outstandingBalance,
       overdueBalance,
       schedules,
-    }
+    })
   }
 
-  // 5. All past & current cycles are paid fallback
+  // 6. All past & current cycles are paid fallback
   const lastPaid = schedules[schedules.length - 1]
   const nextUnpaid = schedules.find((s) => !s.isPaid)
-  return {
+  return attachMeta({
     status: 'paid',
     days: 0,
     labelEn: lastPaid?.labelEn || 'Paid On Time',
@@ -691,8 +849,7 @@ export function calculateTenantRentStatus(params: {
     monthCovered: nextUnpaid ? nextUnpaid.monthCovered : lastPaid?.monthCovered,
     outstandingBalance: 0,
     overdueBalance: 0,
-    schedules,
-  }
+  })
 }
 
 /**

@@ -288,6 +288,8 @@ export async function GET() {
         securityDeposit: Number(tenant.security_deposit || 0),
         joiningDate: tenant.joining_date,
         rentDueDay: dueDay,
+        firstDueDate: rentStatusResult.firstDueDate || null,
+        firstDueDateFormatted: rentStatusResult.firstDueDateFormatted || null,
         status: legacyStatus,
         dueStatus: rentStatusResult.status,
         dueInfo: {
@@ -299,6 +301,7 @@ export async function GET() {
         },
         nextDueDate: rentStatusResult.nextDueDate || null,
         nextDueDateFormatted: rentStatusResult.nextDueDateFormatted || null,
+        nextDueDates: rentStatusResult.nextDueDates || [],
         monthCovered: rentStatusResult.monthCovered || null,
         outstandingBalance: rentStatusResult.outstandingBalance,
         overdueBalance: rentStatusResult.overdueBalance,

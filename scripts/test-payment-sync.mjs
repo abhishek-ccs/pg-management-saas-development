@@ -356,3 +356,180 @@ test('Month Transition: Calendar transition to new month activates due and overd
   assert.strictEqual(nov6Ref.days, 1, 'Overdue by 1 day')
 })
 
+test('First Rent Due Date: Selecting 26 October 2026 calculates consecutive monthly cycles (26 Nov, 26 Dec, 26 Jan 2027)', async () => {
+  const { computeFirstDueDate, calculateNextMonthlyDueDates, generateMonthlyRentSchedules, calculateTenantRentStatus } = await import('../lib/due-dates.ts')
+
+  const tenant = {
+    id: 'res-due-1',
+    name: 'Suresh Raina',
+    rent: 14000,
+    monthly_rent: 14000,
+    rent_due_day: 26,
+    joining_date: '2026-10-26',
+    first_due_date: '2026-10-26',
+  }
+
+  // Next due dates helper
+  const nextDates = calculateNextMonthlyDueDates('2026-10-26', 3)
+  assert.strictEqual(nextDates.length, 4, 'Must return 4 consecutive dates')
+  assert.strictEqual(nextDates[0].isoDate, '2026-10-26')
+  assert.strictEqual(nextDates[1].isoDate, '2026-11-26')
+  assert.strictEqual(nextDates[2].isoDate, '2026-12-26')
+  assert.strictEqual(nextDates[3].isoDate, '2027-01-26')
+
+  // When past months are paid, generateMonthlyRentSchedules automatically creates and activates consecutive monthly cycles
+  const payments = [
+    { id: 'p-oct', tenant_id: tenant.id, month_covered: 'October 2026', paid_at: '2026-10-26T10:00:00.000Z', amount: 14000 },
+    { id: 'p-nov', tenant_id: tenant.id, month_covered: 'November 2026', paid_at: '2026-11-26T10:00:00.000Z', amount: 14000 },
+    { id: 'p-dec', tenant_id: tenant.id, month_covered: 'December 2026', paid_at: '2026-12-26T10:00:00.000Z', amount: 14000 },
+  ]
+
+  const cycles = generateMonthlyRentSchedules({
+    tenantId: tenant.id,
+    joiningDate: tenant.joining_date,
+    firstDueDate: '2026-10-26',
+    rentDueDay: 26,
+    monthlyRent: 14000,
+    payments,
+    referenceDate: new Date(2026, 11, 26),
+  })
+
+  assert.strictEqual(cycles[0].dueDateIso, '2026-10-26')
+  assert.strictEqual(cycles[0].monthCovered, 'October 2026')
+  assert.strictEqual(cycles[1].dueDateIso, '2026-11-26')
+  assert.strictEqual(cycles[1].monthCovered, 'November 2026')
+  assert.strictEqual(cycles[2].dueDateIso, '2026-12-26')
+  assert.strictEqual(cycles[2].monthCovered, 'December 2026')
+  assert.strictEqual(cycles[3].dueDateIso, '2027-01-26')
+  assert.strictEqual(cycles[3].monthCovered, 'January 2027')
+})
+
+test('First Rent Due Date: Different month lengths (31 Jan -> 28 Feb -> 31 Mar)', async () => {
+  const { calculateNextMonthlyDueDates, generateMonthlyRentSchedules } = await import('../lib/due-dates.ts')
+
+  // Case with 31st due date in a non-leap year (2027)
+  const nextDates = calculateNextMonthlyDueDates('2027-01-31', 3)
+  assert.strictEqual(nextDates[0].isoDate, '2027-01-31')
+  assert.strictEqual(nextDates[1].isoDate, '2027-02-28', 'February in 2027 must cap at 28')
+  assert.strictEqual(nextDates[2].isoDate, '2027-03-31', 'March must restore to 31')
+  assert.strictEqual(nextDates[3].isoDate, '2027-04-30', 'April must cap at 30')
+
+  const payments = [
+    { id: 'p-jan', tenant_id: 'res-lengths', month_covered: 'January 2027', paid_at: '2027-01-31T10:00:00.000Z', amount: 10000 },
+    { id: 'p-feb', tenant_id: 'res-lengths', month_covered: 'February 2027', paid_at: '2027-02-28T10:00:00.000Z', amount: 10000 },
+    { id: 'p-mar', tenant_id: 'res-lengths', month_covered: 'March 2027', paid_at: '2027-03-31T10:00:00.000Z', amount: 10000 },
+  ]
+
+  const cycles = generateMonthlyRentSchedules({
+    tenantId: 'res-lengths',
+    joiningDate: '2027-01-31',
+    firstDueDate: '2027-01-31',
+    rentDueDay: 31,
+    monthlyRent: 10000,
+    payments,
+    referenceDate: new Date(2027, 2, 31),
+  })
+
+  assert.strictEqual(cycles[0].dueDateIso, '2027-01-31')
+  assert.strictEqual(cycles[1].dueDateIso, '2027-02-28')
+  assert.strictEqual(cycles[2].dueDateIso, '2027-03-31')
+  assert.strictEqual(cycles[3].dueDateIso, '2027-04-30')
+})
+
+test('First Rent Due Date: Future periods must never be marked as paid', async () => {
+  const { generateMonthlyRentSchedules } = await import('../lib/due-dates.ts')
+
+  // Step 1: Resident paid only October 2026
+  const octPayment = {
+    id: 'pay-oct-only',
+    tenant_id: 'res-future',
+    amount: 12000,
+    month_covered: 'October 2026',
+    paid_at: '2026-10-26T10:00:00.000Z',
+  }
+
+  const cyclesAfterOct = generateMonthlyRentSchedules({
+    tenantId: 'res-future',
+    joiningDate: '2026-10-26',
+    firstDueDate: '2026-10-26',
+    rentDueDay: 26,
+    monthlyRent: 12000,
+    payments: [octPayment],
+    referenceDate: new Date(2026, 9, 26),
+  })
+
+  assert.strictEqual(cyclesAfterOct[0].monthCovered, 'October 2026')
+  assert.strictEqual(cyclesAfterOct[0].isPaid, true, 'October must be marked paid')
+
+  assert.strictEqual(cyclesAfterOct[1].monthCovered, 'November 2026')
+  assert.strictEqual(cyclesAfterOct[1].isPaid, false, 'November must remain unpaid')
+  assert.strictEqual(cyclesAfterOct[1].status, 'due_soon', 'November must be due_soon')
+
+  // Step 2: Resident now pays November 2026 -> December 2026 is automatically created and is unpaid
+  const novPayment = {
+    id: 'pay-nov-only',
+    tenant_id: 'res-future',
+    amount: 12000,
+    month_covered: 'November 2026',
+    paid_at: '2026-11-26T10:00:00.000Z',
+  }
+
+  const cyclesAfterNov = generateMonthlyRentSchedules({
+    tenantId: 'res-future',
+    joiningDate: '2026-10-26',
+    firstDueDate: '2026-10-26',
+    rentDueDay: 26,
+    monthlyRent: 12000,
+    payments: [octPayment, novPayment],
+    referenceDate: new Date(2026, 10, 26),
+  })
+
+  assert.strictEqual(cyclesAfterNov[1].isPaid, true, 'November must now be marked paid')
+  assert.strictEqual(cyclesAfterNov[2].monthCovered, 'December 2026')
+  assert.strictEqual(cyclesAfterNov[2].isPaid, false, 'December must remain unpaid')
+
+  // Step 3: Resident now pays December 2026 -> January 2027 is automatically created and is unpaid
+  const decPayment = {
+    id: 'pay-dec-only',
+    tenant_id: 'res-future',
+    amount: 12000,
+    month_covered: 'December 2026',
+    paid_at: '2026-12-26T10:00:00.000Z',
+  }
+
+  const cyclesAfterDec = generateMonthlyRentSchedules({
+    tenantId: 'res-future',
+    joiningDate: '2026-10-26',
+    firstDueDate: '2026-10-26',
+    rentDueDay: 26,
+    monthlyRent: 12000,
+    payments: [octPayment, novPayment, decPayment],
+    referenceDate: new Date(2026, 11, 26),
+  })
+
+  assert.strictEqual(cyclesAfterDec[2].isPaid, true, 'December must now be marked paid')
+  assert.strictEqual(cyclesAfterDec[3].monthCovered, 'January 2027')
+  assert.strictEqual(cyclesAfterDec[3].isPaid, false, 'January 2027 must remain unpaid')
+})
+
+test('First Rent Due Date: Forms and Actions code integrity check', () => {
+  const dashboardCode = fs.readFileSync('app/dashboard/page.tsx', 'utf-8')
+  const actionsCode = fs.readFileSync('app/dashboard/actions.ts', 'utf-8')
+  const portalRouteCode = fs.readFileSync('app/api/portal/data/route.ts', 'utf-8')
+
+  // Verify "Rent Due Day (1-31)" is replaced with "First Rent Due Date"
+  assert.ok(dashboardCode.includes('First Rent Due Date'), 'Dashboard must contain First Rent Due Date field')
+  assert.ok(!dashboardCode.includes('Rent Due Day (1-31)'), 'Dashboard must not contain Rent Due Day (1-31) in forms')
+
+  // Verify preview is present
+  assert.ok(dashboardCode.includes('Upcoming Monthly Rent Due Dates:'), 'Dashboard must display upcoming due dates preview')
+  assert.ok(dashboardCode.includes('calculateNextMonthlyDueDates'), 'Dashboard must use calculateNextMonthlyDueDates')
+
+  // Verify actions.ts accepts firstDueDate
+  assert.ok(actionsCode.includes('firstDueDate?: string'), 'actions.ts must accept firstDueDate')
+
+  // Verify portal returns firstDueDate and nextDueDates
+  assert.ok(portalRouteCode.includes('firstDueDate: rentStatusResult.firstDueDate'), 'Portal route must return firstDueDate')
+  assert.ok(portalRouteCode.includes('nextDueDates: rentStatusResult.nextDueDates'), 'Portal route must return nextDueDates')
+})
+
