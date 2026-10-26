@@ -140,10 +140,13 @@ test('Payment Synchronization: Dashboard code integrity verifies auto-sync, pers
   assert.ok(dashboardCode.includes("if (finalStatus === 'Paid')"), 'handleUpdateTenant must check if status was set to Paid')
   assert.ok(dashboardCode.includes('syncTenantPaymentPaid('), 'handleUpdateTenant must call syncTenantPaymentPaid')
 
-  // 4. TenantsTab provides 1-click Mark Paid action with inline spinner
-  assert.ok(dashboardCode.includes('onMarkPaid={handleMarkTenantPaid}'), 'TenantsTab invocation must pass onMarkPaid')
-  assert.ok(dashboardCode.includes('markingPaidTenantId={markingPaidTenantId}'), 'TenantsTab invocation must pass markingPaidTenantId')
-  assert.ok(dashboardCode.includes('markingPaidTenantId === t.id'), 'TenantsTab must render loading spinner when tenant is being marked Paid')
+  // 4. Resident action row keeps all core actions while Mark Paid button is removed
+  assert.ok(dashboardCode.includes('onRecordPayment(t)'), 'Resident row must retain Collect payment action')
+  assert.ok(dashboardCode.includes('onViewRentSchedule(t)'), 'Resident row must retain Ledger action')
+  assert.ok(dashboardCode.includes('onEditTenant(t)'), 'Resident row must retain Edit resident details action')
+  assert.ok(dashboardCode.includes('onSharePortalLink?.(t)'), 'Resident row must retain Self-Service Link action')
+  assert.ok(dashboardCode.includes('onDeleteTenant(t.id, t.name)'), 'Resident row must retain Delete resident action')
+  assert.ok(!dashboardCode.includes("<span>{markingPaidTenantId === t.id ? 'Marking...' : 'Mark Paid'}</span>"), 'Mark Paid button must be removed from resident actions row')
 })
 
 test('Rent Cycle Management: Consecutive monthly cycles automatically create and activate next month (Oct -> Nov -> Dec -> Jan 2027)', () => {

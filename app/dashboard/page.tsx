@@ -8643,21 +8643,6 @@ const TenantsTab = memo(function TenantsTab({
                         <span>Remind</span>
                       </a>
 
-                      {t.status !== 'Paid' && t.status !== 'Vacated' && onMarkPaid && (
-                        <button
-                          onClick={() => onMarkPaid(t)}
-                          disabled={markingPaidTenantId === t.id}
-                          className="inline-flex items-center gap-1 rounded-lg border border-[#2e7d32]/30 bg-[#2e7d32]/10 px-2.5 py-1.5 text-xs font-semibold text-[#2e7d32] hover:bg-[#2e7d32]/20 disabled:opacity-60 transition-colors"
-                          title="Mark rent as Paid and automatically sync with Rent & Payments"
-                        >
-                          {markingPaidTenantId === t.id ? (
-                            <Loader2 className="size-3.5 animate-spin" />
-                          ) : (
-                            <CheckCircle2 className="size-3.5" />
-                          )}
-                          <span>{markingPaidTenantId === t.id ? 'Marking...' : 'Mark Paid'}</span>
-                        </button>
-                      )}
 
                       {t.status !== 'Paid' && t.status !== 'Vacated' && (
                         <button
@@ -8794,21 +8779,6 @@ const TenantsTab = memo(function TenantsTab({
                               <span className="hidden md:inline">Remind</span>
                             </a>
 
-                            {t.status !== 'Paid' && t.status !== 'Vacated' && onMarkPaid && (
-                              <button
-                                onClick={() => onMarkPaid(t)}
-                                disabled={markingPaidTenantId === t.id}
-                                className="inline-flex items-center gap-1 rounded-lg border border-[#2e7d32]/30 bg-[#2e7d32]/10 px-2 py-1 text-[11px] font-semibold text-[#2e7d32] hover:bg-[#2e7d32]/20 disabled:opacity-60 transition-colors"
-                                title="Mark rent as Paid and automatically sync with Rent & Payments"
-                              >
-                                {markingPaidTenantId === t.id ? (
-                                  <Loader2 className="size-3 animate-spin" />
-                                ) : (
-                                  <CheckCircle2 className="size-3" />
-                                )}
-                                <span>{markingPaidTenantId === t.id ? 'Marking...' : 'Mark Paid'}</span>
-                              </button>
-                            )}
 
                             {t.status !== 'Paid' && t.status !== 'Vacated' && (
                               <button
