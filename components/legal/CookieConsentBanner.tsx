@@ -26,9 +26,7 @@ export function CookieConsentBanner() {
     setMounted(true)
     const stored = localStorage.getItem('staynest_consent')
     if (!stored) {
-      // Delay slightly for smooth page entrance
-      const timer = setTimeout(() => setShowBanner(true), 1200)
-      return () => clearTimeout(timer)
+      setShowBanner(true)
     }
   }, [])
 
@@ -67,10 +65,9 @@ export function CookieConsentBanner() {
         <div className="flex-1">
           <h2 className="text-sm font-bold text-[#2c2926]">Your Privacy Choices & Consent</h2>
           <p id="cookie-consent-desc" className="mt-1 text-xs leading-5 text-[#595e70]">
-            We use strictly necessary cookies to keep you signed in securely, alongside optional preference and analytics cookies
-            compliant with the India Digital Personal Data Protection (DPDP) Act 2023 and GDPR.{' '}
-            <Link href="/cookies" className="text-[#9a7651] underline font-medium hover:text-[#866342]">
-              Read our Cookie Policy
+            We use essential cookies to keep you signed in, and analytics to improve BaseraBook (DPDP & GDPR).{' '}
+            <Link href="/cookies" prefetch={false} className="text-[#9a7651] underline font-medium hover:text-[#866342]">
+              Cookie Policy
             </Link>.
           </p>
 

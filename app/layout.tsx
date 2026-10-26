@@ -1,11 +1,26 @@
 import type { Metadata, Viewport } from 'next'
+import { Plus_Jakarta_Sans, Playfair_Display } from 'next/font/google'
 import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/next'
 import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner'
 import { StructuredData } from '@/components/seo/StructuredData'
+import { GoogleAnalytics } from '@/components/analytics/GoogleAnalytics'
 import { I18nProvider } from '@/lib/i18n'
 import { TARGET_KEYWORDS } from '@/lib/site'
 import './globals.css'
+
+const plusJakartaSans = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-sans',
+})
+
+const playfairDisplay = Playfair_Display({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-serif',
+  preload: false,
+})
 
 const baseUrl = 'https://www.baserabook.in'
 
@@ -91,26 +106,12 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <head>
+        <link rel="preconnect" href="https://www.googletagmanager.com" />
+        <link rel="preconnect" href="https://www.google-analytics.com" />
         <StructuredData />
       </head>
-      <body className="antialiased font-sans text-[#403a34] bg-[#fbf8f3] min-h-screen overflow-x-hidden selection:bg-[#8b5a2b]/20 selection:text-[#2c221e]">
-        {/* Google tag (gtag.js) */}
-        <Script
-          strategy="afterInteractive"
-          src="https://www.googletagmanager.com/gtag/js?id=G-9CQRHQFVSE"
-        />
-        <Script
-          id="google-analytics"
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('js', new Date());
-              gtag('config', 'G-9CQRHQFVSE');
-            `,
-          }}
-        />
+      <body className={`${plusJakartaSans.variable} ${playfairDisplay.variable} antialiased font-sans text-[#403a34] bg-[#fbf8f3] min-h-screen overflow-x-hidden selection:bg-[#8b5a2b]/20 selection:text-[#2c221e]`}>
+        <GoogleAnalytics />
         {/* WCAG 2.2 AA: Skip to main content keyboard accessibility link */}
         <a
           href="#main-content"

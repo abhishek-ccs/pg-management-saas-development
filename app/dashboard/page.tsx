@@ -599,6 +599,7 @@ export default function DashboardPage() {
   const [isSavingRoom, setIsSavingRoom] = useState(false)
   const [isSavingBed, setIsSavingBed] = useState(false)
   const [isSavingTenant, setIsSavingTenant] = useState(false)
+  const [markingPaidTenantId, setMarkingPaidTenantId] = useState<string | null>(null)
   const [isSavingPayment, setIsSavingPayment] = useState(false)
   const [isSavingExpense, setIsSavingExpense] = useState(false)
   const [isSavingElectricity, setIsSavingElectricity] = useState(false)
@@ -2106,6 +2107,181 @@ export default function DashboardPage() {
     }
   }
 
+  /**
+   * Synchronizes tenant payment when marked Paid in the Resident Dashboard.
+   * - Deduplicates by tenant_id and billing monthCovered
+   * - If existing payment exists for that month, updates the existing database record using current logic
+   * - If none exists, creates a new payment record in public.payments
+   * - Updates local payments state so Rent & Payments tab updates instantly
+   * - Updates public.tenants status to 'Paid' and local tenants state
+   * - Guarantees changes persist across page refresh
+   */
+  async function syncTenantPaymentPaid(params: {
+    tenant: Tenant
+    rentAmount?: number
+    propertyId?: string | null
+    customMonthCovered?: string
+    targetName?: string
+    targetRoom?: string
+  }): Promise<{ success: boolean; error?: string; payment?: PaymentRecord }> {
+    const { tenant, rentAmount, propertyId, customMonthCovered, targetName, targetRoom } = params
+    if (!userId) return { success: false, error: 'User not authenticated' }
+
+    const effectiveRent = Number(rentAmount !== undefined ? rentAmount : tenant.rent || 0)
+    const effectiveName = targetName || tenant.name
+    const effectiveRoom = targetRoom || tenant.room || 'Unassigned'
+    const targetPropId = propertyId || tenant.property_id || property.id || selectedPropertyId || properties[0]?.id || null
+
+    // Determine the billing month
+    const rentStatus = calculateTenantRentStatus({
+      tenant,
+      payments,
+      referenceDate: new Date(),
+      locale,
+    })
+    const monthCovered =
+      customMonthCovered ||
+      rentStatus.monthCovered ||
+      new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }).format(new Date())
+
+    const now = new Date().toISOString()
+
+    // Deduplicate by tenant_id and monthCovered
+    const dupCheck = isDuplicateRentPayment({
+      tenantId: tenant.id,
+      monthCovered,
+      payments,
+    })
+
+    let syncedPayment: PaymentRecord | null = null
+
+    if (dupCheck.isDuplicate && dupCheck.existingPayment) {
+      // Update existing database record using current logic
+      // Note: public.payments table has NO updated_at column; only update valid columns.
+      const { data: updatedPay, error: updateErr } = await supabase
+        .from('payments')
+        .update({
+          amount: effectiveRent,
+          paid_at: now,
+          payment_method: dupCheck.existingPayment.payment_method || 'cash',
+          payment_type: 'rent',
+          notes: dupCheck.existingPayment.notes || `[Month: ${monthCovered}] Rent marked Paid via Resident Dashboard`,
+        })
+        .eq('id', dupCheck.existingPayment.id)
+        .select('id,property_id,tenant_id,amount,payment_method,payment_type,month_covered,paid_at,notes')
+        .single()
+
+      if (updateErr || !updatedPay) {
+        return { success: false, error: updateErr?.message || 'Failed to update existing payment record' }
+      }
+
+      syncedPayment = {
+        id: updatedPay.id,
+        property_id: updatedPay.property_id || targetPropId,
+        tenant_id: updatedPay.tenant_id,
+        tenant_name: effectiveName,
+        room_number: effectiveRoom,
+        amount: Number(updatedPay.amount || effectiveRent),
+        payment_method: updatedPay.payment_method || 'cash',
+        payment_type: updatedPay.payment_type || 'rent',
+        month_covered: updatedPay.month_covered || monthCovered,
+        paid_at: updatedPay.paid_at || now,
+        notes: updatedPay.notes,
+      }
+
+      setPayments((prev) => prev.map((p) => (p.id === updatedPay.id ? syncedPayment! : p)))
+    } else {
+      // Insert new payment record
+      const { data: newPayment, error: insertErr } = await supabase
+        .from('payments')
+        .insert({
+          owner_id: userId,
+          property_id: targetPropId,
+          tenant_id: tenant.id,
+          amount: effectiveRent,
+          payment_method: 'cash',
+          payment_type: 'rent',
+          month_covered: monthCovered,
+          paid_at: now,
+          notes: `[Month: ${monthCovered}] Rent marked Paid via Resident Dashboard`,
+        })
+        .select('id,property_id,tenant_id,amount,payment_method,payment_type,month_covered,paid_at,notes')
+        .single()
+
+      if (insertErr || !newPayment) {
+        return { success: false, error: insertErr?.message || 'Failed to insert payment record' }
+      }
+
+      syncedPayment = {
+        id: newPayment.id,
+        property_id: newPayment.property_id || targetPropId,
+        tenant_id: newPayment.tenant_id,
+        tenant_name: effectiveName,
+        room_number: effectiveRoom,
+        amount: Number(newPayment.amount || effectiveRent),
+        payment_method: newPayment.payment_method || 'cash',
+        payment_type: newPayment.payment_type || 'rent',
+        month_covered: monthCovered,
+        paid_at: newPayment.paid_at || now,
+        notes: newPayment.notes,
+      }
+
+      setPayments((prev) => [syncedPayment!, ...prev])
+    }
+
+    // Ensure tenants database table is updated with Paid status
+    const { error: tenantDbErr } = await supabase
+      .from('tenants')
+      .update({ status: 'Paid', updated_at: now })
+      .eq('id', tenant.id)
+      .eq('owner_id', userId)
+
+    if (tenantDbErr) {
+      console.warn('Warning: tenant status update error in DB:', tenantDbErr.message)
+    }
+
+    // Update local tenant state
+    setTenants((prev) => prev.map((t) => (t.id === tenant.id ? { ...t, status: 'Paid' } : t)))
+
+    return { success: true, payment: syncedPayment! }
+  }
+
+  // 1-Click Mark Tenant Paid from Resident Dashboard
+  async function handleMarkTenantPaid(tenant: Tenant) {
+    if (markingPaidTenantId || isSavingTenant) return
+    if (!userId) return
+
+    if (isTrialExpired) {
+      flash('Your 7-day free trial has expired. Please upgrade your plan in Settings to record payments.')
+      setShowPricingModal(true)
+      return
+    }
+
+    setMarkingPaidTenantId(tenant.id)
+    try {
+      const sessionCheck = await ensureFreshSession(supabase)
+      if (!sessionCheck.valid) {
+        flash('Your session has expired. Please sign in again.')
+        router.push('/login?next=/dashboard')
+        return
+      }
+
+      const syncRes = await syncTenantPaymentPaid({ tenant })
+      if (!syncRes.success) {
+        flash(`Could not mark rent as Paid: ${syncRes.error || 'Database error'}`)
+        return
+      }
+
+      const monthLabel = syncRes.payment?.month_covered || 'current billing cycle'
+      flash(`Rent for ${monthLabel} marked as Paid for ${tenant.name}. Rent & Payments updated.`)
+    } catch (err: any) {
+      console.error('handleMarkTenantPaid error:', err)
+      flash('An unexpected error occurred while marking rent as Paid.')
+    } finally {
+      setMarkingPaidTenantId(null)
+    }
+  }
+
   // Edit Tenant Details
   async function handleUpdateTenant(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -2280,6 +2456,35 @@ export default function DashboardPage() {
       const roomName = rooms.find((r) => r.id === finalRoomId)?.room_number || 'Unassigned'
       const bedName = beds.find((b) => b.id === finalBedId)?.bed_number || ''
 
+      // Automatically sync payment to Rent & Payments when status is set to Paid
+      let paymentNotice = ''
+      if (finalStatus === 'Paid') {
+        const syncRes = await syncTenantPaymentPaid({
+          tenant: {
+            ...editingTenant,
+            name,
+            phone,
+            rent,
+            deposit,
+            joiningDate,
+            rent_due_day: dueDay,
+            property_id: targetPropId || editingTenant.property_id,
+            room: roomName,
+            room_id: finalRoomId,
+            bed_id: finalBedId,
+          },
+          rentAmount: rent,
+          propertyId: targetPropId,
+          targetName: name,
+          targetRoom: roomName,
+        })
+        if (!syncRes.success) {
+          flash(`Resident updated, but payment sync failed: ${syncRes.error}`)
+          return
+        }
+        paymentNotice = ` and rent for ${syncRes.payment?.month_covered || 'billing cycle'} marked Paid`
+      }
+
       setTenants((prev) =>
         prev.map((t) =>
           t.id === editingTenant.id
@@ -2303,7 +2508,7 @@ export default function DashboardPage() {
       )
 
       setEditingTenant(null)
-      flash(`Resident ${name} updated successfully.`)
+      flash(`Resident ${name} updated successfully${paymentNotice}.`)
     } catch {
       flash('An error occurred while updating the resident.')
     } finally {
@@ -4122,6 +4327,8 @@ export default function DashboardPage() {
                     setShowTenantModal(true)
                   }}
                   onEditTenant={(t: Tenant) => setEditingTenant(t)}
+                  onMarkPaid={handleMarkTenantPaid}
+                  markingPaidTenantId={markingPaidTenantId}
                   onVacateTenant={handleVacateTenant}
                   onDeleteTenant={handleDeleteTenant}
                   onSharePortalLink={handleOpenPortalModal}
@@ -8184,6 +8391,8 @@ const TenantsTab = memo(function TenantsTab({
   onVacateTenant,
   onDeleteTenant,
   onRecordPayment,
+  onMarkPaid,
+  markingPaidTenantId,
   onSharePortalLink,
   ownerPaymentDetails,
   onOpenPaymentSettings,
@@ -8402,6 +8611,22 @@ const TenantsTab = memo(function TenantsTab({
                         <span>Remind</span>
                       </a>
 
+                      {t.status !== 'Paid' && t.status !== 'Vacated' && onMarkPaid && (
+                        <button
+                          onClick={() => onMarkPaid(t)}
+                          disabled={markingPaidTenantId === t.id}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#2e7d32]/30 bg-[#2e7d32]/10 px-2.5 py-1.5 text-xs font-semibold text-[#2e7d32] hover:bg-[#2e7d32]/20 disabled:opacity-60 transition-colors"
+                          title="Mark rent as Paid and automatically sync with Rent & Payments"
+                        >
+                          {markingPaidTenantId === t.id ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="size-3.5" />
+                          )}
+                          <span>{markingPaidTenantId === t.id ? 'Marking...' : 'Mark Paid'}</span>
+                        </button>
+                      )}
+
                       {t.status !== 'Paid' && t.status !== 'Vacated' && (
                         <button
                           onClick={() => onRecordPayment(t)}
@@ -8536,6 +8761,22 @@ const TenantsTab = memo(function TenantsTab({
                               <MessageCircle className="size-3.5 text-[#25D366]" />
                               <span className="hidden md:inline">Remind</span>
                             </a>
+
+                            {t.status !== 'Paid' && t.status !== 'Vacated' && onMarkPaid && (
+                              <button
+                                onClick={() => onMarkPaid(t)}
+                                disabled={markingPaidTenantId === t.id}
+                                className="inline-flex items-center gap-1 rounded-lg border border-[#2e7d32]/30 bg-[#2e7d32]/10 px-2 py-1 text-[11px] font-semibold text-[#2e7d32] hover:bg-[#2e7d32]/20 disabled:opacity-60 transition-colors"
+                                title="Mark rent as Paid and automatically sync with Rent & Payments"
+                              >
+                                {markingPaidTenantId === t.id ? (
+                                  <Loader2 className="size-3 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="size-3" />
+                                )}
+                                <span>{markingPaidTenantId === t.id ? 'Marking...' : 'Mark Paid'}</span>
+                              </button>
+                            )}
 
                             {t.status !== 'Paid' && t.status !== 'Vacated' && (
                               <button

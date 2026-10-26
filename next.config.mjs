@@ -13,6 +13,9 @@ const nextConfig = {
       },
     ],
   },
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+  },
   // Redirect old Vercel project subdomain and apex domain to official canonical domain
   async redirects() {
     return [

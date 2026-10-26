@@ -9,7 +9,7 @@ export function PublicFooter() {
   const { t, locale } = useI18n()
 
   return (
-    <footer className="border-t border-[#403a34] bg-[#2c2926] text-[#f8f0e5]">
+    <footer className="content-visibility-auto border-t border-[#403a34] bg-[#2c2926] text-[#f8f0e5]">
       <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8">
         <div className="grid gap-10 sm:grid-cols-2 md:grid-cols-4">
           {/* Brand Info */}
@@ -32,27 +32,27 @@ export function PublicFooter() {
             </p>
             <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
               <li>
-                <Link href="/about" className="transition-colors hover:text-white hover:underline">
+                <Link href="/about" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   About Us
                 </Link>
               </li>
               <li>
-                <Link href="/features" className="transition-colors hover:text-white hover:underline">
+                <Link href="/features" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   Features Overview
                 </Link>
               </li>
               <li>
-                <Link href="/pricing" className="transition-colors hover:text-white hover:underline">
+                <Link href="/pricing" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   Pricing Plans
                 </Link>
               </li>
               <li>
-                <Link href="/faq" className="transition-colors hover:text-white hover:underline">
+                <Link href="/faq" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   FAQ & Guides
                 </Link>
               </li>
               <li>
-                <Link href="/contact" className="transition-colors hover:text-white hover:underline">
+                <Link href="/contact" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   Support & Contact
                 </Link>
               </li>
@@ -66,22 +66,22 @@ export function PublicFooter() {
             </p>
             <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
               <li>
-                <Link href="/terms" className="transition-colors hover:text-white hover:underline">
+                <Link href="/terms" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   {t.legal.termsOfService}
                 </Link>
               </li>
               <li>
-                <Link href="/privacy" className="transition-colors hover:text-white hover:underline">
+                <Link href="/privacy" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   {t.legal.privacyPolicy}
                 </Link>
               </li>
               <li>
-                <Link href="/cookies" className="transition-colors hover:text-white hover:underline">
+                <Link href="/cookies" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   {t.legal.cookiePolicy}
                 </Link>
               </li>
               <li>
-                <Link href="/security" className="transition-colors hover:text-white hover:underline">
+                <Link href="/security" prefetch={false} className="transition-colors hover:text-white hover:underline">
                   {t.legal.securityDisclosures}
                 </Link>
               </li>
