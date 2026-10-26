@@ -1,8 +1,9 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getTenantSession } from '@/lib/tenant-access'
 import { createAdminClient } from '@/lib/supabase/server'
 import { getValidatedReminderPaymentOptions } from '@/lib/payment-validation'
 import { calculateTenantRentStatus } from '@/lib/due-dates'
+import { isValidEmail, isValidPhone } from '@/lib/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,10 +20,10 @@ export async function GET() {
 
     const admin = await createAdminClient()
 
-    // 1. Fetch tenant with property, room, and bed details
+    // 1. Fetch tenant with complete profile and contact information
     const { data: tenant, error: tenantErr } = await admin
       .from('tenants')
-      .select('id, full_name, phone, monthly_rent, security_deposit, joining_date, rent_due_day, status, room_id, bed_id, property_id, deleted_at')
+      .select('id, full_name, phone, email, emergency_contact, id_proof_type, id_proof_number, monthly_rent, security_deposit, joining_date, rent_due_day, status, room_id, bed_id, property_id, deleted_at')
       .eq('id', session.tenantId)
       .eq('owner_id', session.ownerId)
       .maybeSingle()
@@ -34,28 +35,53 @@ export async function GET() {
       )
     }
 
-    // 2. Fetch Property
+    // 2. Fetch Property including rules, notices, and address
     let property: any = null
     if (tenant.property_id) {
       const { data: prop } = await admin
         .from('properties')
-        .select('id, name, address, city, state, contact_number, rules, upi_id, payment_link, upi_qr_url')
+        .select('id, name, address, city, state, pincode, contact_number, rules, upi_id, payment_link, upi_qr_url')
         .eq('id', tenant.property_id)
         .maybeSingle()
       property = prop
     }
 
-    // 3. Fetch Room & Bed
+    // Parse property rules/notices safely
+    let rulesList: string[] = []
+    if (property?.rules) {
+      if (Array.isArray(property.rules)) {
+        rulesList = property.rules.filter((r: any) => typeof r === 'string' && r.trim().length > 0)
+      } else if (typeof property.rules === 'string') {
+        try {
+          const parsed = JSON.parse(property.rules)
+          if (Array.isArray(parsed)) {
+            rulesList = parsed.filter((r: any) => typeof r === 'string' && r.trim().length > 0)
+          } else {
+            rulesList = property.rules.split('\n').map((r: string) => r.trim()).filter((r: string) => r.length > 0)
+          }
+        } catch {
+          rulesList = property.rules.split('\n').map((r: string) => r.trim()).filter((r: string) => r.length > 0)
+        }
+      }
+    }
+
+    // 3. Fetch Room & Bed with floor, type, and capacity details
     let roomNumber = 'Unassigned'
+    let roomFloor: number | null = null
+    let roomType = 'Standard'
     let bedNumber = 'Unassigned'
 
     if (tenant.room_id) {
       const { data: r } = await admin
         .from('rooms')
-        .select('id, room_number, floor')
+        .select('id, room_number, floor, room_type')
         .eq('id', tenant.room_id)
         .maybeSingle()
-      if (r) roomNumber = r.room_number
+      if (r) {
+        roomNumber = r.room_number || 'Unassigned'
+        roomFloor = r.floor !== null && r.floor !== undefined ? Number(r.floor) : null
+        roomType = r.room_type || 'Standard'
+      }
     }
 
     if (tenant.bed_id) {
@@ -64,7 +90,7 @@ export async function GET() {
         .select('id, bed_number')
         .eq('id', tenant.bed_id)
         .maybeSingle()
-      if (b) bedNumber = b.bed_number
+      if (b) bedNumber = b.bed_number || 'Unassigned'
     }
 
     // 4. Fetch Payments Ledger strictly for this tenant
@@ -76,7 +102,32 @@ export async function GET() {
       .is('deleted_at', null)
       .order('paid_at', { ascending: false })
 
-    // 5. Fetch Electricity readings for the resident's room
+    // 5. Fetch Complaints strictly belonging to this resident
+    let residentComplaints: any[] = []
+    const { data: comps } = await admin
+      .from('complaints')
+      .select('id, title, description, priority, status, resolved_at, created_at, updated_at')
+      .eq('owner_id', session.ownerId)
+      .eq('tenant_id', session.tenantId)
+      .order('created_at', { ascending: false })
+
+    residentComplaints = comps || []
+
+    // Fallback: Check for legacy complaints logged by name with null tenant_id
+    if (residentComplaints.length === 0 && tenant.full_name) {
+      const { data: legacyComps } = await admin
+        .from('complaints')
+        .select('id, title, description, priority, status, resolved_at, created_at, updated_at')
+        .eq('owner_id', session.ownerId)
+        .is('tenant_id', null)
+        .eq('tenant', tenant.full_name)
+        .order('created_at', { ascending: false })
+      if (legacyComps && legacyComps.length > 0) {
+        residentComplaints = legacyComps
+      }
+    }
+
+    // 6. Fetch Electricity readings for the resident's room
     let electricityReadings: any[] = []
     if (tenant.room_id) {
       const { data: readings } = await admin
@@ -88,7 +139,7 @@ export async function GET() {
       electricityReadings = readings || []
     }
 
-    // 6. Fetch Deposit Settlement if completed
+    // 7. Fetch Deposit Settlement if completed
     let settlement: any = null
     try {
       const { data: setl } = await admin
@@ -111,7 +162,7 @@ export async function GET() {
       // Table may not have records yet
     }
 
-    // 7. Fetch Owner Profile Payment Options
+    // 8. Fetch Owner Profile Payment Options
     let rawPaymentOptions = {
       upiId: property?.upi_id || null,
       paymentLink: property?.payment_link || null,
@@ -140,7 +191,7 @@ export async function GET() {
       qrCodeUrl: null,
     }
 
-    // 8. Fetch Mid-Cycle Electricity Shares for this resident
+    // 9. Fetch Mid-Cycle Electricity Shares for this resident
     let electricityShares: any[] = []
     try {
       const { data: shares } = await admin
@@ -154,7 +205,7 @@ export async function GET() {
       // Table query fallback
     }
 
-    // 9. Calculate real-time rent status using the single source of truth
+    // 10. Calculate real-time rent status using the single source of truth
     const rentStatusResult = calculateTenantRentStatus({
       tenant: {
         id: tenant.id,
@@ -182,11 +233,57 @@ export async function GET() {
       legacyStatus = 'Pending'
     }
 
+    // Synthesize chronological resident activity history
+    const timelineEvents: Array<{
+      id: string
+      date: string
+      type: 'move_in' | 'payment' | 'complaint' | 'electricity'
+      title: string
+      description: string
+    }> = []
+
+    if (tenant.joining_date) {
+      timelineEvents.push({
+        id: `event-join-${tenant.id}`,
+        date: tenant.joining_date,
+        type: 'move_in',
+        title: 'Moved in to Residence',
+        description: `Occupancy commenced for Room ${roomNumber}, Bed ${bedNumber}.`,
+      })
+    }
+
+    for (const p of payments || []) {
+      timelineEvents.push({
+        id: `event-pay-${p.id}`,
+        date: p.paid_at,
+        type: 'payment',
+        title: `Payment Confirmed: ₹${Number(p.amount || 0).toLocaleString('en-IN')}`,
+        description: `Paid via ${String(p.payment_method || 'UPI').toUpperCase()} for ${p.payment_type || 'rent'}${p.month_covered ? ` (${p.month_covered})` : ''}.`,
+      })
+    }
+
+    for (const c of residentComplaints) {
+      timelineEvents.push({
+        id: `event-comp-${c.id}`,
+        date: c.created_at,
+        type: 'complaint',
+        title: `Maintenance Ticket: ${c.title}`,
+        description: `Status: ${c.status} · Priority: ${c.priority}${c.resolved_at ? ` · Resolved on ${new Date(c.resolved_at).toLocaleDateString('en-IN')}` : ''}`,
+      })
+    }
+
+    // Sort timeline descending by date
+    timelineEvents.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
     const payload = {
       tenant: {
         id: tenant.id,
         name: tenant.full_name,
-        phone: tenant.phone,
+        phone: tenant.phone || '',
+        email: tenant.email || '',
+        emergencyContact: tenant.emergency_contact || '',
+        idProofType: tenant.id_proof_type || null,
+        idProofNumber: tenant.id_proof_number || null,
         monthlyRent: Number(tenant.monthly_rent || 0),
         securityDeposit: Number(tenant.security_deposit || 0),
         joiningDate: tenant.joining_date,
@@ -209,11 +306,30 @@ export async function GET() {
         name: property?.name || 'BaseraBook Managed Residence',
         address: property?.address || '',
         city: property?.city || '',
+        state: property?.state || '',
+        pincode: property?.pincode || '',
         contactNumber: property?.contact_number || '',
+        rules: rulesList,
+      },
+      room: {
+        number: roomNumber,
+        floor: roomFloor,
+        type: roomType,
       },
       roomNumber,
       bedNumber,
       paymentOptions,
+      complaints: residentComplaints.map((c) => ({
+        id: c.id,
+        title: c.title,
+        description: c.description || '',
+        priority: c.priority || 'Medium',
+        status: c.status || 'Open',
+        resolvedAt: c.resolved_at || null,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+      })),
+      timeline: timelineEvents,
       electricityShares: (electricityShares || []).map((s) => ({
         id: s.id,
         periodStart: s.period_start,
@@ -221,7 +337,7 @@ export async function GET() {
         occupiedDays: Number(s.occupied_days || 0),
         totalPeriodDays: Number(s.total_period_days || 0),
         sharePercentage: Number(s.share_percentage || 0),
-        unitsConsumed: s.units_consumed !== null && s.units_consumed !== undefined ? Number(s.units_consumed) : null,
+        unitsConsumed: s.unitsConsumed !== null && s.unitsConsumed !== undefined ? Number(s.units_consumed) : null,
         amountDue: Number(s.amount_due || 0),
         calculationMethod: s.calculation_method || 'proportional_daily_occupancy',
         calculationExplanation: s.calculation_explanation || '',
@@ -265,6 +381,127 @@ export async function GET() {
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: err?.message || 'Server error while loading portal.' },
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
+    )
+  }
+}
+
+/**
+ * PATCH: Secure resident self-service profile contact update
+ * Permits updating contact fields ONLY (phone, email, emergency_contact).
+ * Strictly forbids modifying financial, occupancy, or status attributes.
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const session = await getTenantSession()
+
+    if (!session || !session.tenantId || !session.ownerId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized: Session has expired or is invalid.' },
+        { status: 401, headers: { 'Cache-Control': 'no-store' } }
+      )
+    }
+
+    const body = await request.json()
+
+    // Security barrier: reject unauthorized modifications to sensitive/financial fields
+    const forbiddenFields = [
+      'id', 'monthly_rent', 'monthlyRent', 'rent',
+      'security_deposit', 'securityDeposit', 'deposit',
+      'room_id', 'bed_id', 'property_id', 'status',
+      'joining_date', 'joiningDate', 'rent_due_day', 'rentDueDay',
+      'owner_id', 'ownerId', 'deleted_at',
+    ]
+
+    for (const field of forbiddenFields) {
+      if (body[field] !== undefined) {
+        return NextResponse.json(
+          { success: false, error: `Security violation: You are not authorized to modify the "${field}" attribute.` },
+          { status: 403, headers: { 'Cache-Control': 'no-store' } }
+        )
+      }
+    }
+
+    const { phone, email, emergencyContact } = body
+
+    const updatePayload: Record<string, any> = {
+      updated_at: new Date().toISOString(),
+    }
+
+    // Phone validation
+    if (phone !== undefined) {
+      const cleanPhone = String(phone).trim()
+      if (cleanPhone && !isValidPhone(cleanPhone)) {
+        return NextResponse.json(
+          { success: false, error: 'Please enter a valid 10-15 digit contact phone number.' },
+          { status: 400, headers: { 'Cache-Control': 'no-store' } }
+        )
+      }
+      updatePayload.phone = cleanPhone
+    }
+
+    // Email validation
+    if (email !== undefined) {
+      const cleanEmail = String(email).trim()
+      if (cleanEmail && !isValidEmail(cleanEmail)) {
+        return NextResponse.json(
+          { success: false, error: 'Please enter a valid email address.' },
+          { status: 400, headers: { 'Cache-Control': 'no-store' } }
+        )
+      }
+      updatePayload.email = cleanEmail || null
+    }
+
+    // Emergency Contact validation
+    if (emergencyContact !== undefined) {
+      const cleanContact = String(emergencyContact).trim()
+      if (cleanContact.length > 100) {
+        return NextResponse.json(
+          { success: false, error: 'Emergency contact information cannot exceed 100 characters.' },
+          { status: 400, headers: { 'Cache-Control': 'no-store' } }
+        )
+      }
+      updatePayload.emergency_contact = cleanContact || null
+    }
+
+    const admin = await createAdminClient()
+
+    const { data: updated, error: updateErr } = await admin
+      .from('tenants')
+      .update(updatePayload)
+      .eq('id', session.tenantId)
+      .eq('owner_id', session.ownerId)
+      .select('id, full_name, phone, email, emergency_contact')
+      .maybeSingle()
+
+    if (updateErr) {
+      return NextResponse.json(
+        { success: false, error: updateErr.message || 'Database error while saving contact details.' },
+        { status: 500, headers: { 'Cache-Control': 'no-store' } }
+      )
+    }
+
+    if (!updated) {
+      return NextResponse.json(
+        { success: false, error: 'Resident record not found or update unauthorized.' },
+        { status: 404, headers: { 'Cache-Control': 'no-store' } }
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Contact information updated and confirmed in database.',
+      tenant: {
+        id: updated.id,
+        name: updated.full_name,
+        phone: updated.phone,
+        email: updated.email,
+        emergencyContact: updated.emergency_contact,
+      },
+    })
+  } catch (err: any) {
+    return NextResponse.json(
+      { success: false, error: err?.message || 'Server error while updating contact details.' },
       { status: 500, headers: { 'Cache-Control': 'no-store' } }
     )
   }

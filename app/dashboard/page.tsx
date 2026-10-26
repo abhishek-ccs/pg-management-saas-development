@@ -199,12 +199,15 @@ type PaymentRecord = {
 type Complaint = {
   id: string
   property_id?: string | null
+  tenant_id?: string | null
   title: string
   tenant: string
   priority: 'High' | 'Medium' | 'Low'
   status: 'Open' | 'In progress' | 'Resolved'
   description?: string
+  resolved_at?: string | null
   created_at: string
+  updated_at?: string | null
 }
 
 type Expense = {
@@ -946,11 +949,11 @@ export default function DashboardPage() {
         supabase.from('properties').select('id,name,address,contact_number,city,rules,upi_id,payment_link,upi_qr_url').eq('owner_id', user.id).order('created_at', { ascending: true }),
         supabase.from('rooms').select('id,property_id,room_number,floor,room_type,base_rent').eq('owner_id', user.id).order('room_number', { ascending: true }),
         supabase.from('beds').select('id,property_id,room_id,bed_number,status,monthly_rate').eq('owner_id', user.id).order('bed_number', { ascending: true }),
-        supabase.from('tenants').select('id,property_id,full_name,phone,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at,updated_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('tenants').select('id,property_id,full_name,phone,email,emergency_contact,id_proof_type,id_proof_number,monthly_rent,security_deposit,joining_date,rent_due_day,status,room_id,bed_id,deleted_at,updated_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
         supabase.from('payments').select('id,property_id,tenant_id,amount,payment_method,payment_type,paid_at,month_covered,deleted_at,notes').eq('owner_id', user.id).order('paid_at', { ascending: false }),
         supabase.from('expenses').select('id,property_id,title,category,amount,expense_date,notes').eq('owner_id', user.id).order('expense_date', { ascending: false }),
         supabase.from('electricity_readings').select('id,property_id,previous_reading,current_reading,rate_per_unit,reading_date,room_id,meter_number').eq('owner_id', user.id).order('reading_date', { ascending: false }),
-        supabase.from('complaints').select('id,property_id,title,tenant,priority,status,description,created_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('complaints').select('id,property_id,tenant_id,title,tenant,priority,status,description,resolved_at,created_at,updated_at').eq('owner_id', user.id).order('created_at', { ascending: false }),
         supabase.from('profiles').select('phone,upi_id,payment_link,upi_qr_url').eq('id', user.id).maybeSingle(),
       ])
 
@@ -2706,7 +2709,6 @@ export default function DashboardPage() {
           paid_at: paidAt,
           month_covered: monthCovered || null,
           notes: notes || null,
-          updated_at: new Date().toISOString(),
         })
         .eq('id', editingPayment.id)
         .eq('owner_id', userId)
@@ -3512,7 +3514,9 @@ export default function DashboardPage() {
 
     if (!title) return
 
-    const targetCompPropId = property.id || selectedPropertyId || properties[0]?.id || null
+    const matchedTenant = tenants.find((t) => t.name.toLowerCase() === tenantName.toLowerCase())
+    const targetCompPropId = property.id || selectedPropertyId || properties[0]?.id || matchedTenant?.property_id || null
+    const targetTenantId = matchedTenant?.id || null
 
     setIsSavingComplaint(true)
     try {
@@ -3521,13 +3525,14 @@ export default function DashboardPage() {
         .insert({
           owner_id: userId,
           property_id: targetCompPropId,
-          title,
+          tenant_id: targetTenantId,
           tenant: tenantName,
+          title,
           priority,
           status: 'Open',
           description: desc,
         })
-        .select('id,property_id,title,tenant,priority,status,description,created_at')
+        .select('id,property_id,tenant_id,title,tenant,priority,status,description,created_at')
         .single()
 
       if (error) {
@@ -3580,6 +3585,9 @@ export default function DashboardPage() {
       return
     }
 
+    const matchedTenant = tenants.find((t) => t.name.toLowerCase() === tenantName.toLowerCase())
+    const targetTenantId = matchedTenant?.id || editingComplaint.tenant_id || null
+
     setIsSavingComplaint(true)
     try {
       const { error } = await supabase
@@ -3587,6 +3595,7 @@ export default function DashboardPage() {
         .update({
           title,
           tenant: tenantName,
+          tenant_id: targetTenantId,
           priority,
           status,
           description: desc,
