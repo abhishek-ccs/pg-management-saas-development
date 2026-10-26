@@ -235,6 +235,7 @@ export function generateMonthlyRentSchedules(params: {
   monthlyRent: number
   payments?: any[]
   referenceDate?: Date
+  vacatedDate?: string | Date | null
   timeZone?: string
   locale?: 'en' | 'hi'
 }): MonthlyRentSchedule[] {
@@ -245,6 +246,7 @@ export function generateMonthlyRentSchedules(params: {
     monthlyRent,
     payments = [],
     referenceDate = new Date(),
+    vacatedDate,
     timeZone = 'Asia/Kolkata',
     locale = 'en',
   } = params
@@ -265,16 +267,16 @@ export function generateMonthlyRentSchedules(params: {
 
   const schedules: MonthlyRentSchedule[] = []
 
-  // Iterate month by month from joining month up to reference date + 1 month (next due cycle)
+  // Iterate month by month from joining month up to reference date + future active cycle
   let curYear = safeJoining.getFullYear()
   let curMonth = safeJoining.getMonth()
 
   const targetYear = ref.getFullYear()
   const targetMonth = ref.getMonth()
 
-  // Max cycles guard (up to 36 months to prevent runaway loops)
+  // Max cycles guard (up to 48 months to prevent runaway loops)
   let loopCount = 0
-  const maxCycles = 36
+  const maxCycles = 48
 
   while (loopCount < maxCycles) {
     loopCount++
@@ -303,6 +305,14 @@ export function generateMonthlyRentSchedules(params: {
     const cycleStartDate = new Date(curYear, curMonth, Math.min(dueDay, new Date(curYear, curMonth + 1, 0).getDate()))
     const cycleStartFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' }).format(cycleStartDate)
     const cycleLabel = `${cycleStartFmt} – ${dueDateFormatted}`
+
+    // Stop if cycle starts strictly after tenant's move-out / vacate date
+    if (vacatedDate) {
+      const vDate = parseLocalDate(vacatedDate)
+      if (!isNaN(vDate.getTime()) && cycleStartDate.getTime() > vDate.getTime()) {
+        break
+      }
+    }
 
     // Match payment for this specific month
     const matchingPayment = tenantRentPayments.find((p: any) => {
@@ -342,12 +352,24 @@ export function generateMonthlyRentSchedules(params: {
     if (matchingPayment) {
       isPaid = true
       status = 'paid'
-      labelEn = 'Paid On Time'
-      labelHi = 'समय पर भुगतान'
-      badgeColor = 'bg-[#eaf5ea] text-[#2e7d32] border-[#c5e6c7]'
-      paidAtFormatted = formatPaymentTimestamp(matchingPayment.paid_at || matchingPayment.paidAt, timeZone, locale)
+
+      const paidAtStr = matchingPayment.paid_at || matchingPayment.paidAt
+      let isLate = false
+      if (paidAtStr) {
+        const paidTime = new Date(paidAtStr).getTime()
+        if (!isNaN(paidTime) && paidTime > cycleDueDate.getTime()) {
+          isLate = true
+        }
+      }
+
+      labelEn = isLate ? 'Paid Late' : 'Paid On Time'
+      labelHi = isLate ? 'विलंबित भुगतान' : 'समय पर भुगतान'
+      badgeColor = isLate
+        ? 'bg-[#fff8e1] text-[#b45309] border-[#ffe082]'
+        : 'bg-[#eaf5ea] text-[#2e7d32] border-[#c5e6c7]'
+      paidAtFormatted = formatPaymentTimestamp(paidAtStr, timeZone, locale)
     } else {
-      // Calculate real-time Due Today / Due Soon / Overdue relative to referenceDate
+      // Calculate real-time Due Today / Due Soon / Upcoming / Overdue relative to referenceDate
       const isToday =
         ref.getFullYear() === dueYear &&
         ref.getMonth() === dueMonthIndex &&
@@ -356,12 +378,21 @@ export function generateMonthlyRentSchedules(params: {
       const diffMs = cycleDueDate.getTime() - ref.getTime()
       const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
 
+      // A future cycle is one where referenceDate has not yet reached cycleStartDate
+      const isFutureCycle = ref.getTime() < cycleStartDate.getTime()
+
       if (isToday) {
         status = 'due_today'
         daysDiff = 0
         labelEn = 'Due Today'
         labelHi = 'आज देय है'
         badgeColor = 'bg-[#fff4e5] text-[#b46b1a] border-[#ffdcb0]'
+      } else if (isFutureCycle) {
+        status = 'due_soon'
+        daysDiff = Math.max(1, diffDays)
+        labelEn = 'Upcoming'
+        labelHi = 'आगामी'
+        badgeColor = 'bg-[#faf7f2] text-[#8c827a] border-[#e8dfd4]'
       } else if (diffMs >= 0) {
         status = 'due_soon'
         daysDiff = Math.max(1, diffDays)
@@ -409,8 +440,13 @@ export function generateMonthlyRentSchedules(params: {
     curYear = dueYear
     curMonth = dueMonthIndex
 
-    // Stop after covering up to the next due cycle past referenceDate
-    if (curYear > targetYear || (curYear === targetYear && curMonth > targetMonth)) {
+    // Automatic rent cycle continuation rule:
+    // Once we reach or pass referenceDate, we stop ONLY IF we have at least one upcoming/unpaid cycle generated.
+    // If the latest cycle is paid, we continue to generate/activate the next month (e.g. Nov -> Dec -> Jan).
+    const isPastOrCurrentTarget = curYear > targetYear || (curYear === targetYear && curMonth > targetMonth)
+    const hasUnpaidCycle = schedules.some((s) => !s.isPaid)
+
+    if (isPastOrCurrentTarget && hasUnpaidCycle) {
       break
     }
   }
@@ -482,6 +518,13 @@ export function calculateTenantRentStatus(params: {
       : tenant.rent || 0
   )
 
+  const effectiveVacated =
+    (tenant as any).vacated_at ||
+    (tenant as any).vacatedDate ||
+    (tenant as any).move_out_date ||
+    (tenant as any).moveOutDate ||
+    null
+
   const schedules = generateMonthlyRentSchedules({
     tenantId: tenant.id,
     joiningDate: effectiveJoining,
@@ -489,6 +532,7 @@ export function calculateTenantRentStatus(params: {
     monthlyRent: effectiveRent,
     payments,
     referenceDate,
+    vacatedDate: effectiveVacated,
     locale,
   })
 
@@ -571,10 +615,30 @@ export function calculateTenantRentStatus(params: {
     }
   }
 
-  // 3. Check if past and current cycles are paid
-  // If the tenant has already paid up to the current date/cycle, their status is "Paid On Time".
+  // 3. Look for current calendar month cycle:
+  // If the resident has not paid for the current calendar month, their status is due_soon
+  const currentMonthKey = `${ref.getFullYear()}-${String(ref.getMonth() + 1).padStart(2, '0')}`
+  const currentMonthCycle = schedules.find((s) => !s.isPaid && s.monthKey === currentMonthKey)
+  if (currentMonthCycle) {
+    return {
+      status: currentMonthCycle.status,
+      days: currentMonthCycle.daysDiff,
+      labelEn: currentMonthCycle.labelEn,
+      labelHi: currentMonthCycle.labelHi,
+      badgeColor: currentMonthCycle.badgeColor,
+      nextDueDate: currentMonthCycle.dueDate,
+      nextDueDateFormatted: currentMonthCycle.dueDateFormatted,
+      monthCovered: currentMonthCycle.monthCovered,
+      outstandingBalance,
+      overdueBalance,
+      schedules,
+    }
+  }
+
+  // 4. Check if past and current cycles are paid
+  // If the tenant has already paid up to the current date/cycle, their status is "Paid On Time" / "Paid Late".
   const refIso = ref.toISOString().slice(0, 10)
-  const pastAndCurrentCycles = schedules.filter((s) => s.isPaid || s.dueDate <= refIso)
+  const pastAndCurrentCycles = schedules.filter((s) => s.isPaid || s.dueDate <= refIso || s.monthKey <= currentMonthKey)
   const isUpToDate = pastAndCurrentCycles.length > 0 && pastAndCurrentCycles.every((s) => s.isPaid)
 
   if (isUpToDate) {
@@ -583,19 +647,19 @@ export function calculateTenantRentStatus(params: {
     return {
       status: 'paid',
       days: 0,
-      labelEn: 'Paid On Time',
-      labelHi: 'समय पर भुगतान',
+      labelEn: lastPaid?.labelEn || 'Paid On Time',
+      labelHi: lastPaid?.labelHi || 'समय पर भुगतान',
       badgeColor: 'bg-[#eaf5ea] text-[#2e7d32] border-[#c5e6c7]',
       nextDueDate: nextUpcomingCycle?.dueDate || lastPaid?.dueDate,
       nextDueDateFormatted: nextUpcomingCycle?.dueDateFormatted || lastPaid?.dueDateFormatted,
-      monthCovered: lastPaid?.monthCovered,
+      monthCovered: nextUpcomingCycle ? nextUpcomingCycle.monthCovered : lastPaid?.monthCovered,
       outstandingBalance: 0,
       overdueBalance: 0,
       schedules,
     }
   }
 
-  // 4. Look for next unpaid due soon entry (e.g. newly joined resident with first cycle in future)
+  // 5. Look for next unpaid due soon entry (e.g. newly joined resident with first cycle in future)
   const dueSoonEntry = schedules.find((s) => s.status === 'due_soon')
   if (dueSoonEntry) {
     return {
@@ -615,15 +679,16 @@ export function calculateTenantRentStatus(params: {
 
   // 5. All past & current cycles are paid fallback
   const lastPaid = schedules[schedules.length - 1]
+  const nextUnpaid = schedules.find((s) => !s.isPaid)
   return {
     status: 'paid',
     days: 0,
-    labelEn: 'Paid On Time',
-    labelHi: 'समय पर भुगतान',
+    labelEn: lastPaid?.labelEn || 'Paid On Time',
+    labelHi: lastPaid?.labelHi || 'समय पर भुगतान',
     badgeColor: 'bg-[#eaf5ea] text-[#2e7d32] border-[#c5e6c7]',
-    nextDueDate: lastPaid?.dueDate,
-    nextDueDateFormatted: lastPaid?.dueDateFormatted,
-    monthCovered: lastPaid?.monthCovered,
+    nextDueDate: nextUnpaid?.dueDate || lastPaid?.dueDate,
+    nextDueDateFormatted: nextUnpaid?.dueDateFormatted || lastPaid?.dueDateFormatted,
+    monthCovered: nextUnpaid ? nextUnpaid.monthCovered : lastPaid?.monthCovered,
     outstandingBalance: 0,
     overdueBalance: 0,
     schedules,

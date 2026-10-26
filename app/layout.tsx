@@ -4,7 +4,6 @@ import Script from 'next/script'
 import { Analytics } from '@vercel/analytics/next'
 import { CookieConsentBanner } from '@/components/legal/CookieConsentBanner'
 import { StructuredData } from '@/components/seo/StructuredData'
-import { GoogleAnalytics } from '@/components/analytics/GoogleAnalytics'
 import { I18nProvider } from '@/lib/i18n'
 import { TARGET_KEYWORDS } from '@/lib/site'
 import './globals.css'
@@ -111,7 +110,23 @@ export default function RootLayout({
         <StructuredData />
       </head>
       <body className={`${plusJakartaSans.variable} ${playfairDisplay.variable} antialiased font-sans text-[#403a34] bg-[#fbf8f3] min-h-screen overflow-x-hidden selection:bg-[#8b5a2b]/20 selection:text-[#2c221e]`}>
-        <GoogleAnalytics />
+        {/* Google tag (gtag.js) */}
+        <Script
+          strategy="lazyOnload"
+          src="https://www.googletagmanager.com/gtag/js?id=G-9CQRHQFVSE"
+        />
+        <Script
+          id="google-analytics"
+          strategy="lazyOnload"
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', 'G-9CQRHQFVSE');
+            `,
+          }}
+        />
         {/* WCAG 2.2 AA: Skip to main content keyboard accessibility link */}
         <a
           href="#main-content"

@@ -299,8 +299,10 @@ export async function GET() {
         },
         nextDueDate: rentStatusResult.nextDueDate || null,
         nextDueDateFormatted: rentStatusResult.nextDueDateFormatted || null,
+        monthCovered: rentStatusResult.monthCovered || null,
         outstandingBalance: rentStatusResult.outstandingBalance,
         overdueBalance: rentStatusResult.overdueBalance,
+        schedules: rentStatusResult.schedules || [],
       },
       property: {
         name: property?.name || 'BaseraBook Managed Residence',

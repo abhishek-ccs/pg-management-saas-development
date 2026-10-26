@@ -1287,6 +1287,38 @@ export default function DashboardPage() {
     void fetchDashboardData()
   }, [])
 
+  // Automatic month rollover listener: re-synchronizes when calendar month transitions or tab regains focus
+  useEffect(() => {
+    let lastCheckedMonth = new Date().getMonth()
+    let lastCheckedYear = new Date().getFullYear()
+
+    const checkMonthRollover = () => {
+      const now = new Date()
+      const m = now.getMonth()
+      const y = now.getFullYear()
+      if (m !== lastCheckedMonth || y !== lastCheckedYear) {
+        lastCheckedMonth = m
+        lastCheckedYear = y
+        void fetchDashboardData()
+      }
+    }
+
+    const intervalId = setInterval(checkMonthRollover, 60000)
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkMonthRollover()
+      }
+    }
+    window.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('focus', checkMonthRollover)
+
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', checkMonthRollover)
+    }
+  }, [])
+
   // Lazy-load trash records if owner navigates to Deleted Records tab before background fetch finished
   useEffect(() => {
     if (active === 'Deleted Records' && trashRecords.length === 0 && !isLoadingTrash) {
@@ -8881,11 +8913,17 @@ const PaymentsTab = memo(function PaymentsTab({
 
   const displayedPayments = useMemo(() => {
     if (selectedMonth === 'all') return payments
+    const monthName = MONTH_NAMES[selectedMonth]
     return payments.filter((p: PaymentRecord) => {
       const d = new Date(p.paid_at)
-      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+      const matchesPaidDate = !isNaN(d.getTime()) && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+      const matchesCovered =
+        p.month_covered &&
+        p.month_covered.toLowerCase().includes(monthName.toLowerCase()) &&
+        p.month_covered.includes(String(selectedYear))
+      return matchesPaidDate || matchesCovered
     })
-  }, [payments, selectedMonth, selectedYear])
+  }, [payments, selectedMonth, selectedYear, MONTH_NAMES])
 
   const totalFilteredAmount = useMemo(() => {
     return displayedPayments.reduce((sum: number, p: PaymentRecord) => sum + (p.amount || 0), 0)
@@ -9919,9 +9957,7 @@ const ReportsTab = memo(function ReportsTab({
   const HISTORICAL_START_YEAR = 2026
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
-  const [selectedMonth, setSelectedMonth] = useState<number>(() => {
-    return currentYear === 2026 ? Math.max(9, currentMonth) : currentMonth
-  })
+  const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth)
   const [selectedYear, setSelectedYear] = useState<number>(currentYear)
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'rent' | 'expenses' | 'electricity' | 'occupancy'>('overview')
 
@@ -9966,11 +10002,17 @@ const ReportsTab = memo(function ReportsTab({
 
   // 1. Scoped Monthly Rent Collections (from actual DB records)
   const monthPayments = useMemo(() => {
+    const monthName = MONTH_NAMES[selectedMonth]
     return payments.filter((p: PaymentRecord) => {
       const d = new Date(p.paid_at)
-      return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+      const matchesPaidDate = !isNaN(d.getTime()) && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear
+      const matchesCovered =
+        p.month_covered &&
+        p.month_covered.toLowerCase().includes(monthName.toLowerCase()) &&
+        p.month_covered.includes(String(selectedYear))
+      return matchesPaidDate || matchesCovered
     })
-  }, [payments, selectedMonth, selectedYear])
+  }, [payments, selectedMonth, selectedYear, MONTH_NAMES])
 
   const monthRevenue = useMemo(() => {
     return monthPayments.reduce((sum: number, p: PaymentRecord) => sum + (p.amount || 0), 0)
