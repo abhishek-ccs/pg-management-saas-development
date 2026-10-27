@@ -533,3 +533,40 @@ test('First Rent Due Date: Forms and Actions code integrity check', () => {
   assert.ok(portalRouteCode.includes('nextDueDates: rentStatusResult.nextDueDates'), 'Portal route must return nextDueDates')
 })
 
+test('First Rent Due Date Persistence: Updating rent due date preserves recurring due date across page refresh', async () => {
+  const { computeFirstDueDate, calculateTenantRentStatus } = await import('../lib/due-dates.ts')
+
+  // Case 1: Resident moves in on 25 Oct, due date set to 26th
+  const computed1 = computeFirstDueDate('2026-10-25', 26)
+  assert.strictEqual(computed1, '2026-11-26', 'Moving in Oct 25 with due day 26 must produce next recurring due date Nov 26, NOT Oct 26')
+
+  // Case 2: Resident moves in on 25 Oct, due date set to 25th
+  const computed2 = computeFirstDueDate('2026-10-25', 25)
+  assert.strictEqual(computed2, '2026-11-25', 'Moving in Oct 25 with due day 25 must produce next recurring due date Nov 25, NOT Oct 25')
+
+  // Case 3: Resident moves in on 24 Oct, due date set to 5th
+  const computed3 = computeFirstDueDate('2026-10-24', 5)
+  assert.strictEqual(computed3, '2026-11-05', 'Moving in Oct 24 with due day 5 must produce next recurring due date Nov 5')
+
+  // Case 4: Status calculation on reloaded tenant
+  const reloadedTenant = {
+    id: 'res-persist-test',
+    full_name: 'Shankar',
+    joining_date: '2026-10-25',
+    rent_due_day: 26,
+    first_due_date: computed1,
+    firstDueDate: computed1,
+    monthly_rent: 7000,
+    status: 'Pending',
+  }
+  const refDate = new Date(2026, 9, 27) // Oct 27, 2026
+  const statusRes = calculateTenantRentStatus({
+    tenant: reloadedTenant,
+    payments: [],
+    referenceDate: refDate,
+  })
+
+  assert.strictEqual(statusRes.status, 'due_soon', 'Tenant must be due_soon, NOT overdue')
+  assert.strictEqual(statusRes.nextDueDateFormatted, '26 Nov 2026', 'Next due date must be 26 Nov 2026')
+})
+

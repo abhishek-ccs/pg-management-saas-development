@@ -521,10 +521,11 @@ export function computeFirstDueDate(
   let mo = jd.getMonth()
   const joiningDay = jd.getDate()
 
-  // If resident moves in on a date after the monthly rent due day,
+  // If resident moves in on or after the monthly rent due day,
+  // or within a week before it (e.g. joined Oct 25th, due on 26th),
   // their first recurring rent is due on the dueDay of the following month.
-  // (e.g. joined on Oct 24th, due on 5th -> first upcoming rent due on Nov 5th)
-  if (joiningDay > dueDay) {
+  // (e.g. joined on Oct 25th, due on 26th -> Nov 26th; joined Oct 24th, due on 5th -> Nov 5th)
+  if (joiningDay >= dueDay || (dueDay - joiningDay <= 7)) {
     if (mo === 11) {
       yr += 1
       mo = 0
