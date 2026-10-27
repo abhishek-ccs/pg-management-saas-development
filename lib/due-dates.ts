@@ -502,20 +502,84 @@ export function computeFirstDueDate(
   const dueDay = rentDueDay && rentDueDay >= 1 && rentDueDay <= 31 ? rentDueDay : 5
   if (!joiningDate) {
     const now = new Date()
-    const daysInCur = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+    let yr = now.getFullYear()
+    let mo = now.getMonth()
+    if (now.getDate() > dueDay) {
+      if (mo === 11) { yr += 1; mo = 0 }
+      else { mo += 1 }
+    }
+    const daysInCur = new Date(yr, mo + 1, 0).getDate()
     const d = Math.min(dueDay, daysInCur)
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    return `${yr}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
   }
   const jd = parseLocalDate(joiningDate)
   if (isNaN(jd.getTime())) {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(dueDay).padStart(2, '0')}`
   }
-  const yr = jd.getFullYear()
-  const mo = jd.getMonth()
+  let yr = jd.getFullYear()
+  let mo = jd.getMonth()
+  const joiningDay = jd.getDate()
+
+  // If resident moves in on a date after the monthly rent due day,
+  // their first recurring rent is due on the dueDay of the following month.
+  // (e.g. joined on Oct 24th, due on 5th -> first upcoming rent due on Nov 5th)
+  if (joiningDay > dueDay) {
+    if (mo === 11) {
+      yr += 1
+      mo = 0
+    } else {
+      mo += 1
+    }
+  }
+
   const daysInMo = new Date(yr, mo + 1, 0).getDate()
   const d = Math.min(dueDay, daysInMo)
   return `${yr}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+/**
+ * Formats a day of month with proper grammatical ordinal suffix and schedule label.
+ * English: "5th of month", "1st of month", "22nd of month"
+ * Hindi: "महीने की 5 तारीख"
+ */
+export function formatDueDaySchedule(day: number, locale: string = 'en'): string {
+  const safeDay = Math.min(Math.max(Number(day) || 5, 1), 31)
+  if (locale === 'hi') {
+    return `महीने की ${safeDay} तारीख`
+  }
+  const j = safeDay % 10
+  const k = safeDay % 100
+  let suffix = 'th'
+  if (j === 1 && k !== 11) {
+    suffix = 'st'
+  } else if (j === 2 && k !== 12) {
+    suffix = 'nd'
+  } else if (j === 3 && k !== 13) {
+    suffix = 'rd'
+  }
+  return `${safeDay}${suffix} of month`
+}
+
+/**
+ * Formats an ordinal day number (e.g. 1st, 2nd, 3rd, 4th, 5th, 21st, 22nd, 23rd).
+ */
+export function formatOrdinalDay(day: number, locale: string = 'en'): string {
+  const safeDay = Math.min(Math.max(Number(day) || 5, 1), 31)
+  if (locale === 'hi') {
+    return `${safeDay} तारीख`
+  }
+  const j = safeDay % 10
+  const k = safeDay % 100
+  let suffix = 'th'
+  if (j === 1 && k !== 11) {
+    suffix = 'st'
+  } else if (j === 2 && k !== 12) {
+    suffix = 'nd'
+  } else if (j === 3 && k !== 13) {
+    suffix = 'rd'
+  }
+  return `${safeDay}${suffix}`
 }
 
 /**

@@ -46,11 +46,59 @@ import {
   calculateNextMonthlyDueDates,
   isDuplicateRentPayment,
   formatPaymentTimestamp,
+  formatDueDaySchedule,
+  formatOrdinalDay,
+  parseLocalDate,
   generateWhatsAppReminder,
   generateSmsReminder,
   type MonthlyRentSchedule,
   type ReminderPaymentDetails,
 } from '@/lib/due-dates'
+
+function getTabDisplayLabel(label: string, locale: string, isPgHostel: boolean): string {
+  if (locale === 'hi') {
+    switch (label) {
+      case 'Overview':
+        return 'डैशबोर्ड'
+      case 'Property':
+        return 'प्रॉपर्टी'
+      case 'Rooms & Beds':
+        return isPgHostel ? 'कमरे व बिस्तर' : 'कमरे व यूनिट्स'
+      case 'Tenants':
+        return isPgHostel ? 'निवासी' : 'किरायेदार व निवासी'
+      case 'Rent & Payments':
+        return 'किराया व बहीखाता'
+      case 'Electricity':
+        return 'बिजली मीटर'
+      case 'Expenses':
+        return 'खर्च'
+      case 'Complaints':
+        return 'शिकायतें'
+      case 'Reports':
+        return 'रिपोर्ट व आंकड़े'
+      case 'Settings':
+        return 'सब्सक्रिप्शन व सेटिंग्स'
+      case 'Deleted Records':
+        return 'हटाए गए रिकॉर्ड्स'
+      default:
+        return label
+    }
+  }
+  switch (label) {
+    case 'Overview':
+      return 'Dashboard'
+    case 'Property':
+      return 'Properties'
+    case 'Rooms & Beds':
+      return isPgHostel ? 'Rooms & Beds' : 'Rooms & Units'
+    case 'Tenants':
+      return isPgHostel ? 'Residents' : 'Residents / Tenants'
+    case 'Settings':
+      return 'Subscription & Settings'
+    default:
+      return label
+  }
+}
 import {
   validatePaymentDetailsForm,
   validateQrImageFile,
@@ -93,6 +141,7 @@ import {
   Edit2,
   FileText,
   Home,
+  Languages,
   LayoutDashboard,
   Link2,
   Loader2,
@@ -401,7 +450,7 @@ export default function DashboardPage() {
   const supabase = createClient()
 
   // Navigation & UI state with localStorage persistence
-  const { t, locale } = useI18n()
+  const { t, locale, setLocale } = useI18n()
   const [active, setActive] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('baserabook_active_tab') || 'Overview'
@@ -2019,9 +2068,10 @@ export default function DashboardPage() {
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
     const firstDueDateRaw = String(fd.get('first_due_date') || '').trim()
-    const dueDay = firstDueDateRaw
-      ? Math.min(Math.max(new Date(firstDueDateRaw).getDate(), 1), 31)
+    const parsedDueDay = firstDueDateRaw
+      ? (Number(firstDueDateRaw.split('-')[2]) || parseLocalDate(firstDueDateRaw).getDate())
       : Math.min(Math.max(Number(fd.get('rent_due_day') || 5), 1), 31)
+    const dueDay = Math.min(Math.max(parsedDueDay, 1), 31)
     const joiningDate = String(fd.get('joining_date') || '') || (firstDueDateRaw || new Date().toISOString().slice(0, 10))
 
     if (!name || rent <= 0) {
@@ -2369,9 +2419,10 @@ export default function DashboardPage() {
     const rent = Number(fd.get('rent') || 0)
     const deposit = Number(fd.get('deposit') || 0)
     const firstDueDateRaw = String(fd.get('first_due_date') || '').trim()
-    const dueDay = firstDueDateRaw
-      ? Math.min(Math.max(new Date(firstDueDateRaw).getDate(), 1), 31)
+    const parsedDueDay = firstDueDateRaw
+      ? (Number(firstDueDateRaw.split('-')[2]) || parseLocalDate(firstDueDateRaw).getDate())
       : Math.min(Math.max(Number(fd.get('rent_due_day') || editingTenant.rent_due_day || 5), 1), 31)
+    const dueDay = Math.min(Math.max(parsedDueDay, 1), 31)
     const joiningDate = String(fd.get('joining_date') || '') || editingTenant.joiningDate || new Date().toISOString().slice(0, 10)
     const status = String(fd.get('status') || editingTenant.status) as Tenant['status']
 
@@ -3978,18 +4029,7 @@ export default function DashboardPage() {
               const Icon = item.icon
               const isActive = active === item.label
               const openCount = item.label === 'Complaints' ? complaints.filter((c) => c.status !== 'Resolved').length : 0
-              const displayLabel =
-                item.label === 'Overview'
-                  ? 'Dashboard'
-                  : item.label === 'Property'
-                  ? 'Properties'
-                  : item.label === 'Rooms & Beds'
-                  ? isPgHostel ? 'Rooms & Beds' : 'Rooms & Units'
-                  : item.label === 'Tenants'
-                  ? isPgHostel ? 'Residents' : 'Residents / Tenants'
-                  : item.label === 'Settings'
-                  ? 'Subscription & Settings'
-                  : item.label
+              const displayLabel = getTabDisplayLabel(item.label, locale, isPgHostel)
               return (
                 <button
                   key={item.label}
@@ -4035,14 +4075,14 @@ export default function DashboardPage() {
                 <Menu className="size-5" />
               </button>
               <div className="hidden items-center gap-2 text-xs text-[#9c8e80] md:flex shrink-0">
-                <span>Workspace</span>
+                <span>{locale === 'hi' ? 'कार्यक्षेत्र' : 'Workspace'}</span>
                 <span>/</span>
                 <span className="font-semibold text-[#2c221e]">
-                  {active === 'Overview' ? 'Dashboard' : active}
+                  {getTabDisplayLabel(active, locale, isPgHostel)}
                 </span>
               </div>
               <h1 className="text-sm sm:text-base font-semibold text-[#2c221e] md:hidden truncate">
-                {active === 'Overview' ? 'Dashboard' : active}
+                {getTabDisplayLabel(active, locale, isPgHostel)}
               </h1>
 
               {/* Multiple Properties Switcher Dropdown in Header */}
@@ -4087,7 +4127,7 @@ export default function DashboardPage() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder={`Search ${active === 'Overview' ? 'Dashboard' : active}...`}
+                  placeholder={locale === 'hi' ? `${getTabDisplayLabel(active, locale, isPgHostel)} में खोजें...` : `Search ${active === 'Overview' ? 'Dashboard' : active}...`}
                   className="w-28 xl:w-40 bg-transparent outline-none placeholder:text-[#a09488] text-xs text-[#2c221e]"
                 />
                 {search && (
@@ -4614,6 +4654,8 @@ export default function DashboardPage() {
                   onDeleteProperty={() => setShowDeletePropertyModal(true)}
                   onViewPlans={() => setShowPricingModal(true)}
                   onSignOut={() => setShowLogoutModal(true)}
+                  locale={locale}
+                  setLocale={setLocale}
                 />
               )}
             </>
@@ -5245,7 +5287,7 @@ export default function DashboardPage() {
                   .filter((t) => t.status !== 'Vacated')
                   .map((t) => (
                     <option key={t.id} value={t.id}>
-                      {t.name} (Room {t.room}) — Due: {currency(t.rent)} (Due Day: {t.rent_due_day || 5}th)
+                      {t.name} (Room {t.room}) — Due: {currency(t.rent)} (Due: {formatOrdinalDay(t.rent_due_day || 5, locale)})
                     </option>
                   ))}
               </select>
@@ -5670,7 +5712,7 @@ export default function DashboardPage() {
                 {(() => {
                   const rTenant = tenants.find((t) => t.id === selectedReceipt.tenant_id)
                   return rTenant ? (
-                    <p className="text-[11px] text-[#74798a] mt-1">Due Day: {rTenant.rent_due_day || 5}th of month</p>
+                    <p className="text-[11px] text-[#74798a] mt-1">Due Day: {formatDueDaySchedule(rTenant.rent_due_day || 5, locale)}</p>
                   ) : null
                 })()}
               </div>
@@ -6922,11 +6964,11 @@ export default function DashboardPage() {
                               </td>
                               <td className="px-3 py-2.5 text-[#676b7d]">
                                 <div className="font-medium text-[#2c221e]">
-                                  {new Date(s.joiningDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                                  {s.vacatedDate ? ` – ${new Date(s.vacatedDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ' – Active'}
+                                  {parseLocalDate(s.joiningDate).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' })}
+                                  {s.vacatedDate ? ` – ${parseLocalDate(s.vacatedDate).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' })}` : (locale === 'hi' ? ' – सक्रिय' : ' – Active')}
                                 </div>
                                 <div className="text-[10px] text-[#85899a]">
-                                  {isMidCycleJoiner ? 'Joined Mid-Cycle' : 'Full Month'}
+                                  {isMidCycleJoiner ? (locale === 'hi' ? 'महीने के बीच में शामिल' : 'Joined Mid-Cycle') : (locale === 'hi' ? 'पूरा महीना' : 'Full Month')}
                                 </div>
                               </td>
                               <td className="px-3 py-2.5 text-[#676b7d]">
@@ -7011,8 +7053,8 @@ export default function DashboardPage() {
                 <p className="text-[11px] text-[#85899a]">Billing Period</p>
                 <p className="font-bold text-[#3d3934]">
                   {viewingSplitRecord.period_start && viewingSplitRecord.period_end
-                    ? `${new Date(viewingSplitRecord.period_start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – ${new Date(viewingSplitRecord.period_end).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                    : new Date(viewingSplitRecord.reading_date).toLocaleDateString('en-IN')}
+                    ? `${parseLocalDate(viewingSplitRecord.period_start).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' })} – ${parseLocalDate(viewingSplitRecord.period_end).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' })}`
+                    : parseLocalDate(viewingSplitRecord.reading_date).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN')}
                 </p>
               </div>
               <div>
@@ -8082,6 +8124,7 @@ function RoomResidentsModal({
   onAddBed?: () => void
   onOnboardTenant?: (bedId?: string) => void
 }) {
+  const { locale } = useI18n()
   const maxCap = getRoomMaxCapacity(room.room_type, beds.length)
   const isFull = tenants.length >= maxCap
 
@@ -8184,7 +8227,7 @@ function RoomResidentsModal({
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#85899a]">
                         <span>📞 {t.phone || 'No phone'}</span>
                         <span>₹{t.rent || room.base_rent}/mo</span>
-                        {t.rent_due_day && <span>Due Day: {t.rent_due_day}st</span>}
+                        {t.rent_due_day && <span>Due Day: {formatOrdinalDay(t.rent_due_day, locale)}</span>}
                       </div>
                     </div>
                   </div>
@@ -8701,7 +8744,7 @@ const TenantsTab = memo(function TenantsTab({
                       <div>
                         <p className="text-[10px] text-[#8c827a]">Due Schedule</p>
                         <p className="font-medium text-[#44485a]">
-                          {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
+                          {formatDueDaySchedule(t.rent_due_day || 5, locale)}
                         </p>
                         {nextDueDateFormatted && (
                           <p className="text-[10px] text-[#8b5a2b] font-medium">Next: {nextDueDateFormatted}</p>
@@ -8823,7 +8866,7 @@ const TenantsTab = memo(function TenantsTab({
                         <td className="px-5 py-4 font-semibold text-[#784b20]">{currency(t.rent)}</td>
                         <td className="px-5 py-4 text-[#74798a]">
                           <span className="font-medium text-[#44485a] block">
-                            {t.rent_due_day ? `${t.rent_due_day}th of month` : '5th of month'}
+                            {formatDueDaySchedule(t.rent_due_day || 5, locale)}
                           </span>
                           {nextDueDateFormatted && (
                             <span className="text-[10px] text-[#8b5a2b] font-medium block">
@@ -9478,6 +9521,7 @@ const ElectricityTab = memo(function ElectricityTab({
   searchQuery,
   onClearSearch,
 }: any) {
+  const { locale } = useI18n()
   const HISTORICAL_START_YEAR = 2026
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
@@ -9678,13 +9722,13 @@ const ElectricityTab = memo(function ElectricityTab({
                         {el.period_start && el.period_end ? (
                           <div className="flex flex-col">
                             <span className="font-semibold text-[#44485a]">
-                              {new Date(el.period_start).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} –{' '}
-                              {new Date(el.period_end).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                              {parseLocalDate(el.period_start).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' })} –{' '}
+                              {parseLocalDate(el.period_end).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short' })}
                             </span>
-                            <span className="text-[10px] text-[#999daa]">Billing Period</span>
+                            <span className="text-[10px] text-[#999daa]">{locale === 'hi' ? 'बिलिंग अवधि' : 'Billing Period'}</span>
                           </div>
                         ) : (
-                          new Date(el.reading_date).toLocaleDateString('en-IN')
+                          parseLocalDate(el.reading_date).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN')
                         )}
                       </td>
                       <td className="px-5 py-4 text-right">
@@ -9725,6 +9769,7 @@ const ElectricityTab = memo(function ElectricityTab({
 })
 
 const ExpensesTab = memo(function ExpensesTab({ expenses, totalMonth, onAddExpense, onEditExpense, onDeleteExpense, searchQuery, onClearSearch }: any) {
+  const { locale } = useI18n()
   const HISTORICAL_START_YEAR = 2026
   const currentYear = new Date().getFullYear()
   const currentMonth = new Date().getMonth()
@@ -9883,7 +9928,7 @@ const ExpensesTab = memo(function ExpensesTab({ expenses, totalMonth, onAddExpen
                   <tr key={e.id} className="hover:bg-[#fbf8f3] transition-colors">
                     <td className="px-5 py-4 font-bold text-[#3d3934]">{e.title}</td>
                     <td className="px-5 py-4 uppercase text-[10px] text-[#85899a]">{e.category}</td>
-                    <td className="px-5 py-4 text-[#676b7d]">{new Date(e.expense_date).toLocaleDateString('en-IN')}</td>
+                    <td className="px-5 py-4 text-[#676b7d]">{parseLocalDate(e.expense_date).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN')}</td>
                     <td className="px-5 py-4 font-bold text-[#b95c3c]">{currency(e.amount)}</td>
                     <td className="px-5 py-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -10488,7 +10533,7 @@ const ReportsTab = memo(function ReportsTab({
                       <td className="px-5 py-3.5 font-bold text-[#3d3934]">{e.title}</td>
                       <td className="px-5 py-3.5 uppercase text-[10px] text-[#85899a] font-semibold">{e.category}</td>
                       <td className="px-5 py-3.5 text-[#555a6c]">
-                        {new Date(e.expense_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {parseLocalDate(e.expense_date).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </td>
                       <td className="px-5 py-3.5 text-[#85899a] text-[11px]">{e.notes || '—'}</td>
                       <td className="px-5 py-3.5 font-bold text-rose-700 text-right">{currency(e.amount)}</td>
@@ -10707,7 +10752,7 @@ const ReportsTab = memo(function ReportsTab({
                   <tr key={e.id}>
                     <td className="font-semibold">{e.title}</td>
                     <td className="uppercase text-[10px]">{e.category}</td>
-                    <td>{new Date(e.expense_date).toLocaleDateString('en-IN')}</td>
+                    <td>{parseLocalDate(e.expense_date).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN')}</td>
                     <td>{e.notes || '—'}</td>
                     <td className="text-right font-bold text-rose-800">{currency(e.amount)}</td>
                   </tr>
@@ -10764,6 +10809,8 @@ const SettingsTab = memo(function SettingsTab({
   onViewPlans,
   onSignOut,
   entitlement,
+  locale = 'en',
+  setLocale,
 }: any) {
   const isPaymentConfigured = Boolean(
     (ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid) ||
@@ -10789,6 +10836,47 @@ const SettingsTab = memo(function SettingsTab({
             <p className="text-[#999daa]">Email</p>
             <p className="font-semibold text-[#44485a] break-all">{userEmail}</p>
           </div>
+        </div>
+      </div>
+
+      {/* Language & Regional Settings */}
+      <div className="rounded-2xl border border-[#ebe4da] bg-white p-6 shadow-sm">
+        <div className="flex items-center gap-2.5 text-[#8b5a2b]">
+          <Languages className="size-5" />
+          <div>
+            <h3 className="text-base font-bold text-[#3d3934]">
+              {locale === 'hi' ? 'भाषा एवं क्षेत्रीय सेटिंग्स' : 'Language & Regional Settings'}
+            </h3>
+            <p className="text-xs text-[#85899a]">
+              {locale === 'hi'
+                ? 'डैशबोर्ड और लेजर के लिए अपनी पसंदीदा भाषा चुनें।'
+                : 'Select your preferred workspace language (English / हिन्दी).'}
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setLocale?.('en')}
+            className={`rounded-xl px-4 py-2 text-xs font-semibold border transition-all cursor-pointer ${
+              locale === 'en'
+                ? 'border-[#8b5a2b] bg-[#fbf8f3] text-[#8b5a2b] shadow-2xs font-bold'
+                : 'border-[#ebe4da] bg-white text-[#676b7d] hover:bg-[#faf7f2]'
+            }`}
+          >
+            English (EN)
+          </button>
+          <button
+            type="button"
+            onClick={() => setLocale?.('hi')}
+            className={`rounded-xl px-4 py-2 text-xs font-semibold border transition-all cursor-pointer ${
+              locale === 'hi'
+                ? 'border-[#8b5a2b] bg-[#fbf8f3] text-[#8b5a2b] shadow-2xs font-bold'
+                : 'border-[#ebe4da] bg-white text-[#676b7d] hover:bg-[#faf7f2]'
+            }`}
+          >
+            हिन्दी (Hindi)
+          </button>
         </div>
       </div>
 
@@ -11357,7 +11445,7 @@ function MonthlyRentScheduleModal({
           <div>
             <p className="text-[10px] text-[#8c827a]">Joining Date</p>
             <p className="font-semibold text-[#2c221e]">
-              {tenant.joiningDate ? new Date(tenant.joiningDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+              {tenant.joiningDate ? parseLocalDate(tenant.joiningDate).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
             </p>
           </div>
           <div>
@@ -11368,8 +11456,8 @@ function MonthlyRentScheduleModal({
             <p className="text-[10px] text-[#8c827a]">First Rent Due Date</p>
             <p className="font-semibold text-[#2c221e]">
               {tenant.first_due_date || tenant.firstDueDate
-                ? new Date(tenant.first_due_date || tenant.firstDueDate!).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-                : (tenant.rent_due_day ? `${tenant.rent_due_day}th of month` : '5th of month')}
+                ? parseLocalDate(tenant.first_due_date || tenant.firstDueDate!).toLocaleDateString(locale === 'hi' ? 'hi-IN' : 'en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                : formatDueDaySchedule(tenant.rent_due_day || 5, locale)}
             </p>
           </div>
         </div>

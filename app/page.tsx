@@ -48,7 +48,7 @@ export default function LandingPage() {
 
   return (
     <main id="main-content" className="min-h-screen bg-[#fbf8f3] text-[#403a34]">
-      {/* 1. Compact Responsive Navbar */}
+      {/* 1. Compact Responsive Navbar (renders LocaleSwitcher for language selection) */}
       <LandingNavbar />
 
       {/* 2. Hero Section: Minimal Text (Left) + Large Dashboard Visual (Right) */}

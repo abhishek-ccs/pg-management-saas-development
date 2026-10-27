@@ -14,7 +14,7 @@ interface PublicHeaderProps {
 export function PublicHeader({ currentPath }: PublicHeaderProps) {
   const [hasSession, setHasSession] = useState<boolean | null>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   useEffect(() => {
     const supabase = createClient()
@@ -36,10 +36,10 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
   }, [mobileOpen])
 
   const navLinks = [
-    { href: '/features', label: 'Features' },
-    { href: '/pricing', label: 'Pricing' },
-    { href: '/faq', label: 'FAQ' },
-    { href: '/contact', label: 'Support' },
+    { href: '/features', label: locale === 'hi' ? 'विशेषताएं' : 'Features' },
+    { href: '/pricing', label: locale === 'hi' ? 'मूल्य निर्धारण' : 'Pricing' },
+    { href: '/faq', label: locale === 'hi' ? 'सामान्य प्रश्न (FAQ)' : 'FAQ' },
+    { href: '/contact', label: locale === 'hi' ? 'सहायता' : 'Support' },
   ]
 
   return (
@@ -81,7 +81,7 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
                 className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-2.5 py-1.5 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors shrink-0 min-h-[34px]"
               >
                 <span className="hidden sm:inline">{t.landing.goToDashboard}</span>
-                <span className="sm:hidden">Dashboard</span>
+                <span className="sm:hidden">{locale === 'hi' ? 'डैशबोर्ड' : 'Dashboard'}</span>
                 <ArrowRight className="size-3.5 sm:size-4 shrink-0" />
               </Link>
             ) : (
@@ -97,8 +97,8 @@ export function PublicHeader({ currentPath }: PublicHeaderProps) {
                   className="inline-flex items-center justify-center rounded-full bg-[#8b5a2b] px-2 py-1.5 min-[360px]:px-2.5 sm:px-4 md:px-5 sm:py-2.5 text-[11px] min-[360px]:text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors whitespace-nowrap shrink-0 min-h-[34px]"
                 >
                   <span className="hidden sm:inline">{t.landing.startFreeTrial} →</span>
-                  <span className="hidden min-[360px]:inline sm:hidden">Free Trial</span>
-                  <span className="min-[360px]:hidden">Trial</span>
+                  <span className="hidden min-[360px]:inline sm:hidden">{locale === 'hi' ? 'निःशुल्क ट्रायल' : 'Free Trial'}</span>
+                  <span className="min-[360px]:hidden">{locale === 'hi' ? 'ट्रायल' : 'Trial'}</span>
                 </Link>
               </>
             )}

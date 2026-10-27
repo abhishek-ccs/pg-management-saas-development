@@ -28,32 +28,32 @@ export function PublicFooter() {
           {/* Product Links */}
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-white">
-              Platform
+              {locale === 'hi' ? 'प्लेटफॉर्म' : 'Platform'}
             </p>
             <ul className="mt-3 space-y-2 text-xs text-[#cbbfaf]">
               <li>
                 <Link href="/about" prefetch={false} className="transition-colors hover:text-white hover:underline">
-                  About Us
+                  {locale === 'hi' ? 'हमारे बारे में' : 'About Us'}
                 </Link>
               </li>
               <li>
                 <Link href="/features" prefetch={false} className="transition-colors hover:text-white hover:underline">
-                  Features Overview
+                  {locale === 'hi' ? 'सुविधाएं व विशेषताएं' : 'Features Overview'}
                 </Link>
               </li>
               <li>
                 <Link href="/pricing" prefetch={false} className="transition-colors hover:text-white hover:underline">
-                  Pricing Plans
+                  {locale === 'hi' ? 'मूल्य निर्धारण प्लान' : 'Pricing Plans'}
                 </Link>
               </li>
               <li>
                 <Link href="/faq" prefetch={false} className="transition-colors hover:text-white hover:underline">
-                  FAQ & Guides
+                  {locale === 'hi' ? 'सामान्य प्रश्न (FAQ)' : 'FAQ & Guides'}
                 </Link>
               </li>
               <li>
                 <Link href="/contact" prefetch={false} className="transition-colors hover:text-white hover:underline">
-                  Support & Contact
+                  {locale === 'hi' ? 'सहायता व संपर्क' : 'Support & Contact'}
                 </Link>
               </li>
             </ul>

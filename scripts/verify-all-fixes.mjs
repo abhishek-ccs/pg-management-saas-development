@@ -1,7 +1,7 @@
 import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
-import { calculateRentDueStatus } from '../lib/due-dates.js'
+import { calculateRentDueStatus } from '../lib/due-dates.ts'
 
 console.log('=== RUNNING VERIFICATION SUITE FOR BASERABOOK REQUIREMENTS ===\n')
 

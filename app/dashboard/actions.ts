@@ -199,8 +199,9 @@ export async function createTenantAction(input: CreateTenantInput): Promise<Tena
     }
 
     // If tenant joins on the 10th, the rent due day defaults to 10 and next rent is due on the 10th of following month
-    const joiningParsed = new Date(joiningDate)
-    const joiningDay = !isNaN(joiningParsed.getTime()) ? joiningParsed.getDate() : 5
+    const joiningDay = joiningDate && typeof joiningDate === 'string' && joiningDate.includes('-')
+      ? (Number(joiningDate.split('-')[2]) || 5)
+      : (!isNaN(new Date(joiningDate).getTime()) ? new Date(joiningDate).getDate() : 5)
     let rawDue = input.firstDueDate || input.dueDay
     let dueDayNum = 5
     if (typeof rawDue === 'string' && rawDue.includes('-')) {

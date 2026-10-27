@@ -37,6 +37,7 @@ import {
   ChevronRight,
   Info,
 } from 'lucide-react'
+import { parseLocalDate } from '@/lib/due-dates'
 
 interface TenantData {
   tenant: {
@@ -634,7 +635,7 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
               <p className="text-[#85899a]">Move-in Date</p>
               <p className="mt-0.5 text-base font-semibold text-[#676b7d]">
                 {tenant.joiningDate
-                  ? new Date(tenant.joiningDate).toLocaleDateString('en-IN', {
+                  ? parseLocalDate(tenant.joiningDate).toLocaleDateString('en-IN', {
                       day: 'numeric',
                       month: 'short',
                       year: 'numeric',
@@ -925,8 +926,8 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-sm text-[#2c221e]">
-                          {new Date(share.periodStart).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} –{' '}
-                          {new Date(share.periodEnd).toLocaleDateString('en-IN', {
+                          {parseLocalDate(share.periodStart).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} –{' '}
+                          {parseLocalDate(share.periodEnd).toLocaleDateString('en-IN', {
                             day: 'numeric',
                             month: 'short',
                             year: 'numeric',
@@ -970,7 +971,7 @@ export default function PortalView({ onLogout }: { onLogout: () => Promise<void>
             </div>
             <p className="mt-2 text-xs text-[#85899a]">
               Final settlement recorded on{' '}
-              {new Date(settlement.move_out_date).toLocaleDateString('en-IN', {
+              {parseLocalDate(settlement.move_out_date).toLocaleDateString('en-IN', {
                 day: 'numeric',
                 month: 'short',
                 year: 'numeric',

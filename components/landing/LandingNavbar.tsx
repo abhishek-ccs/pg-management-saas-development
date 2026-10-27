@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { ArrowRight, Menu, X } from 'lucide-react'
 import { BaseraBookLogo } from '@/components/ui/BaseraBookLogo'
 import { LocaleSwitcher } from '@/components/i18n/LocaleSwitcher'
+import { useI18n } from '@/lib/i18n'
 
 export function LandingNavbar() {
+  const { t, locale } = useI18n()
   const [hasSession, setHasSession] = useState<boolean | null>(null)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -55,16 +57,16 @@ export function LandingNavbar() {
 
           <nav aria-label="Main Navigation" className="hidden items-center gap-7 text-sm font-medium text-[#776d62] md:flex">
             <Link href="#features" className="transition-colors hover:text-[#2c2926]">
-              Features
+              {locale === 'hi' ? 'विशेषताएं' : 'Features'}
             </Link>
             <Link href="/pricing" className="transition-colors hover:text-[#2c2926]">
-              Pricing
+              {locale === 'hi' ? 'मूल्य निर्धारण' : 'Pricing'}
             </Link>
             <Link href="/faq" className="transition-colors hover:text-[#2c2926]">
-              FAQ
+              {locale === 'hi' ? 'सामान्य प्रश्न (FAQ)' : 'FAQ'}
             </Link>
             <Link href="/contact" className="transition-colors hover:text-[#2c2926]">
-              Support
+              {locale === 'hi' ? 'सहायता' : 'Support'}
             </Link>
           </nav>
 
@@ -76,8 +78,8 @@ export function LandingNavbar() {
                 prefetch={false}
                 className="inline-flex items-center gap-1.5 rounded-full bg-[#8b5a2b] px-2.5 py-1.5 sm:px-5 sm:py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors shrink-0 min-h-[34px]"
               >
-                <span className="hidden sm:inline">Go to Dashboard</span>
-                <span className="sm:hidden">Dashboard</span>
+                <span className="hidden sm:inline">{t.landing.goToDashboard}</span>
+                <span className="sm:hidden">{locale === 'hi' ? 'डैशबोर्ड' : 'Dashboard'}</span>
                 <ArrowRight className="size-3.5 sm:size-4 shrink-0" />
               </Link>
             ) : (
@@ -87,16 +89,16 @@ export function LandingNavbar() {
                   prefetch={false}
                   className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-[#776d62] hover:text-[#2c2926] sm:block"
                 >
-                  Sign In
+                  {t.landing.signIn}
                 </Link>
                 <Link
                   href="/signup"
                   prefetch={false}
                   className="inline-flex items-center justify-center rounded-full bg-[#8b5a2b] px-2 py-1.5 min-[360px]:px-2.5 sm:px-4 md:px-5 sm:py-2.5 text-[11px] min-[360px]:text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors whitespace-nowrap shrink-0 min-h-[34px]"
                 >
-                  <span className="hidden sm:inline">Start Free Trial →</span>
-                  <span className="hidden min-[360px]:inline sm:hidden">Free Trial</span>
-                  <span className="min-[360px]:hidden">Trial</span>
+                  <span className="hidden sm:inline">{t.landing.startFreeTrial} →</span>
+                  <span className="hidden min-[360px]:inline sm:hidden">{locale === 'hi' ? 'निःशुल्क ट्रायल' : 'Free Trial'}</span>
+                  <span className="min-[360px]:hidden">{locale === 'hi' ? 'ट्रायल' : 'Trial'}</span>
                 </Link>
               </>
             )}
@@ -143,7 +145,7 @@ export function LandingNavbar() {
                   onClick={() => setMobileOpen(false)}
                   className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
                 >
-                  <span>Features</span>
+                  <span>{locale === 'hi' ? 'विशेषताएं' : 'Features'}</span>
                   <ArrowRight className="size-4 text-[#a08d79]" />
                 </Link>
                 <Link
@@ -151,7 +153,7 @@ export function LandingNavbar() {
                   onClick={() => setMobileOpen(false)}
                   className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
                 >
-                  <span>Pricing</span>
+                  <span>{locale === 'hi' ? 'मूल्य निर्धारण' : 'Pricing'}</span>
                   <ArrowRight className="size-4 text-[#a08d79]" />
                 </Link>
                 <Link
@@ -159,7 +161,7 @@ export function LandingNavbar() {
                   onClick={() => setMobileOpen(false)}
                   className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
                 >
-                  <span>FAQ</span>
+                  <span>{locale === 'hi' ? 'सामान्य प्रश्न (FAQ)' : 'FAQ'}</span>
                   <ArrowRight className="size-4 text-[#a08d79]" />
                 </Link>
                 <Link
@@ -167,7 +169,7 @@ export function LandingNavbar() {
                   onClick={() => setMobileOpen(false)}
                   className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
                 >
-                  <span>Support & Grievance</span>
+                  <span>{locale === 'hi' ? 'सहायता व शिकायत' : 'Support & Grievance'}</span>
                   <ArrowRight className="size-4 text-[#a08d79]" />
                 </Link>
               </nav>
@@ -180,7 +182,7 @@ export function LandingNavbar() {
                   onClick={() => setMobileOpen(false)}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
                 >
-                  Go to Dashboard <ArrowRight className="size-4" />
+                  {t.landing.goToDashboard} <ArrowRight className="size-4" />
                 </Link>
               ) : (
                 <>
@@ -189,14 +191,14 @@ export function LandingNavbar() {
                     onClick={() => setMobileOpen(false)}
                     className="flex w-full items-center justify-center rounded-xl border border-[#dfd1c0] bg-white py-2.5 text-sm font-semibold text-[#403a34] hover:bg-[#faf7f2] transition-colors"
                   >
-                    Sign In
+                    {t.landing.signIn}
                   </Link>
                   <Link
                     href="/signup"
                     onClick={() => setMobileOpen(false)}
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
                   >
-                    Start Free Trial →
+                    {t.landing.startFreeTrial} →
                   </Link>
                 </>
               )}
