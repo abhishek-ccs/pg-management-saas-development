@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Disable X-Powered-By header to prevent server fingerprinting
+  poweredByHeader: false,
   // Strict TypeScript verification during build
   typescript: {
     ignoreBuildErrors: false,

@@ -21,7 +21,17 @@ function getServerSecret(): string {
   const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || 
                  process.env.SUPABASE_JWT_SECRET || 
                  process.env.NEXTAUTH_SECRET ||
-                 'staynest-secure-tenant-portal-secret-key-2026'
+                 process.env.TENANT_PORTAL_SECRET
+
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'CRITICAL SECURITY CONFIGURATION ERROR: No secret key configured for signing tenant portal sessions. Set SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, or NEXTAUTH_SECRET.'
+      )
+    }
+    // Safe deterministic development fallback for local offline testing only
+    return 'dev-only-local-tenant-portal-signing-secret-not-for-prod'
+  }
   return secret
 }
 
