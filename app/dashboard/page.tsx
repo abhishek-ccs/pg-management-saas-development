@@ -484,6 +484,10 @@ export default function DashboardPage() {
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>('trial')
   const [subscriptionStatus, setSubscriptionStatus] = useState<string>('trialing')
   const [isTrialExpired, setIsTrialExpired] = useState(false)
+  const [currentPeriodStart, setCurrentPeriodStart] = useState<string | null>(null)
+  const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(null)
+  const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false)
+  const [autopayStatus, setAutopayStatus] = useState<string | null>(null)
   const [dashboardBillingCycle, setDashboardBillingCycle] = useState<'yearly' | 'monthly'>('yearly')
 
   // Real Database Business State (Multi-property support with strict property isolation & refresh persistence)
@@ -513,15 +517,17 @@ export default function DashboardPage() {
         plan: subscriptionPlan,
         trialStart,
         trialEnd,
-        currentPeriodStart: null,
-        currentPeriodEnd: null,
+        currentPeriodStart,
+        currentPeriodEnd,
+        cancelAtPeriodEnd,
+        autopayStatus,
         razorpaySubscriptionId: null,
         razorpayPaymentId: null,
         activeRecord: null,
       },
       properties.length
     )
-  }, [subscriptionStatus, isTrialExpired, subscriptionPlan, trialStart, trialEnd, properties.length])
+  }, [subscriptionStatus, isTrialExpired, subscriptionPlan, trialStart, trialEnd, currentPeriodStart, currentPeriodEnd, cancelAtPeriodEnd, autopayStatus, properties.length])
 
   // Active property derived helper
   const property: Property = useMemo(() => {
@@ -1096,6 +1102,10 @@ export default function DashboardPage() {
       setSubscriptionStatus(authSub.status)
       setSubscriptionPlan(authSub.plan)
       setIsTrialExpired(authSub.isTrialExpired)
+      setCurrentPeriodStart(authSub.currentPeriodStart)
+      setCurrentPeriodEnd(authSub.currentPeriodEnd)
+      setCancelAtPeriodEnd(authSub.cancelAtPeriodEnd || false)
+      setAutopayStatus(authSub.autopayStatus || null)
 
       // Database self-healing queue for records with missing property_id
       const missingPropertyUpdates: Promise<any>[] = []
@@ -4634,6 +4644,8 @@ export default function DashboardPage() {
                   isTrialExpired={isTrialExpired}
                   subscriptionPlan={subscriptionPlan}
                   subscriptionStatus={subscriptionStatus}
+                  cancelAtPeriodEnd={cancelAtPeriodEnd}
+                  currentPeriodEnd={currentPeriodEnd}
                   onEditProperty={() => {
                     setEditingPropertyId(property.id)
                     setShowPropertyModal(true)
@@ -10797,6 +10809,8 @@ const SettingsTab = memo(function SettingsTab({
   isTrialExpired,
   subscriptionPlan,
   subscriptionStatus = 'trialing',
+  cancelAtPeriodEnd = false,
+  currentPeriodEnd = null,
   ownerPaymentDetails = { upiId: '', paymentLink: '', qrCodeUrl: '' },
   setOwnerPaymentDetails,
   onSavePaymentDetails,
@@ -11193,6 +11207,22 @@ const SettingsTab = memo(function SettingsTab({
                 ? 'Your 7-day trial period has ended. Historical records remain preserved. Upgrade to resume operational actions.'
                 : 'You are on a 7-day free trial. Experience all features without restriction.'}
             </p>
+            {cancelAtPeriodEnd && currentPeriodEnd && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+                <p className="font-semibold">AutoPay Mandate Cancelled</p>
+                <p className="mt-0.5">
+                  Future recurring debits are stopped. Your full paid access remains active through{' '}
+                  <strong>
+                    {new Date(currentPeriodEnd).toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </strong>
+                  . Renew before expiry to continue uninterrupted.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Property Quota & Usage */}

@@ -50,12 +50,19 @@ CREATE TABLE IF NOT EXISTS public.subscriptions (
   razorpay_subscription_id TEXT,
   razorpay_plan_id TEXT,
   razorpay_payment_id TEXT,
+  cancel_at_period_end BOOLEAN NOT NULL DEFAULT false,
+  canceled_at TIMESTAMPTZ,
+  autopay_status TEXT DEFAULT 'none',
+  payment_status TEXT DEFAULT 'pending',
+  ended_at TIMESTAMPTZ,
   CONSTRAINT uq_subscriptions_owner UNIQUE (owner_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscriptions_owner ON public.subscriptions(owner_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON public.subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_rzp_sub ON public.subscriptions(razorpay_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_period_end ON public.subscriptions(current_period_end);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_autopay_status ON public.subscriptions(autopay_status);
 
 -- ------------------------------------------------------------------------------
 -- 4. Platform Audit Logs Table (Privileged Super Admin Activity)

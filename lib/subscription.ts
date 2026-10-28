@@ -13,6 +13,11 @@ export interface SubscriptionRecord {
   trial_end?: string | null
   current_period_start?: string | null
   current_period_end?: string | null
+  cancel_at_period_end?: boolean | null
+  canceled_at?: string | null
+  autopay_status?: string | null
+  payment_status?: string | null
+  ended_at?: string | null
   razorpay_customer_id?: string | null
   razorpay_subscription_id?: string | null
   razorpay_plan_id?: string | null
@@ -30,6 +35,10 @@ export interface AuthoritativeSubscriptionState {
   trialEnd: string | null
   currentPeriodStart: string | null
   currentPeriodEnd: string | null
+  cancelAtPeriodEnd?: boolean
+  canceledAt?: string | null
+  autopayStatus?: string | null
+  paymentStatus?: string | null
   razorpaySubscriptionId: string | null
   razorpayPaymentId: string | null
   activeRecord: SubscriptionRecord | null
@@ -87,6 +96,10 @@ export function resolveAuthoritativeSubscription(
       trialEnd: null,
       currentPeriodStart: null,
       currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      canceledAt: null,
+      autopayStatus: 'none',
+      paymentStatus: 'pending',
       razorpaySubscriptionId: null,
       razorpayPaymentId: null,
       activeRecord: null,
@@ -100,21 +113,51 @@ export function resolveAuthoritativeSubscription(
     return timeB - timeA
   })
 
-  // RULE 1: An active paid subscription always wins
-  const activeSub = sorted.find((r) => r.status === 'active')
-  if (activeSub) {
+  // RULE 1: An unexpired paid billing period ALWAYS grants full paid access.
+  // Check records for valid active paid-through dates or active status
+  const validPaidSub = sorted.find((r) => {
+    // If the payment was explicitly refunded, paid access is revoked
+    if (r.payment_status === 'refunded') return false
+
+    if (r.current_period_end) {
+      const endMs = new Date(r.current_period_end).getTime()
+      // If paid-through date is in the future, access is valid regardless of AutoPay mandate status
+      if (endMs > nowMs) {
+        return true
+      }
+      // If paid-through date has expired, this record cannot grant paid access
+      return false
+    }
+
+    // For legacy records or unit-test fixtures where current_period_end is null/omitted:
+    return r.status === 'active'
+  })
+
+  if (validPaidSub) {
+    const isMandateCancelled = Boolean(
+      validPaidSub.cancel_at_period_end ||
+      validPaidSub.status === 'canceled' ||
+      validPaidSub.autopay_status === 'revoked' ||
+      validPaidSub.autopay_status === 'cancelled'
+    )
+
     return {
       hasPaidAccess: true,
       isTrialExpired: false,
+      // Status remains 'active' during an active paid period even if AutoPay is revoked
       status: 'active',
-      plan: activeSub.plan || 'yearly',
-      trialStart: activeSub.trial_start || null,
-      trialEnd: null, // Active subscribers do not have a trial expiration lockout
-      currentPeriodStart: activeSub.current_period_start || null,
-      currentPeriodEnd: activeSub.current_period_end || null,
-      razorpaySubscriptionId: activeSub.razorpay_subscription_id || null,
-      razorpayPaymentId: activeSub.razorpay_payment_id || null,
-      activeRecord: activeSub,
+      plan: validPaidSub.plan || 'yearly',
+      trialStart: validPaidSub.trial_start || null,
+      trialEnd: null, // Active paid subscribers do not have a trial expiration lockout
+      currentPeriodStart: validPaidSub.current_period_start || null,
+      currentPeriodEnd: validPaidSub.current_period_end || null,
+      cancelAtPeriodEnd: isMandateCancelled,
+      canceledAt: validPaidSub.canceled_at || null,
+      autopayStatus: validPaidSub.autopay_status || (isMandateCancelled ? 'revoked' : 'active'),
+      paymentStatus: validPaidSub.payment_status || 'paid',
+      razorpaySubscriptionId: validPaidSub.razorpay_subscription_id || null,
+      razorpayPaymentId: validPaidSub.razorpay_payment_id || null,
+      activeRecord: validPaidSub,
     }
   }
 
@@ -135,6 +178,10 @@ export function resolveAuthoritativeSubscription(
       trialEnd: unexpiredTrial.trial_end || null,
       currentPeriodStart: unexpiredTrial.current_period_start || null,
       currentPeriodEnd: unexpiredTrial.current_period_end || null,
+      cancelAtPeriodEnd: Boolean(unexpiredTrial.cancel_at_period_end),
+      canceledAt: unexpiredTrial.canceled_at || null,
+      autopayStatus: unexpiredTrial.autopay_status || 'none',
+      paymentStatus: unexpiredTrial.payment_status || 'pending',
       razorpaySubscriptionId: unexpiredTrial.razorpay_subscription_id || null,
       razorpayPaymentId: unexpiredTrial.razorpay_payment_id || null,
       activeRecord: unexpiredTrial,
@@ -143,19 +190,40 @@ export function resolveAuthoritativeSubscription(
 
   // RULE 3: Restricted / Expired state (latest record provides context)
   const latest = sorted[0]
+  const isRefunded = latest.payment_status === 'refunded'
+  const isPeriodExpired = Boolean(
+    latest.current_period_end && new Date(latest.current_period_end).getTime() <= nowMs
+  )
   const isPastDue = latest.status === 'past_due'
-  const isCanceled = latest.status === 'canceled'
+  const isCanceled = latest.status === 'canceled' || isRefunded
   const isCreated = latest.status === 'created'
+
+  let resolvedStatus: AuthoritativeSubscriptionState['status'] = 'expired'
+  if (isRefunded) {
+    resolvedStatus = 'canceled'
+  } else if (isPeriodExpired) {
+    resolvedStatus = isCanceled ? 'canceled' : isPastDue ? 'past_due' : 'expired'
+  } else if (isPastDue) {
+    resolvedStatus = 'past_due'
+  } else if (isCanceled) {
+    resolvedStatus = 'canceled'
+  } else if (isCreated) {
+    resolvedStatus = 'created'
+  }
 
   return {
     hasPaidAccess: false,
     isTrialExpired: true,
-    status: isPastDue ? 'past_due' : isCanceled ? 'canceled' : isCreated ? 'created' : 'expired',
+    status: resolvedStatus,
     plan: latest.plan || 'trial',
     trialStart: latest.trial_start || null,
     trialEnd: latest.trial_end || null,
     currentPeriodStart: latest.current_period_start || null,
     currentPeriodEnd: latest.current_period_end || null,
+    cancelAtPeriodEnd: Boolean(latest.cancel_at_period_end),
+    canceledAt: latest.canceled_at || null,
+    autopayStatus: latest.autopay_status || 'none',
+    paymentStatus: latest.payment_status || (isRefunded ? 'refunded' : 'pending'),
     razorpaySubscriptionId: latest.razorpay_subscription_id || null,
     razorpayPaymentId: latest.razorpay_payment_id || null,
     activeRecord: latest,
@@ -410,7 +478,27 @@ export async function persistSubscriptionToDatabase(
     writeError = fallbackRes.error
   }
 
-  // Attempt 3: Baseline update if extended columns failed
+  // Attempt 3: If new columns (cancel_at_period_end, autopay_status, etc.) don't exist yet, retry with existing schema columns
+  if (writeError && (writeError.message?.includes('column') || writeError.message?.includes('does not exist'))) {
+    console.warn('[SubscriptionSync] Retrying write without newest columns:', writeError.message)
+    const midPayload: Record<string, any> = {
+      plan: normalizedPayload.plan === 'yearly' ? 'pro' : normalizedPayload.plan === 'monthly' ? 'growth' : normalizedPayload.plan,
+      status: normalizedPayload.status,
+      current_period_start: normalizedPayload.current_period_start,
+      current_period_end: normalizedPayload.current_period_end,
+      trial_start: normalizedPayload.trial_start,
+      trial_end: normalizedPayload.trial_end,
+      razorpay_customer_id: normalizedPayload.razorpay_customer_id,
+      razorpay_subscription_id: normalizedPayload.razorpay_subscription_id,
+      razorpay_plan_id: normalizedPayload.razorpay_plan_id,
+      razorpay_payment_id: normalizedPayload.razorpay_payment_id,
+      updated_at: new Date().toISOString(),
+    }
+    const midRes = await attemptWrite(midPayload)
+    writeError = midRes.error
+  }
+
+  // Attempt 4: Baseline update if extended columns failed
   if (writeError) {
     console.warn('[SubscriptionSync] Full write failed, attempting baseline columns:', writeError)
     const baselinePayload: Record<string, any> = {

@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "npx tsx scripts/unit-tests.test.mjs && npx tsx scripts/test-payment-sync.mjs",
+    "test": "npx tsx scripts/unit-tests.test.mjs && npx tsx scripts/test-payment-sync.mjs && npx tsx scripts/test-autopay-cancellation-fix.mjs",
     "test:e2e": "playwright test",
     "bootstrap:admin": "node scripts/bootstrap-super-admin.mjs",
     "backup": "node scripts/backup-db.mjs",

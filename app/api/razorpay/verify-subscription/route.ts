@@ -108,9 +108,51 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const normalizedStatus = rzpSub.status === 'active' ? 'active' : 'trialing'
-
     const admin = await createAdminClient()
+
+    // Fetch existing subscription to check if renewing an active period
+    const { data: existingRows } = await admin
+      .from('subscriptions')
+      .select('*')
+      .eq('owner_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+    const existingSub = existingRows?.[0] || null
+
+    // Requirement 6: Do not grant access merely because mandate is authenticated
+    // if customer trial has expired and payment was not charged
+    if (rzpSub.status === 'authenticated') {
+      const isTrialUnexpired = existingSub?.trial_end && new Date(existingSub.trial_end).getTime() > Date.now()
+      if (!isTrialUnexpired && !rzpSub.start_at) {
+        return NextResponse.json(
+          {
+            error: 'Subscription mandate authorized, but payment has not been processed and trial has expired. Access requires verified payment.',
+            status: rzpSub.status,
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    const normalizedStatus = rzpSub.status === 'active' ? 'active' : 'trialing'
+    const isYearly = targetPlan === 'yearly' || planType === 'yearly' || (rzpSub.notes?.plan_type === 'yearly')
+    const durationDays = isYearly ? 365 : 30
+    const nowMs = Date.now()
+
+    let periodStart = rzpSub.current_start ? new Date(rzpSub.current_start * 1000).toISOString() : new Date().toISOString()
+    let periodEnd: string | null = null
+
+    if (rzpSub.current_end) {
+      periodEnd = new Date(rzpSub.current_end * 1000).toISOString()
+    } else if (normalizedStatus === 'active') {
+      // If renewing an existing active subscription before expiry, extend from existing period end:
+      if (existingSub?.current_period_end && new Date(existingSub.current_period_end).getTime() > nowMs) {
+        const baseTime = new Date(existingSub.current_period_end).getTime()
+        periodEnd = new Date(baseTime + durationDays * 86400000).toISOString()
+      } else {
+        periodEnd = new Date(nowMs + durationDays * 86400000).toISOString()
+      }
+    }
 
     const updatePayload: Record<string, any> = {
       owner_id: user.id,
@@ -118,22 +160,30 @@ export async function POST(req: NextRequest) {
       status: normalizedStatus,
       razorpay_subscription_id,
       razorpay_payment_id,
+      autopay_status: 'active',
+      payment_status: normalizedStatus === 'active' ? 'paid' : 'pending',
+      cancel_at_period_end: false,
+      canceled_at: null,
       updated_at: new Date().toISOString(),
     }
 
-    if (rzpSub.current_start) {
-      updatePayload.current_period_start = new Date(rzpSub.current_start * 1000).toISOString()
+    if (periodStart) {
+      updatePayload.current_period_start = periodStart
     }
-    if (rzpSub.current_end) {
-      updatePayload.current_period_end = new Date(rzpSub.current_end * 1000).toISOString()
+    if (periodEnd) {
+      updatePayload.current_period_end = periodEnd
     }
 
     // When subscription is active, customer is an active paid subscriber: clear trial_end
     if (normalizedStatus === 'active') {
       updatePayload.trial_end = null
-    } else if (normalizedStatus === 'trialing' && rzpSub.start_at) {
-      updatePayload.trial_start = new Date().toISOString()
-      updatePayload.trial_end = new Date(rzpSub.start_at * 1000).toISOString()
+    } else if (normalizedStatus === 'trialing') {
+      if (rzpSub.start_at) {
+        updatePayload.trial_start = new Date().toISOString()
+        updatePayload.trial_end = new Date(rzpSub.start_at * 1000).toISOString()
+      } else if (existingSub?.trial_end) {
+        updatePayload.trial_end = existingSub.trial_end
+      }
     }
 
     const { success: persistOk, error: persistErr } = await persistSubscriptionToDatabase(
