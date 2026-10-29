@@ -63,22 +63,22 @@ export default function LandingPage() {
               </span>
             </h1>
 
-            <p className="mt-3 sm:mt-4 text-sm sm:text-base lg:text-lg text-[#776d62] leading-relaxed max-w-lg">
+            <p className="mt-3 sm:mt-4 text-sm sm:text-base lg:text-lg text-[#5c5247] leading-relaxed max-w-lg">
               Track rooms, tenants, rent dues and receipts — all in one place.
             </p>
 
             {/* Three Compact Icon Labels */}
             <div className="mt-4 sm:mt-5 flex flex-wrap items-center gap-2 sm:gap-2.5" aria-label="Key features">
               <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
-                <Wallet className="size-3.5 text-[#9a7651]" />
+                <Wallet className="size-3.5 text-[#845c34]" />
                 <span>Rent Tracking</span>
               </div>
               <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
-                <Users className="size-3.5 text-[#9a7651]" />
+                <Users className="size-3.5 text-[#845c34]" />
                 <span>Tenant Records</span>
               </div>
               <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e8dfd4] bg-white px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-semibold text-[#5c4a3b] shadow-2xs">
-                <Bell className="size-3.5 text-[#9a7651]" />
+                <Bell className="size-3.5 text-[#845c34]" />
                 <span>Payment Reminders</span>
               </div>
             </div>
@@ -94,14 +94,14 @@ export default function LandingPage() {
               </Link>
               <Link
                 href="#features"
-                className="inline-flex items-center justify-center rounded-xl border border-[#dfd1c0] bg-white px-5 py-3.5 text-sm font-semibold text-[#776d62] hover:bg-[#faf7f2] transition-colors min-h-[44px]"
+                className="inline-flex items-center justify-center rounded-xl border border-[#dfd1c0] bg-white px-5 py-3.5 text-sm font-semibold text-[#5c5247] hover:bg-[#faf7f2] transition-colors min-h-[44px]"
               >
                 Explore Features
               </Link>
             </div>
 
-            {/* Accurate Signup Flow Note */}
-            <p className="mt-3.5 text-xs text-[#a08d79]">
+            {/* Accurate Signup Flow Note - WCAG AA Conformance Contrast */}
+            <p className="mt-3.5 text-xs text-[#6b5a4b] font-medium">
               7 days free · No credit card required
             </p>
           </div>
@@ -120,7 +120,7 @@ export default function LandingPage() {
             <h2 className="text-2xl sm:text-3xl font-semibold tracking-[-0.03em] text-[#2C221E]">
               Everything you need for calm property management
             </h2>
-            <p className="mt-2 text-sm text-[#776d62]">
+            <p className="mt-2 text-sm text-[#5c5247]">
               Designed specifically for PG, hostel, and residential rental operators.
             </p>
           </div>
@@ -131,13 +131,13 @@ export default function LandingPage() {
                 key={title}
                 className="rounded-2xl border border-[#eee4d7] bg-[#fbf8f3] p-5 hover:border-[#dfd1c0] hover:bg-white hover:shadow-2xs transition-all"
               >
-                <div className="grid size-9 place-items-center rounded-xl bg-[#f3eadf] text-[#9a7651]">
+                <div className="grid size-9 place-items-center rounded-xl bg-[#f3eadf] text-[#845c34]">
                   <Icon className="size-4.5" />
                 </div>
                 <h3 className="mt-3.5 text-sm sm:text-base font-semibold text-[#2C221E]">
                   {title}
                 </h3>
-                <p className="mt-1 text-xs sm:text-sm text-[#776d62] leading-relaxed">
+                <p className="mt-1 text-xs sm:text-sm text-[#5c5247] leading-relaxed">
                   {description}
                 </p>
               </article>

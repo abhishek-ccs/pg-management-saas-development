@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Cookie, Shield, Check, X, Settings2 } from 'lucide-react'
+import { Cookie, Settings2 } from 'lucide-react'
 
 interface ConsentPreferences {
   essential: true
@@ -23,10 +23,54 @@ export function CookieConsentBanner() {
   })
 
   useEffect(() => {
-    setMounted(true)
-    const stored = localStorage.getItem('staynest_consent')
-    if (!stored) {
+    try {
+      const stored = localStorage.getItem('staynest_consent')
+      if (stored) return
+    } catch {
+      // Ignore localStorage access restrictions in private mode
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    const show = () => {
+      setMounted(true)
       setShowBanner(true)
+    }
+
+    // Defer showing banner until user interaction or after initial paint is complete
+    const onUserInteraction = () => {
+      show()
+      cleanup()
+    }
+
+    const cleanup = () => {
+      window.removeEventListener('scroll', onUserInteraction)
+      window.removeEventListener('pointerdown', onUserInteraction)
+      window.removeEventListener('touchstart', onUserInteraction)
+      window.removeEventListener('keydown', onUserInteraction)
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+
+    window.addEventListener('scroll', onUserInteraction, { passive: true, once: true })
+    window.addEventListener('pointerdown', onUserInteraction, { passive: true, once: true })
+    window.addEventListener('touchstart', onUserInteraction, { passive: true, once: true })
+    window.addEventListener('keydown', onUserInteraction, { passive: true, once: true })
+
+    // Idle fallback: show after initial loading cycle if user has not interacted
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const idleId = (window as unknown as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(() => {
+        timeoutId = setTimeout(show, 3000)
+      }, { timeout: 4000 })
+
+      return () => {
+        cleanup()
+        if ('cancelIdleCallback' in window) {
+          (window as unknown as { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId)
+        }
+      }
+    } else {
+      timeoutId = setTimeout(show, 3500)
+      return cleanup
     }
   }, [])
 
@@ -34,7 +78,9 @@ export function CookieConsentBanner() {
 
   function saveConsent(updated: ConsentPreferences) {
     const payload = { ...updated, timestamp: new Date().toISOString() }
-    localStorage.setItem('staynest_consent', JSON.stringify(payload))
+    try {
+      localStorage.setItem('staynest_consent', JSON.stringify(payload))
+    } catch {}
     document.cookie = `staynest_consent=${encodeURIComponent(JSON.stringify(payload))}; path=/; max-age=31536000; SameSite=Lax`
     setShowBanner(false)
   }
@@ -56,17 +102,17 @@ export function CookieConsentBanner() {
       role="dialog"
       aria-label="Privacy and Cookie Consent"
       aria-describedby="cookie-consent-desc"
-      className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-2xl rounded-3xl border border-[#e8dfd4] bg-white/95 p-6 shadow-2xl backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-4 sm:bottom-6 sm:left-6 sm:right-6"
+      className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-2xl rounded-3xl border border-[#e8dfd4] bg-white/95 p-5 shadow-2xl backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-4 sm:bottom-6 sm:left-6 sm:right-6"
     >
-      <div className="flex items-start gap-4">
-        <div className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[#faf7f2] text-[#9a7651]">
-          <Cookie className="size-5" />
+      <div className="flex items-start gap-3.5 sm:gap-4">
+        <div className="grid size-9 sm:size-10 shrink-0 place-items-center rounded-2xl bg-[#faf7f2] text-[#845c34]">
+          <Cookie className="size-4.5 sm:size-5" />
         </div>
         <div className="flex-1">
           <h2 className="text-sm font-bold text-[#2c2926]">Your Privacy Choices & Consent</h2>
-          <p id="cookie-consent-desc" className="mt-1 text-xs leading-5 text-[#595e70]">
-            We use essential cookies to keep you signed in, and analytics to improve BaseraBook (DPDP & GDPR).{' '}
-            <Link href="/cookies" prefetch={false} className="text-[#9a7651] underline font-medium hover:text-[#866342]">
+          <p id="cookie-consent-desc" className="mt-1 text-xs leading-normal text-[#474c5d]">
+            We use cookies for secure login and performance (DPDP & GDPR).{' '}
+            <Link href="/cookies" prefetch={false} className="text-[#845c34] underline font-medium hover:text-[#6a4726]">
               Cookie Policy
             </Link>.
           </p>
@@ -77,21 +123,21 @@ export function CookieConsentBanner() {
               <div className="flex items-center justify-between">
                 <div>
                   <span className="font-bold text-[#2c2926]">Essential & Security Cookies</span>
-                  <p className="text-[11px] text-[#776d62]">Required for session authentication and CSRF protection.</p>
+                  <p className="text-[11px] text-[#5c5247]">Required for session authentication and CSRF protection.</p>
                 </div>
-                <span className="rounded-md bg-[#e7f7f0] px-2 py-0.5 text-[10px] font-bold text-[#328d68]">Required</span>
+                <span className="rounded-md bg-[#e7f7f0] px-2 py-0.5 text-[10px] font-bold text-[#287353]">Required</span>
               </div>
 
               <div className="flex items-center justify-between border-t border-[#e8dfd4] pt-2.5">
                 <div>
                   <span className="font-bold text-[#2c2926]">Functional Preferences</span>
-                  <p className="text-[11px] text-[#776d62]">Remembers language selection (EN/HI) and UI layout.</p>
+                  <p className="text-[11px] text-[#5c5247]">Remembers language selection (EN/HI) and UI layout.</p>
                 </div>
                 <input
                   type="checkbox"
                   checked={preferences.functional}
                   onChange={(e) => setPreferences((prev) => ({ ...prev, functional: e.target.checked }))}
-                  className="size-4 accent-[#9a7651]"
+                  className="size-4 accent-[#8b5a2b]"
                   aria-label="Allow Functional Preferences cookies"
                 />
               </div>
@@ -99,13 +145,13 @@ export function CookieConsentBanner() {
               <div className="flex items-center justify-between border-t border-[#e8dfd4] pt-2.5">
                 <div>
                   <span className="font-bold text-[#2c2926]">Core Web Vitals Analytics</span>
-                  <p className="text-[11px] text-[#776d62]">Anonymous latency and speed diagnostics without tracking PII.</p>
+                  <p className="text-[11px] text-[#5c5247]">Anonymous latency and speed diagnostics without tracking PII.</p>
                 </div>
                 <input
                   type="checkbox"
                   checked={preferences.analytics}
                   onChange={(e) => setPreferences((prev) => ({ ...prev, analytics: e.target.checked }))}
-                  className="size-4 accent-[#9a7651]"
+                  className="size-4 accent-[#8b5a2b]"
                   aria-label="Allow Analytics cookies"
                 />
               </div>
@@ -113,18 +159,18 @@ export function CookieConsentBanner() {
           )}
 
           {/* Action Buttons */}
-          <div className="mt-5 flex flex-wrap items-center gap-2.5">
+          <div className="mt-4 sm:mt-5 flex flex-wrap items-center gap-2.5">
             <button
               onClick={handleAcceptAll}
               type="button"
-              className="rounded-xl bg-[#9a7651] px-4 py-2 text-xs font-semibold text-white shadow-2xs hover:bg-[#866342] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9a7651]"
+              className="rounded-xl bg-[#8b5a2b] px-4 py-2 text-xs font-semibold text-white shadow-2xs hover:bg-[#784b20] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b]"
             >
               Accept All
             </button>
             <button
               onClick={handleEssentialOnly}
               type="button"
-              className="rounded-xl border border-[#dcd3c5] bg-white px-3.5 py-2 text-xs font-semibold text-[#555a6c] hover:bg-[#faf7f2] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9a7651]"
+              className="rounded-xl border border-[#dcd3c5] bg-white px-3.5 py-2 text-xs font-semibold text-[#3d4251] hover:bg-[#faf7f2] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b]"
             >
               Essential Only
             </button>
@@ -137,9 +183,9 @@ export function CookieConsentBanner() {
                 }
               }}
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-[#776d62] hover:text-[#2c2926] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9a7651]"
+              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-[#5c5247] hover:text-[#2c2926] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5a2b]"
             >
-              <Settings2 className="size-3.5 text-[#9a7651]" />
+              <Settings2 className="size-3.5 text-[#845c34]" />
               {showDetails ? 'Save My Preferences' : 'Customize'}
             </button>
           </div>

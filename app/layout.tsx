@@ -18,7 +18,7 @@ const playfairDisplay = Playfair_Display({
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-serif',
-  preload: false,
+  preload: true,
 })
 
 const baseUrl = 'https://www.baserabook.in'
@@ -32,9 +32,6 @@ export const metadata: Metadata = {
   description:
     'BaseraBook — Your Property. Smartly Managed. Modern PG management software, rental property management software, and rent tracking platform for PGs, hostels, apartments, and rental houses. Track rooms, tenants, rent dues, and receipts all in one place.',
   keywords: TARGET_KEYWORDS,
-  // authors: [{ name: 'BaseraBook Technologies' }],
-  // creator: 'BaseraBook Technologies',
-  // publisher: 'BaseraBook Technologies',
   formatDetection: {
     email: false,
     address: false,
@@ -130,7 +127,7 @@ export default function RootLayout({
         {/* WCAG 2.2 AA: Skip to main content keyboard accessibility link */}
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:rounded-xl focus:bg-[#9a7651] focus:px-4 focus:py-2.5 focus:text-xs focus:font-bold focus:text-white focus:shadow-2xl focus:outline-none focus:ring-2 focus:ring-white"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:rounded-xl focus:bg-[#8b5a2b] focus:px-4 focus:py-2.5 focus:text-xs focus:font-bold focus:text-white focus:shadow-2xl focus:outline-none focus:ring-2 focus:ring-white"
         >
           Skip to main content
         </a>
@@ -142,7 +139,7 @@ export default function RootLayout({
           <CookieConsentBanner />
         </I18nProvider>
 
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {process.env.NODE_ENV === 'production' && (process.env.VERCEL === '1' || !!process.env.NEXT_PUBLIC_VERCEL_ENV) && <Analytics />}
       </body>
     </html>
   )

@@ -55,7 +55,7 @@ export function LandingNavbar() {
             />
           </Link>
 
-          <nav aria-label="Main Navigation" className="hidden items-center gap-7 text-sm font-medium text-[#776d62] md:flex">
+          <nav aria-label="Main Navigation" className="hidden items-center gap-7 text-sm font-medium text-[#5c5247] md:flex">
             <Link href="#features" className="transition-colors hover:text-[#2c2926]">
               {locale === 'hi' ? 'विशेषताएं' : 'Features'}
             </Link>
@@ -87,7 +87,7 @@ export function LandingNavbar() {
                 <Link
                   href="/login"
                   prefetch={false}
-                  className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-[#776d62] hover:text-[#2c2926] sm:block"
+                  className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-[#5c5247] hover:text-[#2c2926] sm:block"
                 >
                   {t.landing.signIn}
                 </Link>
@@ -109,7 +109,7 @@ export function LandingNavbar() {
               onClick={() => setMobileOpen(true)}
               aria-label="Open navigation menu"
               aria-expanded={mobileOpen}
-              className="grid size-8.5 sm:size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#776d62] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors md:hidden cursor-pointer shrink-0"
+              className="grid size-8.5 sm:size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#5c5247] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors md:hidden cursor-pointer shrink-0"
             >
               <Menu className="size-4.5 sm:size-5" />
             </button>
@@ -133,7 +133,7 @@ export function LandingNavbar() {
                   type="button"
                   onClick={() => setMobileOpen(false)}
                   aria-label="Close navigation menu"
-                  className="grid size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#776d62] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors cursor-pointer"
+                  className="grid size-9 place-items-center rounded-xl border border-[#e8dfd4] bg-white text-[#5c5247] hover:text-[#2c2926] hover:bg-[#faf7f2] transition-colors cursor-pointer"
                 >
                   <X className="size-5" />
                 </button>
@@ -146,7 +146,7 @@ export function LandingNavbar() {
                   className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
                 >
                   <span>{locale === 'hi' ? 'विशेषताएं' : 'Features'}</span>
-                  <ArrowRight className="size-4 text-[#a08d79]" />
+                  <ArrowRight className="size-4 text-[#6b5a4b]" />
                 </Link>
                 <Link
                   href="/pricing"
@@ -154,7 +154,7 @@ export function LandingNavbar() {
                   className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
                 >
                   <span>{locale === 'hi' ? 'मूल्य निर्धारण' : 'Pricing'}</span>
-                  <ArrowRight className="size-4 text-[#a08d79]" />
+                  <ArrowRight className="size-4 text-[#6b5a4b]" />
                 </Link>
                 <Link
                   href="/faq"
@@ -162,7 +162,7 @@ export function LandingNavbar() {
                   className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
                 >
                   <span>{locale === 'hi' ? 'सामान्य प्रश्न (FAQ)' : 'FAQ'}</span>
-                  <ArrowRight className="size-4 text-[#a08d79]" />
+                  <ArrowRight className="size-4 text-[#6b5a4b]" />
                 </Link>
                 <Link
                   href="/contact"
@@ -170,7 +170,7 @@ export function LandingNavbar() {
                   className="flex items-center justify-between rounded-xl px-4 py-3 text-sm font-semibold text-[#403a34] hover:bg-[#f4ede3] transition-colors"
                 >
                   <span>{locale === 'hi' ? 'सहायता व शिकायत' : 'Support & Grievance'}</span>
-                  <ArrowRight className="size-4 text-[#a08d79]" />
+                  <ArrowRight className="size-4 text-[#6b5a4b]" />
                 </Link>
               </nav>
             </div>

@@ -20,7 +20,7 @@ export function PublicFooter() {
             <p className="mt-3 max-w-xs text-xs leading-6 text-[#cbbfaf]">
               {t.landing.footerDesc}
             </p>
-            <p className="mt-4 text-[11px] text-[#9a9187]">
+            <p className="mt-4 text-[11px] text-[#b2a89c]">
               &copy; {new Date().getFullYear()} BaseraBook Technologies. Built for property owners & managers.
             </p>
           </div>
@@ -103,7 +103,7 @@ export function PublicFooter() {
                 </a>
               </li>
               <li>
-                <span className="block text-[11px] text-[#9a9187]">
+                <span className="block text-[11px] text-[#b2a89c]">
                   {locale === 'hi' ? 'शिकायत निवारण अधिकारी:' : 'Grievance Officer:'}
                 </span>
                 <a

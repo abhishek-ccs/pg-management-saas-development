@@ -16,7 +16,21 @@ const nextConfig = {
     ],
   },
   experimental: {
-    optimizePackageImports: ['lucide-react'],
+    optimizePackageImports: ['lucide-react', '@base-ui/react'],
+  },
+  // Custom caching headers for immutable static assets
+  async headers() {
+    return [
+      {
+        source: '/:all*(svg|jpg|png|webp|avif|ico)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+    ]
   },
   // Redirect old Vercel project subdomain and apex domain to official canonical domain
   async redirects() {
@@ -48,4 +62,3 @@ const nextConfig = {
 }
 
 export default nextConfig
-
