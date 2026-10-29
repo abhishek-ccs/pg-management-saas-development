@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient, ensureFreshSession } from '@/lib/supabase/client'
 import { resolveAuthoritativeSubscription, resolveCustomerEntitlements, type CustomerEntitlement } from '@/lib/subscription'
@@ -25,6 +25,7 @@ import {
   getTenantLinkStatusAction,
 } from './tenant-link-actions'
 import { isValidPhone } from '@/lib/validation'
+import DashboardSkeleton from '@/components/dashboard/DashboardSkeleton'
 import { SUPPORT_EMAIL, getMailtoSupport } from '@/lib/constants'
 import { useI18n } from '@/lib/i18n'
 import {
@@ -391,59 +392,6 @@ export function getEffectiveBedStatus(
   return { isAvailable: true, label: 'AVAILABLE' }
 }
 
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-6 animate-pulse" aria-label="Loading dashboard records">
-      {/* Overview Top Bar Skeleton */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="space-y-2">
-          <div className="h-7 w-48 rounded-xl bg-[#ebe4da]" />
-          <div className="h-4 w-72 rounded-lg bg-[#f0e9df]" />
-        </div>
-        <div className="flex gap-2.5">
-          <div className="h-10 w-28 rounded-xl bg-[#ebe4da]" />
-          <div className="h-10 w-32 rounded-xl bg-[#dccfbf]" />
-        </div>
-      </div>
-
-      {/* 4 Stat Cards Skeleton */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="rounded-2xl border border-[#ebe4da] bg-white p-4 sm:p-5 lg:p-6 shadow-sm space-y-3 min-w-0">
-            <div className="flex items-center justify-between">
-              <div className="h-4 w-24 rounded bg-[#f0e9df]" />
-              <div className="size-8 rounded-xl bg-[#ebe4da]" />
-            </div>
-            <div className="h-8 w-36 rounded-lg bg-[#ebe4da]" />
-            <div className="h-3 w-28 rounded bg-[#f5ede3]" />
-          </div>
-        ))}
-      </div>
-
-      {/* Main Content Area Skeleton */}
-      <div className="rounded-2xl border border-[#ebe4da] bg-white p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-[#f2ede4] pb-4">
-          <div className="h-5 w-44 rounded-lg bg-[#ebe4da]" />
-          <div className="h-8 w-24 rounded-lg bg-[#f0e9df]" />
-        </div>
-        <div className="space-y-3 pt-2">
-          {[1, 2, 3, 4, 5].map((row) => (
-            <div key={row} className="flex items-center justify-between py-2.5 border-b border-[#faf7f2]">
-              <div className="flex items-center gap-3">
-                <div className="size-9 rounded-xl bg-[#f0e9df]" />
-                <div className="space-y-1.5">
-                  <div className="h-4 w-36 rounded bg-[#ebe4da]" />
-                  <div className="h-3 w-24 rounded bg-[#f5ede3]" />
-                </div>
-              </div>
-              <div className="h-5 w-20 rounded bg-[#f0e9df]" />
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -461,6 +409,7 @@ export default function DashboardPage() {
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const fetchInFlightRef = useRef(false)
 
   // Persist tab selection across page refreshes
   useEffect(() => {
@@ -659,12 +608,14 @@ export default function DashboardPage() {
   const [isSavingBed, setIsSavingBed] = useState(false)
   const [isSavingTenant, setIsSavingTenant] = useState(false)
   const [markingPaidTenantId, setMarkingPaidTenantId] = useState<string | null>(null)
+  const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
   const [isSavingPayment, setIsSavingPayment] = useState(false)
   const [isSavingExpense, setIsSavingExpense] = useState(false)
   const [isSavingElectricity, setIsSavingElectricity] = useState(false)
   const [isSavingComplaint, setIsSavingComplaint] = useState(false)
-const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
   const [resolvingComplaintId, setResolvingComplaintId] = useState<string | null>(null)
+  const [isRestoringPayment, setIsRestoringPayment] = useState(false)
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const [showRoomModal, setShowRoomModal] = useState(false)
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
   const [showAddBedModal, setShowAddBedModal] = useState<{ open: boolean; roomId: string; roomNumber: string }>({
@@ -818,7 +769,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
     description: '',
     actionLabel: 'Confirm',
     isDestructive: false,
-    onConfirm: async () => {},
+    onConfirm: async () => { },
   })
   const [isConfirming, setIsConfirming] = useState(false)
 
@@ -950,14 +901,14 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                 setTrialEnd(null)
                 setShowPricingModal(false)
                 flash(`🎉 ${selectedPlanObj.name} plan activated successfully!`)
-                void fetchDashboardData()
+                void fetchDashboardData({ silent: true })
               } else if (verifyData.status === 'trialing') {
                 setSubscriptionStatus('trialing')
                 setSubscriptionPlan(verifyData.plan || selectedPlanObj.id)
                 setIsTrialExpired(false)
                 setShowPricingModal(false)
                 flash('✔ Subscription mandate authorized! Your first payment will start when your trial concludes.')
-                void fetchDashboardData()
+                void fetchDashboardData({ silent: true })
               } else {
                 flash(verifyData.error || `Subscription status is ${verifyData.status}.`)
               }
@@ -1002,12 +953,17 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
   // ----------------------------------------------------------------------------
   // Real Database Fetching from Supabase
   // ----------------------------------------------------------------------------
-  async function fetchDashboardData() {
+  async function fetchDashboardData(opts?: { silent?: boolean }) {
+    if (fetchInFlightRef.current) return
+    fetchInFlightRef.current = true
     try {
-      setLoading(true)
+      if (!opts?.silent) setLoading(true)
       const sessionCheck = await ensureFreshSession(supabase)
-      const { data: authData } = await supabase.auth.getUser()
-      const user = authData?.user || sessionCheck?.session?.user
+      let user = sessionCheck?.session?.user
+      if (!user) {
+        const { data: authData } = await supabase.auth.getUser()
+        user = authData?.user ?? undefined
+      }
       if (!user) {
         router.push('/login?next=/dashboard')
         return
@@ -1267,7 +1223,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
           staleStatusUpdates.map((item) =>
             supabase.from('tenants').update({ status: item.status, updated_at: new Date().toISOString() }).eq('id', item.id)
           )
-        ).catch(() => {})
+        ).catch(() => { })
       }
 
       // Expenses, Electricity, Complaints with self-healing property links
@@ -1356,7 +1312,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
 
       // Execute background self-healing updates if any were detected
       if (missingPropertyUpdates.length > 0) {
-        Promise.all(missingPropertyUpdates).catch(() => {})
+        Promise.all(missingPropertyUpdates).catch(() => { })
       }
 
       // Load trash records asynchronously in background so initial dashboard render is never blocked
@@ -1370,6 +1326,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
     } catch (err) {
       console.error('Failed to load dashboard records:', err)
     } finally {
+      fetchInFlightRef.current = false
       setLoading(false)
     }
   }
@@ -1390,7 +1347,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
       if (m !== lastCheckedMonth || y !== lastCheckedYear) {
         lastCheckedMonth = m
         lastCheckedYear = y
-        void fetchDashboardData()
+        void fetchDashboardData({ silent: true })
       }
     }
 
@@ -1642,7 +1599,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
       if (currentTarget?.rules) {
         try {
           existingRulesObj = JSON.parse(currentTarget.rules)
-        } catch {}
+        } catch { }
       }
     }
     const packedRules = JSON.stringify({
@@ -2015,29 +1972,36 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
   }
 
   // Toggle Bed Status
- async function handleToggleBedStatus(bedId: string, currentStatus: string) {
- if (!userId || togglingBedId || currentStatus === 'occupied') return
-  const nextStatus = currentStatus === 'available' ? 'maintenance' : 'available'
-  setTogglingBedId(bedId)
-  try {
-    const { error } = await supabase
-      .from('beds')
-      .update({ status: nextStatus, updated_at: new Date().toISOString() })
-      .eq('id', bedId)
-      .eq('owner_id', userId)
-
-    if (error) {
-      flash('Could not update bed status. Please try again.')
+  async function handleToggleBedStatus(bedId: string, currentStatus: string) {
+    if (!userId || togglingBedId) return
+    if (currentStatus === 'occupied') {
+      flash('Cannot change status of an occupied bed. Vacate the resident first.')
       return
     }
-    setBeds((prev) => prev.map((b) => (b.id === bedId ? { ...b, status: nextStatus as any } : b)))
-    flash(`Bed status updated to ${nextStatus}.`)
-  } catch {
-    flash('Could not update bed status. Please try again.')
-  } finally {
-    setTogglingBedId(null)
+
+    const nextStatus = currentStatus === 'available' ? 'maintenance' : 'available'
+    setTogglingBedId(bedId)
+
+    try {
+      const { error } = await supabase
+        .from('beds')
+        .update({ status: nextStatus, updated_at: new Date().toISOString() })
+        .eq('id', bedId)
+        .eq('owner_id', userId)
+
+      if (error) {
+        flash('Could not update bed status. Please try again.')
+        return
+      }
+
+      setBeds((prev) => prev.map((b) => (b.id === bedId ? { ...b, status: nextStatus as any } : b)))
+      flash(`Bed status updated to ${nextStatus}.`)
+    } catch {
+      flash('An unexpected error occurred while updating bed status.')
+    } finally {
+      setTogglingBedId(null)
+    }
   }
-}
 
   // Delete Bed
   async function handleDeleteBed(bedId: string, bedNumber: string) {
@@ -2635,22 +2599,22 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
         prev.map((t) =>
           t.id === editingTenant.id
             ? {
-                ...t,
-                property_id: targetPropId || t.property_id,
-                name,
-                phone,
-                room_id: finalRoomId,
-                bed_id: finalBedId,
-                room: roomName,
-                bed_number: bedName,
-                rent,
-                deposit,
-                joiningDate,
-                rent_due_day: dueDay,
-                first_due_date: effectiveFirstDue,
-                firstDueDate: effectiveFirstDue,
-                status: finalStatus,
-              }
+              ...t,
+              property_id: targetPropId || t.property_id,
+              name,
+              phone,
+              room_id: finalRoomId,
+              bed_id: finalBedId,
+              room: roomName,
+              bed_number: bedName,
+              rent,
+              deposit,
+              joiningDate,
+              rent_due_day: dueDay,
+              first_due_date: effectiveFirstDue,
+              firstDueDate: effectiveFirstDue,
+              status: finalStatus,
+            }
             : t
         )
       )
@@ -2674,17 +2638,27 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
       actionLabel: 'Confirm Vacate',
       isDestructive: false,
       onConfirm: async () => {
-        await supabase
-          .from('tenants')
-          .update({ status: 'Vacated', updated_at: new Date().toISOString() })
-          .eq('id', tenantId)
-          .eq('owner_id', userId)
+        if (!userId) return
+        const now = new Date().toISOString()
+        const [tenantRes, bedRes] = await Promise.all([
+          supabase
+            .from('tenants')
+            .update({ status: 'Vacated', updated_at: now })
+            .eq('id', tenantId)
+            .eq('owner_id', userId),
+          target?.bed_id
+            ? supabase.from('beds').update({ status: 'available' }).eq('id', target.bed_id).eq('owner_id', userId)
+            : Promise.resolve({ error: null }),
+        ])
 
-        if (target?.bed_id) {
-          await supabase.from('beds').update({ status: 'available' }).eq('id', target.bed_id)
-          setBeds((prev) => prev.map((b) => (b.id === target.bed_id ? { ...b, status: 'available' } : b)))
+        if (tenantRes.error || bedRes.error) {
+          flash('Could not vacate resident. Please try again.')
+          return
         }
 
+        if (target?.bed_id) {
+          setBeds((prev) => prev.map((b) => (b.id === target.bed_id ? { ...b, status: 'available' } : b)))
+        }
         setTenants((prev) => prev.map((t) => (t.id === tenantId ? { ...t, status: 'Vacated' } : t)))
         flash(`${tenantName} marked as vacated. Bed is now available.`)
       },
@@ -2742,6 +2716,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
   }
 
   async function handleGeneratePortalLink(tenantId: string) {
+    if (isGeneratingPortalLink) return
     setIsGeneratingPortalLink(true)
     try {
       const res = await generateTenantLinkAction(tenantId)
@@ -2767,6 +2742,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
   }
 
   async function handleRevokePortalLink(tenantId: string) {
+    if (isGeneratingPortalLink) return
     setIsGeneratingPortalLink(true)
     try {
       const res = await revokeTenantLinkAction(tenantId)
@@ -3075,14 +3051,14 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
         prev.map((p) =>
           p.id === editingPayment.id
             ? {
-                ...p,
-                amount,
-                payment_method: method,
-                payment_type: type,
-                paid_at: paidAt,
-                month_covered: monthCovered || undefined,
-                notes,
-              }
+              ...p,
+              amount,
+              payment_method: method,
+              payment_type: type,
+              paid_at: paidAt,
+              month_covered: monthCovered || undefined,
+              notes,
+            }
             : p
         )
       )
@@ -3155,39 +3131,46 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
 
   // Restore Payment
   async function handleRestorePayment(paymentId: string) {
-    if (!userId) return
+    if (!userId || isRestoringPayment) return
     const target = deletedPayments.find((p) => p.id === paymentId)
     if (!target) return
 
-    const { error } = await supabase
-      .from('payments')
-      .update({ deleted_at: null })
-      .eq('id', paymentId)
-      .eq('owner_id', userId)
-
-    if (error) {
-      flash(`Could not restore payment: ${error.message}`)
-      return
-    }
-
-    const restored = { ...target, deleted_at: null }
-    setDeletedPayments((prev) => prev.filter((p) => p.id !== paymentId))
-    setPayments((prev) => [restored, ...prev])
-
-    // Update tenant to Paid
-    if (target.tenant_id && (!target.payment_type || target.payment_type === 'rent')) {
-      await supabase
-        .from('tenants')
-        .update({ status: 'Paid', updated_at: new Date().toISOString() })
-        .eq('id', target.tenant_id)
+    setIsRestoringPayment(true)
+    try {
+      const { error } = await supabase
+        .from('payments')
+        .update({ deleted_at: null })
+        .eq('id', paymentId)
         .eq('owner_id', userId)
 
-      setTenants((prev) =>
-        prev.map((t) => (t.id === target.tenant_id ? { ...t, status: 'Paid' } : t))
-      )
-    }
+      if (error) {
+        flash(`Could not restore payment: ${error.message}`)
+        return
+      }
 
-    flash(`Payment of ${currency(target.amount)} restored successfully.`)
+      const restored = { ...target, deleted_at: null }
+      setDeletedPayments((prev) => prev.filter((p) => p.id !== paymentId))
+      setPayments((prev) => [restored, ...prev])
+
+      // Update tenant to Paid
+      if (target.tenant_id && (!target.payment_type || target.payment_type === 'rent')) {
+        await supabase
+          .from('tenants')
+          .update({ status: 'Paid', updated_at: new Date().toISOString() })
+          .eq('id', target.tenant_id)
+          .eq('owner_id', userId)
+
+        setTenants((prev) =>
+          prev.map((t) => (t.id === target.tenant_id ? { ...t, status: 'Paid' } : t))
+        )
+      }
+
+      flash(`Payment of ${currency(target.amount)} restored successfully.`)
+    } catch {
+      flash('Could not restore payment. Please try again.')
+    } finally {
+      setIsRestoringPayment(false)
+    }
   }
 
   // Execute Immediate Undo
@@ -3469,15 +3452,15 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
         prev.map((el) =>
           el.id === editingElectricity.id
             ? {
-                ...el,
-                property_id: targetElecPropId || el.property_id,
-                room_id: finalRoomId,
-                room: roomName,
-                previous_reading: prevReading,
-                current_reading: currReading,
-                rate_per_unit: rate,
-                reading_date: date,
-              }
+              ...el,
+              property_id: targetElecPropId || el.property_id,
+              room_id: finalRoomId,
+              room: roomName,
+              previous_reading: prevReading,
+              current_reading: currReading,
+              rate_per_unit: rate,
+              reading_date: date,
+            }
             : el
         )
       )
@@ -3611,7 +3594,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
               const sp = new URLSearchParams(decodeRes.data.uri.slice(qStart + 1))
               detectedUpiId = sp.get('pa') || ''
             }
-          } catch {}
+          } catch { }
         }
 
         setOwnerPaymentDetails((prev) => ({
@@ -3904,29 +3887,31 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
   }
 
   // Resolve Complaint
- async function handleResolveComplaint(id: string) {
-  if (!userId || resolvingComplaintId) return
-  setResolvingComplaintId(id)
-  try {
-    const { error } = await supabase
-      .from('complaints')
-      .update({ status: 'Resolved', resolved_at: new Date().toISOString() })
-      .eq('id', id)
-      .eq('owner_id', userId)
+  async function handleResolveComplaint(id: string) {
+    if (!userId || resolvingComplaintId) return
 
-    if (error) {
-      flash('Could not update complaint.')
-      return
+    setResolvingComplaintId(id)
+
+    try {
+      const { error } = await supabase
+        .from('complaints')
+        .update({ status: 'Resolved', resolved_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('owner_id', userId)
+
+      if (error) {
+        flash('Could not update complaint.')
+        return
+      }
+
+      setComplaints((prev) => prev.map((c) => (c.id === id ? { ...c, status: 'Resolved' } : c)))
+      flash('Complaint marked as resolved.')
+    } catch {
+      flash('An unexpected error occurred while updating complaint.')
+    } finally {
+      setResolvingComplaintId(null)
     }
-
-    setComplaints((prev) => prev.map((c) => (c.id === id ? { ...c, status: 'Resolved' } : c)))
-    flash('Complaint marked as resolved.')
-  } catch {
-    flash('Could not update complaint.')
-  } finally {
-    setResolvingComplaintId(null)
   }
-}
 
   // Update / Edit Complaint
   async function handleUpdateComplaint(e: React.FormEvent<HTMLFormElement>) {
@@ -3975,13 +3960,13 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
         prev.map((c) =>
           c.id === editingComplaint.id
             ? {
-                ...c,
-                title,
-                tenant: tenantName,
-                priority,
-                status,
-                description: desc,
-              }
+              ...c,
+              title,
+              tenant: tenantName,
+              priority,
+              status,
+              description: desc,
+            }
             : c
         )
       )
@@ -4023,8 +4008,15 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
 
   // Sign out (Triggers Confirmation Modal)
   async function executeSignOut() {
-    await supabase.auth.signOut()
-    router.push('/login')
+    if (isSigningOut) return
+    setIsSigningOut(true)
+    try {
+      await supabase.auth.signOut()
+      router.push('/login')
+    } catch {
+      setIsSigningOut(false)
+      flash('Could not sign out. Please try again.')
+    }
   }
 
   return (
@@ -4039,9 +4031,8 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-[#ebe4da] bg-white transition-transform lg:translate-x-0 ${
-          mobileOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-[#ebe4da] bg-white transition-transform lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
         <div className="flex h-[76px] items-center justify-between border-b border-[#ebe4da] px-5 sm:px-6 bg-white">
           <BaseraBookLogo iconSize={36} />
@@ -4065,11 +4056,10 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                     setActive(item.label)
                     setMobileOpen(false)
                   }}
-                  className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-[13px] font-medium transition-all ${
-                    isActive
+                  className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-[13px] font-medium transition-all ${isActive
                       ? 'bg-[#f4ebe1] text-[#784d28] font-semibold shadow-2xs'
                       : 'text-[#6a635b] hover:bg-[#faf7f2] hover:text-[#2c221e]'
-                  }`}
+                    }`}
                 >
                   <Icon className={`size-[17px] shrink-0 ${isActive ? 'text-[#784d28]' : 'text-[#8c7e72]'}`} />
                   <span className="truncate">{displayLabel}</span>
@@ -4597,6 +4587,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                   onAddComplaint={() => setShowComplaintModal(true)}
                   onEditComplaint={(c: Complaint) => setEditingComplaint(c)}
                   onResolve={handleResolveComplaint}
+                  resolvingComplaintId={resolvingComplaintId}
                   onDelete={handleDeleteComplaint}
                   searchQuery={q}
                   onClearSearch={() => setSearch('')}
@@ -4726,8 +4717,8 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
               editTarget
                 ? 'Edit Property Details'
                 : properties.length > 0
-                ? 'Add New Rental Property'
-                : 'Set Up Your Rental Property'
+                  ? 'Add New Rental Property'
+                  : 'Set Up Your Rental Property'
             }
             onClose={() => !isSavingProperty && setShowPropertyModal(false)}
           >
@@ -4784,8 +4775,8 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                 {isSavingProperty
                   ? 'Saving Details...'
                   : editTarget
-                  ? 'Save Property Details'
-                  : 'Create Property'}
+                    ? 'Save Property Details'
+                    : 'Create Property'}
               </button>
             </form>
           </Modal>
@@ -5376,14 +5367,14 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
               placeholder="e.g. UTR #12345678"
             />
 
-          <button
-  type="submit"
-  disabled={isSavingPayment}
-  className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
->
-  {isSavingPayment && <Loader2 className="size-4 animate-spin text-white" />}
-  {isSavingPayment ? 'Recording Payment...' : 'Record Payment & Issue Receipt'}
-</button>
+            <button
+              type="submit"
+              disabled={isSavingPayment}
+              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isSavingPayment && <Loader2 className="size-4 animate-spin text-white" />}
+              {isSavingPayment ? 'Recording Payment...' : 'Record Payment & Issue Receipt'}
+            </button>
           </form>
         </Modal>
       )}
@@ -5703,9 +5694,11 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
               <button
                 type="button"
                 onClick={executeSignOut}
-                className="rounded-xl bg-[#b95c3c] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#a04e32]"
+                disabled={isSigningOut}
+                className="flex items-center gap-2 rounded-xl bg-[#b95c3c] px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-[#a04e32] disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Logout
+                {isSigningOut && <Loader2 className="size-3.5 animate-spin" />}
+                {isSigningOut ? 'Signing out...' : 'Logout'}
               </button>
             </div>
           </div>
@@ -5899,8 +5892,8 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                   {portalLinkData?.status === 'revoked'
                     ? 'The previous link for this resident was revoked.'
                     : portalLinkData?.status === 'expired'
-                    ? 'The previous link for this resident has expired.'
-                    : 'No active self-service link exists for this resident.'}
+                      ? 'The previous link for this resident has expired.'
+                      : 'No active self-service link exists for this resident.'}
                 </p>
                 <button
                   onClick={() => handleGeneratePortalLink(portalTenant.id)}
@@ -6021,13 +6014,12 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-[#8b5a2b]">Active Subscription</span>
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                        subscriptionStatus === 'active'
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${subscriptionStatus === 'active'
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                           : isTrialExpired
-                          ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
-                          : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
-                      }`}
+                            ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
+                            : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
+                        }`}
                     >
                       {subscriptionStatus === 'active' ? 'Active Paid Plan' : isTrialExpired ? 'Trial Expired' : '7-Day Free Trial'}
                     </span>
@@ -6053,9 +6045,8 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
 
                   <div className="rounded-xl border border-[#ebe4da] bg-white px-3.5 py-2 text-center shadow-2xs min-w-[110px]">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-[#9c8e80]">Remaining Slots</p>
-                    <p className={`text-base font-bold ${
-                      (entitlement?.remainingPropertySlots ?? 0) <= 0 ? 'text-[#b95c3c]' : 'text-emerald-700'
-                    }`}>
+                    <p className={`text-base font-bold ${(entitlement?.remainingPropertySlots ?? 0) <= 0 ? 'text-[#b95c3c]' : 'text-emerald-700'
+                      }`}>
                       {entitlement?.remainingPropertySlots ?? 0}
                     </p>
                   </div>
@@ -6066,16 +6057,15 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
               <div className="mt-3.5">
                 <div className="h-2 w-full overflow-hidden rounded-full bg-[#eee5db]">
                   <div
-                    className={`h-full transition-all duration-300 ${
-                      !entitlement?.canCreateProperty ? 'bg-[#b95c3c]' : 'bg-[#8b5a2b]'
-                    }`}
+                    className={`h-full transition-all duration-300 ${!entitlement?.canCreateProperty ? 'bg-[#b95c3c]' : 'bg-[#8b5a2b]'
+                      }`}
                     style={{
                       width: `${Math.min(
                         100,
                         Math.round(
                           ((entitlement?.activePropertyCount ?? properties.length) /
                             Math.max(1, entitlement?.maxProperties ?? 2)) *
-                            100
+                          100
                         )
                       )}%`,
                     }}
@@ -6106,30 +6096,27 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                 <button
                   type="button"
                   onClick={() => setDashboardBillingCycle('monthly')}
-                  className={`rounded-lg px-3.5 py-1.5 font-bold transition-all cursor-pointer ${
-                    dashboardBillingCycle === 'monthly'
+                  className={`rounded-lg px-3.5 py-1.5 font-bold transition-all cursor-pointer ${dashboardBillingCycle === 'monthly'
                       ? 'bg-[#8b5a2b] text-white shadow-xs'
                       : 'text-[#676b7d] hover:text-[#3d3934]'
-                  }`}
+                    }`}
                 >
                   Monthly
                 </button>
                 <button
                   type="button"
                   onClick={() => setDashboardBillingCycle('yearly')}
-                  className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 font-bold transition-all cursor-pointer ${
-                    dashboardBillingCycle === 'yearly'
+                  className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 font-bold transition-all cursor-pointer ${dashboardBillingCycle === 'yearly'
                       ? 'bg-[#8b5a2b] text-white shadow-xs'
                       : 'text-[#676b7d] hover:text-[#3d3934]'
-                  }`}
+                    }`}
                 >
                   Yearly
                   <span
-                    className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${
-                      dashboardBillingCycle === 'yearly'
+                    className={`rounded-full px-1.5 py-0.5 text-[9px] font-black ${dashboardBillingCycle === 'yearly'
                         ? 'bg-[#5f442b] text-[#f7d8ba]'
                         : 'bg-[#eaf5ea] text-[#2e7d32]'
-                    }`}
+                      }`}
                   >
                     Save up to ₹5,598/yr
                   </span>
@@ -6153,11 +6140,10 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                 return (
                   <div
                     key={plan.id}
-                    className={`flex flex-col justify-between rounded-2xl p-4 sm:p-5 transition-all ${
-                      plan.popular
+                    className={`flex flex-col justify-between rounded-2xl p-4 sm:p-5 transition-all ${plan.popular
                         ? 'border-2 border-[#8b5a2b] bg-[#fffdfa] shadow-md relative'
                         : 'border border-[#e8dfd4] bg-[#faf7f2] hover:border-[#d8c2aa]'
-                    }`}
+                      }`}
                   >
                     <div>
                       {plan.popular && (
@@ -6451,11 +6437,10 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                     setIsConfirming(false)
                   }
                 }}
-                className={`w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-xs font-bold text-white shadow-sm active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer ${
-                  confirmDialog.isDestructive
+                className={`w-full sm:w-auto flex items-center justify-center gap-2 rounded-xl px-6 py-2.5 text-xs font-bold text-white shadow-sm active:scale-[0.98] transition-all disabled:opacity-50 cursor-pointer ${confirmDialog.isDestructive
                     ? 'bg-[#b95c3c] hover:bg-[#a14a2c] shadow-[0_2px_8px_rgba(185,92,60,0.25)]'
                     : 'bg-[#8b5a2b] hover:bg-[#784b20] shadow-[0_2px_8px_rgba(139,90,43,0.25)]'
-                }`}
+                  }`}
               >
                 {isConfirming ? (
                   <Loader2 className="size-4 animate-spin text-white" />
@@ -7272,8 +7257,8 @@ function GuidedSetupWizard({
       currentStatusText: isStep2Done
         ? `${rooms.length} room${rooms.length !== 1 ? 's' : ''} · ${beds.length} bed${beds.length !== 1 ? 's' : ''} ready`
         : isStep1Done
-        ? '0 rooms created. Configure room types & bed capacity.'
-        : 'Prerequisite needed: Set up property first.',
+          ? '0 rooms created. Configure room types & bed capacity.'
+          : 'Prerequisite needed: Set up property first.',
       actionLabel: isStep2Done ? 'Manage Inventory' : '+ Add Rooms & Beds',
       onAction: onAddRoom,
     },
@@ -7289,8 +7274,8 @@ function GuidedSetupWizard({
       currentStatusText: isStep3Done
         ? `${tenants.length} resident${tenants.length !== 1 ? 's' : ''} onboarded (${tenants.filter((t: any) => t && t.status !== 'Vacated').length} active)`
         : isStep2Done
-        ? '0 residents. Onboard tenants & track monthly rent dues.'
-        : 'Prerequisite needed: Add rooms & beds first.',
+          ? '0 residents. Onboard tenants & track monthly rent dues.'
+          : 'Prerequisite needed: Add rooms & beds first.',
       actionLabel: isStep3Done ? 'Onboard More' : '+ Add Residents',
       onAction: onAddTenant,
     },
@@ -7386,30 +7371,28 @@ function GuidedSetupWizard({
                 <div
                   key={st.number}
                   onClick={() => setActiveStep(st.number)}
-                  className={`group relative flex flex-col justify-between rounded-2xl border p-4 sm:p-5 transition-all cursor-pointer ${
-                    isActive
+                  className={`group relative flex flex-col justify-between rounded-2xl border p-4 sm:p-5 transition-all cursor-pointer ${isActive
                       ? 'border-[#8b5a2b] bg-[#faf5ee] shadow-sm ring-1 ring-[#8b5a2b]'
                       : st.isDone
-                      ? 'border-[#cce9db] bg-[#f8fcf9] hover:border-[#a3e4be] hover:shadow-2xs'
-                      : isLocked
-                      ? 'border-[#ebe4da] bg-[#faf8f5]/70 opacity-85 hover:opacity-100'
-                      : 'border-[#ebe4da] bg-white hover:border-[#d6c7b7] hover:bg-[#faf7f2] hover:shadow-2xs'
-                  }`}
+                        ? 'border-[#cce9db] bg-[#f8fcf9] hover:border-[#a3e4be] hover:shadow-2xs'
+                        : isLocked
+                          ? 'border-[#ebe4da] bg-[#faf8f5]/70 opacity-85 hover:opacity-100'
+                          : 'border-[#ebe4da] bg-white hover:border-[#d6c7b7] hover:bg-[#faf7f2] hover:shadow-2xs'
+                    }`}
                 >
                   <div>
                     {/* Header: Step Number & Status Badge */}
                     <div className="flex items-center justify-between gap-2 mb-3.5">
                       <div className="flex items-center gap-2">
                         <div
-                          className={`grid size-7.5 shrink-0 place-items-center rounded-xl font-bold text-xs ${
-                            st.isDone
+                          className={`grid size-7.5 shrink-0 place-items-center rounded-xl font-bold text-xs ${st.isDone
                               ? 'bg-[#236b4e] text-white shadow-2xs'
                               : isActive
-                              ? 'bg-[#8b5a2b] text-white shadow-2xs'
-                              : isLocked
-                              ? 'bg-[#e8e2d8] text-[#8c8278]'
-                              : 'bg-[#f0ebe3] text-[#7d756d]'
-                          }`}
+                                ? 'bg-[#8b5a2b] text-white shadow-2xs'
+                                : isLocked
+                                  ? 'bg-[#e8e2d8] text-[#8c8278]'
+                                  : 'bg-[#f0ebe3] text-[#7d756d]'
+                            }`}
                         >
                           {st.isDone ? <Check className="size-4 stroke-[3]" /> : st.number}
                         </div>
@@ -7440,13 +7423,12 @@ function GuidedSetupWizard({
                     {/* Step Icon, Title & Subtitle */}
                     <div className="flex items-start gap-3 mb-3">
                       <div
-                        className={`grid size-10 shrink-0 place-items-center rounded-xl border ${
-                          st.isDone
+                        className={`grid size-10 shrink-0 place-items-center rounded-xl border ${st.isDone
                             ? 'border-[#cce9db] bg-[#edf7f1] text-[#236b4e]'
                             : isActive
-                            ? 'border-[#ede3d7] bg-[#faf3ea] text-[#8b5a2b]'
-                            : 'border-[#ebe4da] bg-white text-[#8c7e72]'
-                        }`}
+                              ? 'border-[#ede3d7] bg-[#faf3ea] text-[#8b5a2b]'
+                              : 'border-[#ebe4da] bg-white text-[#8c7e72]'
+                          }`}
                       >
                         <st.icon className="size-5" />
                       </div>
@@ -7470,9 +7452,8 @@ function GuidedSetupWizard({
                       ) : (
                         <div className="flex items-center gap-2 text-[11px] font-medium text-[#2c221e]">
                           <span
-                            className={`size-2 rounded-full shrink-0 ${
-                              st.isDone ? 'bg-[#236b4e]' : 'bg-[#d97706]'
-                            }`}
+                            className={`size-2 rounded-full shrink-0 ${st.isDone ? 'bg-[#236b4e]' : 'bg-[#d97706]'
+                              }`}
                           />
                           <span className="truncate">{st.currentStatusText}</span>
                         </div>
@@ -7506,11 +7487,10 @@ function GuidedSetupWizard({
                           e.stopPropagation()
                           st.onAction()
                         }}
-                        className={`w-full flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
-                          st.isDone
+                        className={`w-full flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${st.isDone
                             ? 'border border-[#cce9db] bg-white text-[#236b4e] hover:bg-[#f4faf7] shadow-2xs'
                             : 'bg-[#8b5a2b] text-white hover:bg-[#784b20] shadow-xs active:scale-[0.99]'
-                        }`}
+                          }`}
                       >
                         <st.icon className="size-3.5" />
                         <span>{st.actionLabel}</span>
@@ -7608,8 +7588,8 @@ const OverviewTab = memo(function OverviewTab({
   const totalCapacity = beds && beds.length > 0
     ? beds.length
     : rooms && rooms.length > 0
-    ? rooms.reduce((acc: number, r: any) => acc + getRoomMaxCapacity(r.room_type), 0)
-    : 0
+      ? rooms.reduce((acc: number, r: any) => acc + getRoomMaxCapacity(r.room_type), 0)
+      : 0
 
   const occupancyPercent = totalCapacity > 0
     ? Math.min(100, Math.round((residentsCount / totalCapacity) * 100))
@@ -7628,67 +7608,67 @@ const OverviewTab = memo(function OverviewTab({
       iconColor: string
     }> = []
 
-    // 1. Real payments
-    ;(payments || []).forEach((p: PaymentRecord) => {
-      if (!p) return
-      list.push({
-        id: `pay-${p.id}`,
-        type: 'payment',
-        title: `Rent received from ${p.tenant_name || 'Resident'}`,
-        subtitle: `₹${Number(p.amount || 0).toLocaleString('en-IN')} • ${p.room_number ? `Room ${p.room_number}` : 'Rent Payment'}`,
-        time: formatRelativeTime(p.paid_at),
-        timestamp: p.paid_at ? new Date(p.paid_at).getTime() : 0,
-        iconBg: 'bg-[#edf7f1]',
-        iconColor: 'text-[#2f7e53]',
+      // 1. Real payments
+      ; (payments || []).forEach((p: PaymentRecord) => {
+        if (!p) return
+        list.push({
+          id: `pay-${p.id}`,
+          type: 'payment',
+          title: `Rent received from ${p.tenant_name || 'Resident'}`,
+          subtitle: `₹${Number(p.amount || 0).toLocaleString('en-IN')} • ${p.room_number ? `Room ${p.room_number}` : 'Rent Payment'}`,
+          time: formatRelativeTime(p.paid_at),
+          timestamp: p.paid_at ? new Date(p.paid_at).getTime() : 0,
+          iconBg: 'bg-[#edf7f1]',
+          iconColor: 'text-[#2f7e53]',
+        })
       })
-    })
 
-    // 2. Real onboarded tenants
-    ;(tenants || []).forEach((t: Tenant) => {
-      if (!t) return
-      list.push({
-        id: `ten-${t.id}`,
-        type: 'tenant',
-        title: 'New tenant added',
-        subtitle: `${t.name} • ${t.room && t.room !== 'Unassigned' ? `Room ${t.room}` : 'Resident Record'}`,
-        time: formatRelativeTime(t.joiningDate),
-        timestamp: t.joiningDate ? new Date(t.joiningDate).getTime() : 0,
-        iconBg: 'bg-[#fdf0ee]',
-        iconColor: 'text-[#c05642]',
+      // 2. Real onboarded tenants
+      ; (tenants || []).forEach((t: Tenant) => {
+        if (!t) return
+        list.push({
+          id: `ten-${t.id}`,
+          type: 'tenant',
+          title: 'New tenant added',
+          subtitle: `${t.name} • ${t.room && t.room !== 'Unassigned' ? `Room ${t.room}` : 'Resident Record'}`,
+          time: formatRelativeTime(t.joiningDate),
+          timestamp: t.joiningDate ? new Date(t.joiningDate).getTime() : 0,
+          iconBg: 'bg-[#fdf0ee]',
+          iconColor: 'text-[#c05642]',
+        })
       })
-    })
 
-    // 3. Real electricity bills
-    ;(electricity || []).forEach((el: ElectricityRecord) => {
-      if (!el) return
-      const units = Math.max(0, Number(el.current_reading || 0) - Number(el.previous_reading || 0))
-      const bill = units * Number(el.rate_per_unit || 0)
-      list.push({
-        id: `elec-${el.id}`,
-        type: 'electricity',
-        title: 'Electricity bill updated',
-        subtitle: `₹${bill > 0 ? bill.toLocaleString('en-IN') : Number(el.rate_per_unit || 0).toLocaleString('en-IN')} • ${el.room || 'Main Meter'}`,
-        time: formatRelativeTime(el.reading_date),
-        timestamp: el.reading_date ? new Date(el.reading_date).getTime() : 0,
-        iconBg: 'bg-[#fef7ea]',
-        iconColor: 'text-[#b87a1e]',
+      // 3. Real electricity bills
+      ; (electricity || []).forEach((el: ElectricityRecord) => {
+        if (!el) return
+        const units = Math.max(0, Number(el.current_reading || 0) - Number(el.previous_reading || 0))
+        const bill = units * Number(el.rate_per_unit || 0)
+        list.push({
+          id: `elec-${el.id}`,
+          type: 'electricity',
+          title: 'Electricity bill updated',
+          subtitle: `₹${bill > 0 ? bill.toLocaleString('en-IN') : Number(el.rate_per_unit || 0).toLocaleString('en-IN')} • ${el.room || 'Main Meter'}`,
+          time: formatRelativeTime(el.reading_date),
+          timestamp: el.reading_date ? new Date(el.reading_date).getTime() : 0,
+          iconBg: 'bg-[#fef7ea]',
+          iconColor: 'text-[#b87a1e]',
+        })
       })
-    })
 
-    // 4. Real expenses
-    ;(expenses || []).forEach((ex: Expense) => {
-      if (!ex) return
-      list.push({
-        id: `exp-${ex.id}`,
-        type: 'expense',
-        title: `Expense logged: ${ex.title}`,
-        subtitle: `₹${Number(ex.amount || 0).toLocaleString('en-IN')} • ${ex.category || 'General'}`,
-        time: formatRelativeTime(ex.expense_date),
-        timestamp: ex.expense_date ? new Date(ex.expense_date).getTime() : 0,
-        iconBg: 'bg-[#f6efe7]',
-        iconColor: 'text-[#8b5a2b]',
+      // 4. Real expenses
+      ; (expenses || []).forEach((ex: Expense) => {
+        if (!ex) return
+        list.push({
+          id: `exp-${ex.id}`,
+          type: 'expense',
+          title: `Expense logged: ${ex.title}`,
+          subtitle: `₹${Number(ex.amount || 0).toLocaleString('en-IN')} • ${ex.category || 'General'}`,
+          time: formatRelativeTime(ex.expense_date),
+          timestamp: ex.expense_date ? new Date(ex.expense_date).getTime() : 0,
+          iconBg: 'bg-[#f6efe7]',
+          iconColor: 'text-[#8b5a2b]',
+        })
       })
-    })
 
     list.sort((a: any, b: any) => b.timestamp - a.timestamp)
     return list.slice(0, 5)
@@ -7765,8 +7745,8 @@ const OverviewTab = memo(function OverviewTab({
             propertiesCount > 1
               ? `${propertiesCount} active locations`
               : propertiesCount === 1
-              ? '1 active location'
-              : '0 active locations'
+                ? '1 active location'
+                : '0 active locations'
           }
           Icon={Home}
           i={0}
@@ -7868,11 +7848,10 @@ const OverviewTab = memo(function OverviewTab({
                     </div>
                   </div>
                   <span
-                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${
-                      item.isOverdue
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${item.isOverdue
                         ? 'border-[#f6d8d2] bg-[#fdf2f0] text-[#b84e34]'
                         : 'border-[#efe5d9] bg-[#fbf5ee] text-[#8b5a2b]'
-                    }`}
+                      }`}
                   >
                     {item.dueLabel}
                   </span>
@@ -7925,8 +7904,8 @@ const OverviewTab = memo(function OverviewTab({
             <div className="grid size-20 shrink-0 place-items-center rounded-full border-[7px] border-[#ede3d7] border-t-[#8b5a2b] text-lg font-bold text-[#2c221e]">
               {residentsCount
                 ? Math.round(
-                    (tenants.filter((t: Tenant) => t.status === 'Paid').length / residentsCount) * 100
-                  )
+                  (tenants.filter((t: Tenant) => t.status === 'Paid').length / residentsCount) * 100
+                )
                 : 0}
               %
             </div>
@@ -7993,10 +7972,10 @@ const PropertyTab = memo(function PropertyTab({
       ? subscriptionPlan === 'starter'
         ? 'Starter Plan'
         : subscriptionPlan === 'business'
-        ? 'Business Plan'
-        : subscriptionPlan === 'enterprise'
-        ? 'Enterprise Plan'
-        : 'Growth Pro'
+          ? 'Business Plan'
+          : subscriptionPlan === 'enterprise'
+            ? 'Enterprise Plan'
+            : 'Growth Pro'
       : 'Free Trial'
 
   return (
@@ -8031,11 +8010,10 @@ const PropertyTab = memo(function PropertyTab({
               return (
                 <div
                   key={p.id}
-                  className={`rounded-2xl border p-5 transition-all shadow-xs ${
-                    isSelected
+                  className={`rounded-2xl border p-5 transition-all shadow-xs ${isSelected
                       ? 'border-[#8b5a2b] bg-[#fdfbf7] ring-2 ring-[#8b5a2b]/20'
                       : 'border-[#e8dfd4] bg-white hover:border-[#c5b19b]'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3">
@@ -8187,9 +8165,8 @@ function RoomResidentsModal({
           <div className="mt-3 flex items-center justify-between border-t border-[#ede4d8] pt-2.5 text-xs">
             <span className="text-[#6c635a]">Occupancy Status:</span>
             <span
-              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                isFull ? 'bg-[#ffebe8] text-[#b95c3c]' : 'bg-[#e7f7f0] text-[#328d68]'
-              }`}
+              className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${isFull ? 'bg-[#ffebe8] text-[#b95c3c]' : 'bg-[#e7f7f0] text-[#328d68]'
+                }`}
             >
               {tenants.length} / {maxCap} Beds Occupied ({isFull ? 'FULL' : 'Available'})
             </span>
@@ -8246,13 +8223,12 @@ function RoomResidentsModal({
                           </span>
                         )}
                         <span
-                          className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase ${
-                            t.status === 'Paid'
+                          className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase ${t.status === 'Paid'
                               ? 'bg-[#e7f7f0] text-[#328d68]'
                               : t.status === 'Overdue'
-                              ? 'bg-[#ffebe8] text-[#b95c3c]'
-                              : 'bg-[#fff4e5] text-[#b46b1a]'
-                          }`}
+                                ? 'bg-[#ffebe8] text-[#b95c3c]'
+                                : 'bg-[#fff4e5] text-[#b46b1a]'
+                            }`}
                         >
                           {t.status}
                         </span>
@@ -8310,18 +8286,16 @@ function RoomResidentsModal({
               return (
                 <div
                   key={b.id}
-                  className={`flex items-center justify-between rounded-xl border p-2.5 text-xs ${
-                    isOccupied
+                  className={`flex items-center justify-between rounded-xl border p-2.5 text-xs ${isOccupied
                       ? 'border-[#e8dfd4] bg-[#faf7f2]'
                       : 'border-[#d0e5d9] bg-[#f4faf6]'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-[#2c221e]">{b.bed_number}</span>
                     <span
-                      className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase ${
-                        isOccupied ? 'bg-[#fff4e5] text-[#b46b1a]' : 'bg-[#e7f7f0] text-[#328d68]'
-                      }`}
+                      className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase ${isOccupied ? 'bg-[#fff4e5] text-[#b46b1a]' : 'bg-[#e7f7f0] text-[#328d68]'
+                        }`}
                     >
                       {isOccupied ? 'Occupied' : 'Available'}
                     </span>
@@ -8370,7 +8344,7 @@ const RoomsTab = memo(function RoomsTab({
   onAddBed,
   onEditBed,
   onToggleBedStatus,
-    togglingBedId,
+  togglingBedId,
   onDeleteBed,
   searchQuery,
   onClearSearch,
@@ -8450,9 +8424,8 @@ const RoomsTab = memo(function RoomsTab({
                     <div className="text-right">
                       <p className="text-[#999daa]">Capacity</p>
                       <span
-                        className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                          isFull ? 'bg-[#ffebe8] text-[#b95c3c]' : 'bg-[#e7f7f0] text-[#328d68]'
-                        }`}
+                        className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold ${isFull ? 'bg-[#ffebe8] text-[#b95c3c]' : 'bg-[#e7f7f0] text-[#328d68]'
+                          }`}
                       >
                         {assignedTenants.length} / {maxCap} {isFull ? 'FULL' : 'Occupied'}
                       </span>
@@ -8521,21 +8494,20 @@ const RoomsTab = memo(function RoomsTab({
                           >
                             <Pencil className="size-2.5" />
                           </button>
-                         <button
-  onClick={() => onToggleBedStatus(bed.id, bed.status)}
-  disabled={togglingBedId === bed.id}
-  title="Click to toggle status"
-  className={`flex items-center gap-1 rounded px-1.5 py-0.2 font-bold uppercase text-[9px] disabled:opacity-60 disabled:cursor-not-allowed ${
-    bed.status === 'available'
-      ? 'bg-[#e7f7f0] text-[#328d68]'
-      : bed.status === 'occupied'
-      ? 'bg-[#fff4e5] text-[#b46b1a]'
-      : 'bg-[#f0f1f4] text-[#74798a]'
-  }`}
->
-  {togglingBedId === bed.id && <Loader2 className="size-2.5 animate-spin" />}
-  {bed.status}
-</button>
+                          <button
+                            onClick={() => onToggleBedStatus(bed.id, bed.status)}
+                            disabled={togglingBedId === bed.id || bed.status === 'occupied'}
+                            title={bed.status === 'occupied' ? 'Occupied beds cannot be toggled' : 'Click to toggle status'}
+                            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.2 font-bold uppercase text-[9px] disabled:cursor-not-allowed disabled:opacity-60 ${bed.status === 'available'
+                                ? 'bg-[#e7f7f0] text-[#328d68]'
+                                : bed.status === 'occupied'
+                                  ? 'bg-[#fff4e5] text-[#b46b1a]'
+                                  : 'bg-[#f0f1f4] text-[#74798a]'
+                              }`}
+                          >
+                            {togglingBedId === bed.id && <Loader2 className="size-2.5 animate-spin" />}
+                            {bed.status}
+                          </button>
                           {bed.status !== 'occupied' && (
                             <button
                               onClick={() => onDeleteBed(bed.id, bed.bed_number)}
@@ -8656,68 +8628,64 @@ const TenantsTab = memo(function TenantsTab({
         (ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid) ||
         ownerPaymentDetails?.qrCodeUrl
       ) && (
-        <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-[#eedfc9] bg-[#fdf9f2] p-4 text-xs text-[#784b20]">
-          <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-xl bg-[#8b5a2b]/15 text-[#8b5a2b] shrink-0">
-              <CreditCard className="size-4" />
+          <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-[#eedfc9] bg-[#fdf9f2] p-4 text-xs text-[#784b20]">
+            <div className="flex items-center gap-3">
+              <div className="grid size-9 place-items-center rounded-xl bg-[#8b5a2b]/15 text-[#8b5a2b] shrink-0">
+                <CreditCard className="size-4" />
+              </div>
+              <div>
+                <p className="font-bold text-[#3d3934]">No UPI QR code or payment link configured</p>
+                <p className="text-[11px] text-[#85899a]">
+                  Payment reminders sent to residents currently omit payment links. Add your verified UPI details so residents can pay directly.
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="font-bold text-[#3d3934]">No UPI QR code or payment link configured</p>
-              <p className="text-[11px] text-[#85899a]">
-                Payment reminders sent to residents currently omit payment links. Add your verified UPI details so residents can pay directly.
-              </p>
-            </div>
+            <button
+              onClick={onOpenPaymentSettings}
+              className="inline-flex items-center justify-center rounded-xl bg-[#8b5a2b] px-3.5 py-1.5 font-semibold text-white shadow-2xs hover:bg-[#784b20] transition-colors self-start sm:self-auto shrink-0"
+            >
+              Set Up Payment Options →
+            </button>
           </div>
-          <button
-            onClick={onOpenPaymentSettings}
-            className="inline-flex items-center justify-center rounded-xl bg-[#8b5a2b] px-3.5 py-1.5 font-semibold text-white shadow-2xs hover:bg-[#784b20] transition-colors self-start sm:self-auto shrink-0"
-          >
-            Set Up Payment Options →
-          </button>
-        </div>
-      )}
+        )}
 
       {/* Due Status Quick Filter Badges */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button
           onClick={() => setStatusFilter('all')}
-          className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${
-            statusFilter === 'all'
+          className={`rounded-full px-3 py-1 text-xs font-semibold transition-all ${statusFilter === 'all'
               ? 'bg-[#8b5a2b] text-white shadow-xs'
               : 'border border-[#e8dfd4] bg-white text-[#676b7d] hover:bg-[#faf7f2]'
-          }`}
+            }`}
         >
           All Residents ({tenants.length})
         </button>
         <button
           onClick={() => setStatusFilter('paid')}
-          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
-            statusFilter === 'paid'
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${statusFilter === 'paid'
               ? 'bg-[#2e7d32] text-white shadow-xs'
               : 'border border-[#c5e6c7] bg-[#eaf5ea] text-[#2e7d32] hover:bg-[#d8eed9]'
-          }`}
+            }`}
         >
           <CheckCircle2 className="size-3.5" />
           Paid ({paidCount})
         </button>
         <button
           onClick={() => setStatusFilter('due')}
-          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
-            statusFilter === 'due'
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${statusFilter === 'due'
               ? 'bg-[#b46b1a] text-white shadow-xs'
               : 'border border-[#ffdcb0] bg-[#fff4e5] text-[#b46b1a] hover:bg-[#ffe8cc]'
-          }`}
+            }`}
         >
           <Clock className="size-3.5" />
           Due Soon ({dueCount})
         </button>
         <button
           onClick={() => setStatusFilter('overdue')}
-          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
-            statusFilter === 'overdue'
+          className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${statusFilter === 'overdue'
               ? 'bg-[#b95c3c] text-white shadow-xs'
               : 'border border-[#ffc9c1] bg-[#ffebe8] text-[#b95c3c] hover:bg-[#ffd7d2]'
-          }`}
+            }`}
         >
           <AlertTriangle className="size-3.5" />
           Overdue Rent ({overdueCount})
@@ -8808,8 +8776,8 @@ const TenantsTab = memo(function TenantsTab({
                           ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid
                             ? `Send WhatsApp reminder (Includes UPI: ${ownerPaymentDetails.upiId})`
                             : ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid
-                            ? 'Send WhatsApp reminder (Includes online payment link)'
-                            : 'Send WhatsApp reminder (No payment details configured)'
+                              ? 'Send WhatsApp reminder (Includes online payment link)'
+                              : 'Send WhatsApp reminder (No payment details configured)'
                         }
                       >
                         <MessageCircle className="size-3.5 text-[#25D366]" />
@@ -8944,8 +8912,8 @@ const TenantsTab = memo(function TenantsTab({
                                 ownerPaymentDetails?.upiId && validateUpiId(ownerPaymentDetails.upiId).isValid
                                   ? `Send WhatsApp reminder (Includes UPI: ${ownerPaymentDetails.upiId})`
                                   : ownerPaymentDetails?.paymentLink && validatePaymentLink(ownerPaymentDetails.paymentLink).isValid
-                                  ? 'Send WhatsApp reminder (Includes online payment link)'
-                                  : 'Send WhatsApp reminder (No payment details configured)'
+                                    ? 'Send WhatsApp reminder (Includes online payment link)'
+                                    : 'Send WhatsApp reminder (No payment details configured)'
                               }
                             >
                               <MessageCircle className="size-3.5 text-[#25D366]" />
@@ -9329,8 +9297,8 @@ const DeletedRecordsTab = memo(function DeletedRecordsTab({
         filterType === 'all'
           ? true
           : filterType === 'rooms_beds'
-          ? rec.entity_type === 'room' || rec.entity_type === 'bed'
-          : rec.entity_type === filterType
+            ? rec.entity_type === 'room' || rec.entity_type === 'bed'
+            : rec.entity_type === filterType
 
       const matchesSearch =
         !searchQuery ||
@@ -9431,11 +9399,10 @@ const DeletedRecordsTab = memo(function DeletedRecordsTab({
             <button
               key={tab.id}
               onClick={() => setFilterType(tab.id)}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
-                filterType === tab.id
+              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${filterType === tab.id
                   ? 'bg-[#8b5a2b] text-white shadow-xs'
                   : 'bg-white text-[#676b7d] border border-[#e8dfd4] hover:bg-[#f5ede4]'
-              }`}
+                }`}
             >
               {tab.label}
             </button>
@@ -9995,7 +9962,7 @@ const ExpensesTab = memo(function ExpensesTab({ expenses, totalMonth, onAddExpen
   )
 })
 
-const ComplaintsTab = memo(function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve,resolvingComplaintId, onDelete, searchQuery, onClearSearch }: any) {
+const ComplaintsTab = memo(function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve, resolvingComplaintId, onDelete, searchQuery, onClearSearch }: any) {
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -10032,16 +9999,14 @@ const ComplaintsTab = memo(function ComplaintsTab({ complaints, onAddComplaint, 
               <div className="flex-1">
                 <div className="mb-1.5 flex items-center gap-2">
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      c.priority === 'High' ? 'bg-[#fff0f0] text-[#d46d75]' : 'bg-[#fff7e7] text-[#c58a35]'
-                    }`}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${c.priority === 'High' ? 'bg-[#fff0f0] text-[#d46d75]' : 'bg-[#fff7e7] text-[#c58a35]'
+                      }`}
                   >
                     {c.priority} Priority
                   </span>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      c.status === 'Resolved' ? 'bg-[#e7f7f0] text-[#328d68]' : 'bg-[#faf3ea] text-[#8b5a2b]'
-                    }`}
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${c.status === 'Resolved' ? 'bg-[#e7f7f0] text-[#328d68]' : 'bg-[#faf3ea] text-[#8b5a2b]'
+                      }`}
                   >
                     {c.status}
                   </span>
@@ -10062,14 +10027,14 @@ const ComplaintsTab = memo(function ComplaintsTab({ complaints, onAddComplaint, 
                   <Pencil className="size-4" />
                 </button>
                 {c.status !== 'Resolved' && (
-                 <button
-  onClick={() => onResolve(c.id)}
-  disabled={resolvingComplaintId === c.id}
-  className="flex items-center gap-1.5 rounded-lg border border-[#8b5a2b] px-3.5 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#fbf8f3] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
->
-  {resolvingComplaintId === c.id && <Loader2 className="size-3.5 animate-spin" />}
-  {resolvingComplaintId === c.id ? 'Resolving...' : 'Mark Resolved'}
-</button>
+                  <button
+                    onClick={() => onResolve(c.id)}
+                    disabled={resolvingComplaintId === c.id}
+                    className="flex items-center gap-1.5 rounded-lg border border-[#8b5a2b] px-3.5 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#fbf8f3] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {resolvingComplaintId === c.id && <Loader2 className="size-3.5 animate-spin" />}
+                    {resolvingComplaintId === c.id ? 'Resolving...' : 'Mark Resolved'}
+                  </button>
                 )}
                 <button
                   onClick={() => onDelete(c.id, c.title)}
@@ -10328,9 +10293,8 @@ const ReportsTab = memo(function ReportsTab({
           <p className={`mt-1 text-2xl font-bold ${netCashflow >= 0 ? 'text-[#3d3934]' : 'text-[#b95c3c]'}`}>
             {currency(netCashflow)}
           </p>
-          <span className={`inline-block mt-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-            netCashflow >= 0 ? 'bg-[#eaf5ea] text-[#2e7d32]' : 'bg-[#ffebe8] text-[#b95c3c]'
-          }`}>
+          <span className={`inline-block mt-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${netCashflow >= 0 ? 'bg-[#eaf5ea] text-[#2e7d32]' : 'bg-[#ffebe8] text-[#b95c3c]'
+            }`}>
             {netCashflow >= 0 ? 'Operating Surplus' : 'Operating Deficit'}
           </span>
         </div>
@@ -10352,51 +10316,46 @@ const ReportsTab = memo(function ReportsTab({
       <div className="flex items-center gap-1.5 border-b border-[#e8dfd4] pb-2 text-xs font-semibold overflow-x-auto no-print">
         <button
           onClick={() => setActiveSubTab('overview')}
-          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
-            activeSubTab === 'overview'
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${activeSubTab === 'overview'
               ? 'bg-[#8b5a2b] text-white shadow-2xs'
               : 'text-[#6a635b] hover:bg-[#faf7f2]'
-          }`}
+            }`}
         >
           Executive Summary & P&L
         </button>
         <button
           onClick={() => setActiveSubTab('rent')}
-          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
-            activeSubTab === 'rent'
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${activeSubTab === 'rent'
               ? 'bg-[#8b5a2b] text-white shadow-2xs'
               : 'text-[#6a635b] hover:bg-[#faf7f2]'
-          }`}
+            }`}
         >
           Rent Collections ({monthPayments.length})
         </button>
         <button
           onClick={() => setActiveSubTab('expenses')}
-          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
-            activeSubTab === 'expenses'
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${activeSubTab === 'expenses'
               ? 'bg-[#8b5a2b] text-white shadow-2xs'
               : 'text-[#6a635b] hover:bg-[#faf7f2]'
-          }`}
+            }`}
         >
           Operating Expenses ({monthExpenses.length})
         </button>
         <button
           onClick={() => setActiveSubTab('electricity')}
-          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
-            activeSubTab === 'electricity'
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${activeSubTab === 'electricity'
               ? 'bg-[#8b5a2b] text-white shadow-2xs'
               : 'text-[#6a635b] hover:bg-[#faf7f2]'
-          }`}
+            }`}
         >
           Electricity Utilities ({monthElectricity.length})
         </button>
         <button
           onClick={() => setActiveSubTab('occupancy')}
-          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${
-            activeSubTab === 'occupancy'
+          className={`rounded-xl px-3.5 py-2 transition-colors shrink-0 ${activeSubTab === 'occupancy'
               ? 'bg-[#8b5a2b] text-white shadow-2xs'
               : 'text-[#6a635b] hover:bg-[#faf7f2]'
-          }`}
+            }`}
         >
           Room Occupancy ({rooms.length})
         </button>
@@ -10898,22 +10857,20 @@ const SettingsTab = memo(function SettingsTab({
           <button
             type="button"
             onClick={() => setLocale?.('en')}
-            className={`rounded-xl px-4 py-2 text-xs font-semibold border transition-all cursor-pointer ${
-              locale === 'en'
+            className={`rounded-xl px-4 py-2 text-xs font-semibold border transition-all cursor-pointer ${locale === 'en'
                 ? 'border-[#8b5a2b] bg-[#fbf8f3] text-[#8b5a2b] shadow-2xs font-bold'
                 : 'border-[#ebe4da] bg-white text-[#676b7d] hover:bg-[#faf7f2]'
-            }`}
+              }`}
           >
             English (EN)
           </button>
           <button
             type="button"
             onClick={() => setLocale?.('hi')}
-            className={`rounded-xl px-4 py-2 text-xs font-semibold border transition-all cursor-pointer ${
-              locale === 'hi'
+            className={`rounded-xl px-4 py-2 text-xs font-semibold border transition-all cursor-pointer ${locale === 'hi'
                 ? 'border-[#8b5a2b] bg-[#fbf8f3] text-[#8b5a2b] shadow-2xs font-bold'
                 : 'border-[#ebe4da] bg-white text-[#676b7d] hover:bg-[#faf7f2]'
-            }`}
+              }`}
           >
             हिन्दी (Hindi)
           </button>
@@ -10973,11 +10930,10 @@ const SettingsTab = memo(function SettingsTab({
                 setOwnerPaymentDetails?.((prev: any) => ({ ...prev, upiId: e.target.value }))
                 setPaymentValidationErrors?.((prev: any) => ({ ...prev, upiId: undefined, general: undefined }))
               }}
-              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors ${
-                paymentValidationErrors?.upiId
+              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors ${paymentValidationErrors?.upiId
                   ? 'border-[#b95c3c] focus:border-[#b95c3c] focus:ring-1 focus:ring-[#b95c3c]'
                   : 'border-[#e4e6ec] focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]'
-              }`}
+                }`}
             />
             {paymentValidationErrors?.upiId && (
               <p className="mt-1.5 text-xs text-[#b95c3c] flex items-center gap-1 font-medium">
@@ -11000,11 +10956,10 @@ const SettingsTab = memo(function SettingsTab({
                 setOwnerPaymentDetails?.((prev: any) => ({ ...prev, paymentLink: e.target.value }))
                 setPaymentValidationErrors?.((prev: any) => ({ ...prev, paymentLink: undefined, general: undefined }))
               }}
-              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors ${
-                paymentValidationErrors?.paymentLink
+              className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm font-normal text-[#3d3934] outline-none transition-colors ${paymentValidationErrors?.paymentLink
                   ? 'border-[#b95c3c] focus:border-[#b95c3c] focus:ring-1 focus:ring-[#b95c3c]'
                   : 'border-[#e4e6ec] focus:border-[#8b5a2b] focus:ring-1 focus:ring-[#8b5a2b]'
-              }`}
+                }`}
             />
             {paymentValidationErrors?.paymentLink && (
               <p className="mt-1.5 text-xs text-[#b95c3c] flex items-center gap-1 font-medium">
@@ -11126,11 +11081,10 @@ const SettingsTab = memo(function SettingsTab({
               return (
                 <div
                   key={p.id}
-                  className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border p-4 transition-all ${
-                    isActive
+                  className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border p-4 transition-all ${isActive
                       ? 'border-[#8b5a2b] bg-[#fbf8f3] shadow-2xs'
                       : 'border-[#e8dfd4] bg-white hover:border-[#cfb79f]'
-                  }`}
+                    }`}
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -11207,31 +11161,30 @@ const SettingsTab = memo(function SettingsTab({
                 {subscriptionPlan || 'Free Trial'} Plan
               </span>
               <span
-                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                  subscriptionStatus === 'active'
+                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${subscriptionStatus === 'active'
                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                     : isTrialExpired
-                    ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
-                    : isEndingSoon
-                    ? 'bg-[#fff4e5] text-[#b46b1a] border border-[#f5c285]'
-                    : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
-                }`}
+                      ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
+                      : isEndingSoon
+                        ? 'bg-[#fff4e5] text-[#b46b1a] border border-[#f5c285]'
+                        : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
+                  }`}
               >
                 {subscriptionStatus === 'active'
                   ? 'Active Paid Plan'
                   : isTrialExpired
-                  ? 'Trial Expired'
-                  : hoursRemaining !== null && hoursRemaining < 48
-                  ? `Trial (${hoursRemaining}h left)`
-                  : `Trial (${daysRemaining ?? 7}d left)`}
+                    ? 'Trial Expired'
+                    : hoursRemaining !== null && hoursRemaining < 48
+                      ? `Trial (${hoursRemaining}h left)`
+                      : `Trial (${daysRemaining ?? 7}d left)`}
               </span>
             </div>
             <p className="mt-2 text-xs text-[#676b7d]">
               {subscriptionStatus === 'active'
                 ? 'Your account has full access to all features, automated rent cycles, and multi-property management.'
                 : isTrialExpired
-                ? 'Your 7-day trial period has ended. Historical records remain preserved. Upgrade to resume operational actions.'
-                : 'You are on a 7-day free trial. Experience all features without restriction.'}
+                  ? 'Your 7-day trial period has ended. Historical records remain preserved. Upgrade to resume operational actions.'
+                  : 'You are on a 7-day free trial. Experience all features without restriction.'}
             </p>
             {cancelAtPeriodEnd && currentPeriodEnd && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
@@ -11267,16 +11220,15 @@ const SettingsTab = memo(function SettingsTab({
             {/* Usage Progress Bar */}
             <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#eee6dc]">
               <div
-                className={`h-full transition-all duration-300 ${
-                  entitlement && !entitlement.canCreateProperty ? 'bg-[#b95c3c]' : 'bg-[#8b5a2b]'
-                }`}
+                className={`h-full transition-all duration-300 ${entitlement && !entitlement.canCreateProperty ? 'bg-[#b95c3c]' : 'bg-[#8b5a2b]'
+                  }`}
                 style={{
                   width: `${Math.min(
                     100,
                     Math.round(
                       ((entitlement?.activePropertyCount ?? properties.length) /
                         Math.max(1, entitlement?.maxProperties ?? 1)) *
-                        100
+                      100
                     )
                   )}%`,
                 }}

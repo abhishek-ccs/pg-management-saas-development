@@ -511,7 +511,10 @@ export interface TrashActionResult {
 export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashActionResult> {
   try {
     const supabase = await createClient()
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    const [{ data: { user }, error: authErr }, admin] = await Promise.all([
+      supabase.auth.getUser(),
+      createAdminClient(),
+    ])
     if (authErr || !user) {
       return { success: false, error: 'Your session has expired. Please sign in again.' }
     }
@@ -520,8 +523,6 @@ export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashA
     if (!entityType || !entityId) {
       return { success: false, error: 'Missing entity type or ID.' }
     }
-
-    const admin = await createAdminClient()
     let snapshot: any = null
     let entityName = input.entityName || ''
     let details = input.details || ''
@@ -571,8 +572,10 @@ export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashA
         return { success: false, error: 'Property record not found or unauthorized.' }
       }
 
-      const { data: propRooms } = await supabase.from('rooms').select('*').eq('property_id', entityId).eq('owner_id', user.id)
-      const { data: propBeds } = await supabase.from('beds').select('*').eq('property_id', entityId).eq('owner_id', user.id)
+      const [{ data: propRooms }, { data: propBeds }] = await Promise.all([
+        supabase.from('rooms').select('*').eq('property_id', entityId).eq('owner_id', user.id),
+        supabase.from('beds').select('*').eq('property_id', entityId).eq('owner_id', user.id),
+      ])
 
       snapshot = {
         property,
@@ -800,12 +803,13 @@ export async function moveToTrashAction(input: MoveToTrashInput): Promise<TrashA
 export async function getTrashRecordsAction(): Promise<{ success: boolean; records: TrashRecord[]; error?: string }> {
   try {
     const supabase = await createClient()
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    const [{ data: { user }, error: authErr }, admin] = await Promise.all([
+      supabase.auth.getUser(),
+      createAdminClient(),
+    ])
     if (authErr || !user) {
       return { success: false, records: [], error: 'Your session has expired. Please sign in again.' }
     }
-
-    const admin = await createAdminClient()
     const { data: logs, error } = await admin
       .from('platform_audit_logs')
       .select('id, actor_id, action, target_type, target_id, metadata, created_at')
@@ -843,12 +847,13 @@ export async function getTrashRecordsAction(): Promise<{ success: boolean; recor
 export async function restoreTrashRecordAction(trashId: string): Promise<TrashActionResult> {
   try {
     const supabase = await createClient()
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    const [{ data: { user }, error: authErr }, admin] = await Promise.all([
+      supabase.auth.getUser(),
+      createAdminClient(),
+    ])
     if (authErr || !user) {
       return { success: false, error: 'Your session has expired. Please sign in again.' }
     }
-
-    const admin = await createAdminClient()
     const { data: logEntry, error: fetchErr } = await admin
       .from('platform_audit_logs')
       .select('*')
@@ -1040,12 +1045,13 @@ export async function restoreTrashRecordAction(trashId: string): Promise<TrashAc
 export async function permanentlyDeleteTrashAction(trashId: string): Promise<TrashActionResult> {
   try {
     const supabase = await createClient()
-    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    const [{ data: { user }, error: authErr }, admin] = await Promise.all([
+      supabase.auth.getUser(),
+      createAdminClient(),
+    ])
     if (authErr || !user) {
       return { success: false, error: 'Your session has expired. Please sign in again.' }
     }
-
-    const admin = await createAdminClient()
     const { data: logEntry, error: fetchErr } = await admin
       .from('platform_audit_logs')
       .select('*')
