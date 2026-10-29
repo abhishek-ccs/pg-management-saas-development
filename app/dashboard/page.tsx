@@ -461,6 +461,7 @@ export default function DashboardPage() {
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Persist tab selection across page refreshes
   useEffect(() => {
@@ -1004,7 +1005,9 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
   // ----------------------------------------------------------------------------
   async function fetchDashboardData() {
     try {
-      setLoading(true)
+      setLoadError(null)
+      const hasExistingData = properties.length > 0 || rooms.length > 0 || tenants.length > 0 || payments.length > 0
+      setLoading(!hasExistingData)
       const sessionCheck = await ensureFreshSession(supabase)
       const { data: authData } = await supabase.auth.getUser()
       const user = authData?.user || sessionCheck?.session?.user
@@ -1369,6 +1372,7 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
       })
     } catch (err) {
       console.error('Failed to load dashboard records:', err)
+      setLoadError('We could not refresh your workspace. Check your connection and try again.')
     } finally {
       setLoading(false)
     }
@@ -4255,6 +4259,22 @@ const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#784b20] transition-colors shrink-0 cursor-pointer"
               >
                 <Sparkles className="size-4" /> Upgrade Plan
+              </button>
+            </div>
+          )}
+
+          {loadError && !loading && (
+            <div role="alert" className="mb-6 flex flex-col gap-3 rounded-2xl border border-[#e8cbb0] bg-[#fff7f0] p-4 text-sm text-[#6e5849] sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="mt-0.5 size-4 shrink-0 text-[#b95c3c]" />
+                <span>{loadError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void fetchDashboardData()}
+                className="inline-flex shrink-0 items-center justify-center rounded-xl border border-[#d8c2aa] bg-white px-3 py-2 text-xs font-semibold text-[#8b5a2b] transition-colors hover:bg-[#faf4ed]"
+              >
+                Retry refresh
               </button>
             </div>
           )}
