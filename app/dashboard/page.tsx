@@ -663,7 +663,8 @@ export default function DashboardPage() {
   const [isSavingExpense, setIsSavingExpense] = useState(false)
   const [isSavingElectricity, setIsSavingElectricity] = useState(false)
   const [isSavingComplaint, setIsSavingComplaint] = useState(false)
-
+const [togglingBedId, setTogglingBedId] = useState<string | null>(null)
+  const [resolvingComplaintId, setResolvingComplaintId] = useState<string | null>(null)
   const [showRoomModal, setShowRoomModal] = useState(false)
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
   const [showAddBedModal, setShowAddBedModal] = useState<{ open: boolean; roomId: string; roomNumber: string }>({
@@ -2014,20 +2015,29 @@ export default function DashboardPage() {
   }
 
   // Toggle Bed Status
-  async function handleToggleBedStatus(bedId: string, currentStatus: string) {
-    if (!userId) return
-    const nextStatus = currentStatus === 'available' ? 'maintenance' : currentStatus === 'maintenance' ? 'available' : 'available'
+ async function handleToggleBedStatus(bedId: string, currentStatus: string) {
+ if (!userId || togglingBedId || currentStatus === 'occupied') return
+  const nextStatus = currentStatus === 'available' ? 'maintenance' : 'available'
+  setTogglingBedId(bedId)
+  try {
     const { error } = await supabase
       .from('beds')
       .update({ status: nextStatus, updated_at: new Date().toISOString() })
       .eq('id', bedId)
       .eq('owner_id', userId)
 
-    if (!error) {
-      setBeds((prev) => prev.map((b) => (b.id === bedId ? { ...b, status: nextStatus as any } : b)))
-      flash(`Bed status updated to ${nextStatus}.`)
+    if (error) {
+      flash('Could not update bed status. Please try again.')
+      return
     }
+    setBeds((prev) => prev.map((b) => (b.id === bedId ? { ...b, status: nextStatus as any } : b)))
+    flash(`Bed status updated to ${nextStatus}.`)
+  } catch {
+    flash('Could not update bed status. Please try again.')
+  } finally {
+    setTogglingBedId(null)
   }
+}
 
   // Delete Bed
   async function handleDeleteBed(bedId: string, bedNumber: string) {
@@ -3894,7 +3904,10 @@ export default function DashboardPage() {
   }
 
   // Resolve Complaint
-  async function handleResolveComplaint(id: string) {
+ async function handleResolveComplaint(id: string) {
+  if (!userId || resolvingComplaintId) return
+  setResolvingComplaintId(id)
+  try {
     const { error } = await supabase
       .from('complaints')
       .update({ status: 'Resolved', resolved_at: new Date().toISOString() })
@@ -3908,7 +3921,12 @@ export default function DashboardPage() {
 
     setComplaints((prev) => prev.map((c) => (c.id === id ? { ...c, status: 'Resolved' } : c)))
     flash('Complaint marked as resolved.')
+  } catch {
+    flash('Could not update complaint.')
+  } finally {
+    setResolvingComplaintId(null)
   }
+}
 
   // Update / Edit Complaint
   async function handleUpdateComplaint(e: React.FormEvent<HTMLFormElement>) {
@@ -4397,6 +4415,7 @@ export default function DashboardPage() {
                   }}
                   onEditBed={(b: Bed) => setEditingBed(b)}
                   onToggleBedStatus={handleToggleBedStatus}
+                  togglingBedId={togglingBedId}
                   onDeleteBed={handleDeleteBed}
                   searchQuery={q}
                   onClearSearch={() => setSearch('')}
@@ -8351,6 +8370,7 @@ const RoomsTab = memo(function RoomsTab({
   onAddBed,
   onEditBed,
   onToggleBedStatus,
+    togglingBedId,
   onDeleteBed,
   searchQuery,
   onClearSearch,
@@ -8501,19 +8521,21 @@ const RoomsTab = memo(function RoomsTab({
                           >
                             <Pencil className="size-2.5" />
                           </button>
-                          <button
-                            onClick={() => onToggleBedStatus(bed.id, bed.status)}
-                            title="Click to toggle status"
-                            className={`rounded px-1.5 py-0.2 font-bold uppercase text-[9px] ${
-                              bed.status === 'available'
-                                ? 'bg-[#e7f7f0] text-[#328d68]'
-                                : bed.status === 'occupied'
-                                ? 'bg-[#fff4e5] text-[#b46b1a]'
-                                : 'bg-[#f0f1f4] text-[#74798a]'
-                            }`}
-                          >
-                            {bed.status}
-                          </button>
+                         <button
+  onClick={() => onToggleBedStatus(bed.id, bed.status)}
+  disabled={togglingBedId === bed.id}
+  title="Click to toggle status"
+  className={`flex items-center gap-1 rounded px-1.5 py-0.2 font-bold uppercase text-[9px] disabled:opacity-60 disabled:cursor-not-allowed ${
+    bed.status === 'available'
+      ? 'bg-[#e7f7f0] text-[#328d68]'
+      : bed.status === 'occupied'
+      ? 'bg-[#fff4e5] text-[#b46b1a]'
+      : 'bg-[#f0f1f4] text-[#74798a]'
+  }`}
+>
+  {togglingBedId === bed.id && <Loader2 className="size-2.5 animate-spin" />}
+  {bed.status}
+</button>
                           {bed.status !== 'occupied' && (
                             <button
                               onClick={() => onDeleteBed(bed.id, bed.bed_number)}
@@ -9973,7 +9995,7 @@ const ExpensesTab = memo(function ExpensesTab({ expenses, totalMonth, onAddExpen
   )
 })
 
-const ComplaintsTab = memo(function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve, onDelete, searchQuery, onClearSearch }: any) {
+const ComplaintsTab = memo(function ComplaintsTab({ complaints, onAddComplaint, onEditComplaint, onResolve,resolvingComplaintId, onDelete, searchQuery, onClearSearch }: any) {
   return (
     <div>
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -10040,12 +10062,14 @@ const ComplaintsTab = memo(function ComplaintsTab({ complaints, onAddComplaint, 
                   <Pencil className="size-4" />
                 </button>
                 {c.status !== 'Resolved' && (
-                  <button
-                    onClick={() => onResolve(c.id)}
-                    className="rounded-lg border border-[#8b5a2b] px-3.5 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#fbf8f3] transition-colors"
-                  >
-                    Mark Resolved
-                  </button>
+                 <button
+  onClick={() => onResolve(c.id)}
+  disabled={resolvingComplaintId === c.id}
+  className="flex items-center gap-1.5 rounded-lg border border-[#8b5a2b] px-3.5 py-2 text-xs font-semibold text-[#784b20] hover:bg-[#fbf8f3] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+>
+  {resolvingComplaintId === c.id && <Loader2 className="size-3.5 animate-spin" />}
+  {resolvingComplaintId === c.id ? 'Resolving...' : 'Mark Resolved'}
+</button>
                 )}
                 <button
                   onClick={() => onDelete(c.id, c.title)}
