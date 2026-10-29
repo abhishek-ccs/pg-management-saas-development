@@ -5357,12 +5357,14 @@ export default function DashboardPage() {
               placeholder="e.g. UTR #12345678"
             />
 
-            <button
-              type="submit"
-              className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors"
-            >
-              Record Payment & Issue Receipt
-            </button>
+          <button
+  type="submit"
+  disabled={isSavingPayment}
+  className="mt-2 flex items-center justify-center gap-2 rounded-xl bg-[#8b5a2b] py-3 text-sm font-semibold text-white shadow-xs hover:bg-[#784b20] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+>
+  {isSavingPayment && <Loader2 className="size-4 animate-spin text-white" />}
+  {isSavingPayment ? 'Recording Payment...' : 'Record Payment & Issue Receipt'}
+</button>
           </form>
         </Modal>
       )}
