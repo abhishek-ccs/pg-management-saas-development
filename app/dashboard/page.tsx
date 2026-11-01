@@ -458,11 +458,17 @@ export default function DashboardPage() {
 
   // Centralized Entitlement State
   const entitlement: CustomerEntitlement = useMemo(() => {
+    const isUnexpiredPaidPeriod = Boolean(
+      currentPeriodEnd && new Date(currentPeriodEnd).getTime() > Date.now()
+    )
+    const isUnexpiredTrial = Boolean(subscriptionStatus === 'trialing' && !isTrialExpired)
+    const hasPaidAccess = isUnexpiredPaidPeriod || isUnexpiredTrial
+
     return resolveCustomerEntitlements(
       {
-        hasPaidAccess: subscriptionStatus === 'active' || (subscriptionStatus === 'trialing' && !isTrialExpired),
+        hasPaidAccess,
         isTrialExpired,
-        status: subscriptionStatus as any,
+        status: (subscriptionStatus as any) || (isUnexpiredPaidPeriod ? 'active' : 'expired'),
         plan: subscriptionPlan,
         trialStart,
         trialEnd,
@@ -6014,14 +6020,22 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-[#8b5a2b]">Active Subscription</span>
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${subscriptionStatus === 'active'
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : isTrialExpired
-                            ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
-                            : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${cancelAtPeriodEnd
+                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : subscriptionStatus === 'active'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : isTrialExpired
+                              ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
+                              : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
                         }`}
                     >
-                      {subscriptionStatus === 'active' ? 'Active Paid Plan' : isTrialExpired ? 'Trial Expired' : '7-Day Free Trial'}
+                      {cancelAtPeriodEnd
+                        ? 'AutoPay Cancelled (Access Active)'
+                        : subscriptionStatus === 'active'
+                          ? 'Active Paid Plan'
+                          : isTrialExpired
+                            ? 'Trial Expired'
+                            : '7-Day Free Trial'}
                     </span>
                   </div>
                   <h3 className="mt-1 text-base sm:text-lg font-extrabold text-[#2c221e] capitalize">
@@ -6132,6 +6146,7 @@ export default function DashboardPage() {
                 const formattedPrice = price !== null ? formatINR(price) : 'Custom'
                 const periodLabel = isYearly ? '/year' : '/month'
                 const isCurrentPlan =
+                  !cancelAtPeriodEnd &&
                   subscriptionStatus === 'active' &&
                   (subscriptionPlan === plan.id ||
                     (plan.id === 'growth' &&
@@ -6215,6 +6230,15 @@ export default function DashboardPage() {
                           className="w-full rounded-xl bg-[#e5dfd8] px-4 py-2.5 text-xs font-bold text-[#7d756d] cursor-default"
                         >
                           Current Plan
+                        </button>
+                      ) : cancelAtPeriodEnd && (subscriptionPlan === plan.id || (plan.id === 'growth' && (subscriptionPlan === 'yearly' || subscriptionPlan === 'pro'))) ? (
+                        <button
+                          type="button"
+                          disabled={isUpgradingSubscription}
+                          onClick={() => handleUpgradePlan(plan.id)}
+                          className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 transition-colors disabled:opacity-60 cursor-pointer"
+                        >
+                          {isUpgradingSubscription ? 'Connecting...' : 'Renew / Reactivate AutoPay'}
                         </button>
                       ) : (
                         <button
@@ -7968,7 +7992,7 @@ const PropertyTab = memo(function PropertyTab({
   onViewPlans,
 }: any) {
   const planLabel =
-    subscriptionStatus === 'active'
+    subscriptionStatus === 'active' || entitlement?.hasPaidAccess
       ? subscriptionPlan === 'starter'
         ? 'Starter Plan'
         : subscriptionPlan === 'business'

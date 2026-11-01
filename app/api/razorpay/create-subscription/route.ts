@@ -131,28 +131,28 @@ export async function POST(req: NextRequest) {
     const subscription: any = await razorpay.subscriptions.create(subscriptionPayload)
 
     // 5. Track pending subscription in database via service-role admin client
-    // Security & lifecycle invariant: NEVER prematurely mark status as 'active' or 'trialing' before
-    // payment/mandate authorization is verified server-side.
-    try {
-      const admin = await createAdminClient()
-      // Preserve existing active status if user already has an active subscription;
-      // otherwise, set status to 'created' (pending authorization).
-      const pendingStatus = resolvedState.status === 'active' ? 'active' : 'created'
+    // Security & lifecycle invariant:
+    // 1. NEVER prematurely mark status as 'active' or 'trialing' before payment/mandate authorization is verified.
+    // 2. NEVER overwrite, downgrade, or replace an existing customer's active or unexpired paid subscription
+    //    merely because they opened Checkout to view or initiate a renewal.
+    if (!resolvedState.hasPaidAccess) {
+      try {
+        const admin = await createAdminClient()
+        const targetPlan = planTier
 
-      const targetPlan = planTier
+        const updateData: Record<string, any> = {
+          owner_id: user.id,
+          plan: targetPlan,
+          status: 'created',
+          razorpay_subscription_id: subscription.id,
+          razorpay_plan_id: planId,
+          updated_at: new Date().toISOString(),
+        }
 
-      const updateData: Record<string, any> = {
-        owner_id: user.id,
-        plan: targetPlan,
-        status: pendingStatus,
-        razorpay_subscription_id: subscription.id,
-        razorpay_plan_id: planId,
-        updated_at: new Date().toISOString(),
+        await persistSubscriptionToDatabase(admin, user.id, updateData, subscription.id)
+      } catch (dbErr) {
+        console.warn('Non-fatal: failed to pre-save pending subscription to DB:', dbErr)
       }
-
-      await persistSubscriptionToDatabase(admin, user.id, updateData)
-    } catch (dbErr) {
-      console.warn('Non-fatal: failed to pre-save pending subscription to DB:', dbErr)
     }
 
     // 6. Return safe public identifiers and disclosure details needed to launch Razorpay Checkout

@@ -82,6 +82,115 @@ export interface CustomerEntitlement {
  *    - An expired trial (trial_end <= now) or expired status is strictly restricted.
  * 4. Past_due, canceled, or halted records do not grant paid access.
  */
+export const KNOWN_YEARLY_PLAN_IDS = new Set([
+  'plan_TpRGUbldZHOv7X', // starter_yearly
+  'plan_TpRGVTZfY46Jki', // growth_yearly
+  'plan_TpRGW532F4cyqm', // business_yearly
+])
+
+/**
+ * Resolves the actual plan tier from stored record data (plan string and razorpay_plan_id).
+ * Ensures legacy 'yearly' subscriptions are assigned the correct property limit based
+ * on their actual tier, not billing frequency, while preserving legacy customer entitlements.
+ */
+export function resolvePlanTier(recordOrPlan: SubscriptionRecord | string | null | undefined): string {
+  if (!recordOrPlan) return 'trial'
+  if (typeof recordOrPlan === 'string') {
+    const p = recordOrPlan.toLowerCase().trim()
+    if (p === 'starter' || p.startsWith('starter')) return 'starter'
+    if (p === 'business' || p.startsWith('business')) return 'business'
+    if (p === 'enterprise' || p.startsWith('enterprise')) return 'enterprise'
+    if (p === 'growth' || p.startsWith('growth') || p === 'pro') return 'growth'
+    if (p === 'yearly') return 'yearly'
+    return p || 'trial'
+  }
+
+  const r = recordOrPlan
+  const plan = (r.plan || '').toLowerCase().trim()
+  const rzpPlan = (r.razorpay_plan_id || '').toLowerCase().trim()
+
+  if (
+    plan === 'starter' ||
+    plan.startsWith('starter') ||
+    rzpPlan === 'plan_tprgubldzhov7x' ||
+    rzpPlan === 'plan_tprgumbc93c99j' ||
+    rzpPlan.includes('starter')
+  ) {
+    return 'starter'
+  }
+  if (
+    plan === 'business' ||
+    plan.startsWith('business') ||
+    rzpPlan === 'plan_tprgw532f4cyqm' ||
+    rzpPlan === 'plan_tprgvufwe8pb2h' ||
+    rzpPlan.includes('business')
+  ) {
+    return 'business'
+  }
+  if (plan === 'enterprise' || plan.startsWith('enterprise') || rzpPlan.includes('enterprise')) {
+    return 'enterprise'
+  }
+  if (
+    plan === 'growth' ||
+    plan.startsWith('growth') ||
+    plan === 'pro' ||
+    rzpPlan === 'plan_tprgvtzfy46jki' ||
+    rzpPlan === 'plan_tprguxeroqtjtx' ||
+    rzpPlan.includes('growth') ||
+    rzpPlan.includes('pro')
+  ) {
+    return 'growth'
+  }
+  if (plan === 'yearly') {
+    // Legacy yearly with no tier in razorpay_plan_id preserves legacy 5-property entitlement
+    return 'yearly'
+  }
+  return plan || 'trial'
+}
+
+export function isAnnualPlan(r: SubscriptionRecord): boolean {
+  if (r.plan === 'yearly' || r.plan === 'pro') return true
+  if (r.razorpay_plan_id) {
+    if (KNOWN_YEARLY_PLAN_IDS.has(r.razorpay_plan_id)) return true
+    if (r.razorpay_plan_id.toLowerCase().includes('yearly') || r.razorpay_plan_id.toLowerCase().includes('annual')) return true
+  }
+  if (r.current_period_start && r.current_period_end) {
+    const startMs = new Date(r.current_period_start).getTime()
+    const endMs = new Date(r.current_period_end).getTime()
+    if (endMs - startMs > 60 * 86400000) return true
+  }
+  return false
+}
+
+export function getDerivedPeriodEndMs(r: SubscriptionRecord): number | null {
+  if (r.current_period_end) {
+    return new Date(r.current_period_end).getTime()
+  }
+  // Bounded safe fallback: ONLY for active records with positive payment proof
+  // Anchored to current_period_start, or immutable created_at. Never updated_at!
+  const hasPayment = Boolean(r.razorpay_payment_id || r.payment_status === 'paid' || r.status === 'active');
+  if (hasPayment && r.status === 'active') {
+    const rawDate = r.current_period_start || r.created_at || r.updated_at;
+    const baseMs = rawDate ? new Date(rawDate).getTime() : Date.now();
+    if (baseMs > 0) {
+      const isYearly = isAnnualPlan(r);
+      return baseMs + (isYearly ? 365 : 30) * 86400000;
+    }
+  }
+  // If cancelled with null dates, or no payment proof, returns null (strictly expired)
+  return null
+}
+
+export function getDerivedTrialEndMs(r: SubscriptionRecord): number | null {
+  if (r.trial_end) {
+    return new Date(r.trial_end).getTime()
+  }
+  if (r.status === 'trialing' && r.created_at) {
+    return new Date(r.created_at).getTime() + 7 * 86400000
+  }
+  return null
+}
+
 export function resolveAuthoritativeSubscription(
   records: SubscriptionRecord[] | null | undefined,
   nowMs: number = Date.now()
@@ -106,108 +215,126 @@ export function resolveAuthoritativeSubscription(
     }
   }
 
-  // Sort descending by updated_at / created_at so newest records are evaluated first
+  // Sort records deterministically with complete parity to the PostgreSQL trigger
   const sorted = [...records].sort((a, b) => {
-    const timeA = new Date(a.updated_at || a.created_at || 0).getTime()
-    const timeB = new Date(b.updated_at || b.created_at || 0).getTime()
-    return timeB - timeA
-  })
-
-  // RULE 1: An unexpired paid billing period ALWAYS grants full paid access.
-  // Check records for valid active paid-through dates or active status
-  const validPaidSub = sorted.find((r) => {
-    // If the payment was explicitly refunded, paid access is revoked
-    if (r.payment_status === 'refunded') return false
-
-    if (r.current_period_end) {
-      const endMs = new Date(r.current_period_end).getTime()
-      // If paid-through date is in the future, access is valid regardless of AutoPay mandate status
-      if (endMs > nowMs) {
-        return true
+    const getRank = (r: SubscriptionRecord) => {
+      const endMs = getDerivedPeriodEndMs(r)
+      const hasPayment = Boolean(r.razorpay_payment_id || r.payment_status === 'paid' || (r.status === 'active' && endMs !== null));
+      if (hasPayment && r.payment_status !== 'refunded' && endMs !== null && endMs > nowMs) {
+        return 1
       }
-      // If paid-through date has expired, this record cannot grant paid access
-      return false
+      const trialMs = getDerivedTrialEndMs(r)
+      if (r.status === 'trialing' && trialMs !== null && trialMs > nowMs) {
+        return 2
+      }
+      return 3
     }
+    const rankDiff = getRank(a) - getRank(b)
+    if (rankDiff !== 0) return rankDiff
 
-    // For legacy records or unit-test fixtures where current_period_end is null/omitted:
-    return r.status === 'active'
+    // Secondary Tie-Breaker 1: Furthest derived period end
+    const endA = getDerivedPeriodEndMs(a) || 0
+    const endB = getDerivedPeriodEndMs(b) || 0
+    if (endB !== endA) return endB - endA
+
+    // Secondary Tie-Breaker 2: Furthest derived trial end
+    const trialA = getDerivedTrialEndMs(a) || 0
+    const trialB = getDerivedTrialEndMs(b) || 0
+    if (trialB !== trialA) return trialB - trialA
+
+    // Secondary Tie-Breaker 3: Created at DESC (immutable creation order)
+    const timeA = new Date(a.created_at || a.updated_at || 0).getTime()
+    const timeB = new Date(b.created_at || b.updated_at || 0).getTime()
+    if (timeB !== timeA) return timeB - timeA
+
+    // Secondary Tie-Breaker 4: String ID comparison for total ordering
+    return String(b.id || '').localeCompare(String(a.id || ''))
   })
 
-  if (validPaidSub) {
+  const winning = sorted[0]
+  const winningEndMs = getDerivedPeriodEndMs(winning)
+  const hasWinningPayment = Boolean(
+    winning.razorpay_payment_id ||
+    winning.payment_status === 'paid' ||
+    (winning.status === 'active' && winningEndMs !== null)
+  )
+  const isPaidActive = Boolean(
+    hasWinningPayment &&
+    winning.payment_status !== 'refunded' &&
+    winningEndMs !== null &&
+    winningEndMs > nowMs
+  )
+
+  if (isPaidActive) {
     const isMandateCancelled = Boolean(
-      validPaidSub.cancel_at_period_end ||
-      validPaidSub.status === 'canceled' ||
-      validPaidSub.autopay_status === 'revoked' ||
-      validPaidSub.autopay_status === 'cancelled'
+      winning.cancel_at_period_end ||
+      winning.status === 'canceled' ||
+      winning.autopay_status === 'revoked' ||
+      winning.autopay_status === 'cancelled'
     )
+    const periodEndIso = winning.current_period_end || new Date(winningEndMs!).toISOString()
 
     return {
       hasPaidAccess: true,
       isTrialExpired: false,
-      // Status remains 'active' during an active paid period even if AutoPay is revoked
       status: 'active',
-      plan: validPaidSub.plan || 'yearly',
-      trialStart: validPaidSub.trial_start || null,
-      trialEnd: null, // Active paid subscribers do not have a trial expiration lockout
-      currentPeriodStart: validPaidSub.current_period_start || null,
-      currentPeriodEnd: validPaidSub.current_period_end || null,
+      plan: winning ? resolvePlanTier(winning) : 'yearly',
+      trialStart: winning.trial_start || null,
+      trialEnd: null,
+      currentPeriodStart: winning.current_period_start || null,
+      currentPeriodEnd: periodEndIso,
       cancelAtPeriodEnd: isMandateCancelled,
-      canceledAt: validPaidSub.canceled_at || null,
-      autopayStatus: validPaidSub.autopay_status || (isMandateCancelled ? 'revoked' : 'active'),
-      paymentStatus: validPaidSub.payment_status || 'paid',
-      razorpaySubscriptionId: validPaidSub.razorpay_subscription_id || null,
-      razorpayPaymentId: validPaidSub.razorpay_payment_id || null,
-      activeRecord: validPaidSub,
+      canceledAt: winning.canceled_at || null,
+      autopayStatus: winning.autopay_status || (isMandateCancelled ? 'revoked' : 'active'),
+      paymentStatus: 'paid',
+      razorpaySubscriptionId: winning.razorpay_subscription_id || null,
+      razorpayPaymentId: winning.razorpay_payment_id || null,
+      activeRecord: winning,
     }
   }
 
-  // RULE 2: Active unexpired trial (trial_end > now)
-  const unexpiredTrial = sorted.find((r) => {
-    if (r.status !== 'trialing') return false
-    if (!r.trial_end) return false
-    return new Date(r.trial_end).getTime() > nowMs
-  })
+  const winningTrialMs = getDerivedTrialEndMs(winning)
+  const isTrialActive = Boolean(
+    winning.status === 'trialing' &&
+    winningTrialMs !== null &&
+    winningTrialMs > nowMs
+  )
 
-  if (unexpiredTrial) {
+  if (isTrialActive) {
+    const trialEndIso = winning.trial_end || new Date(winningTrialMs!).toISOString()
     return {
       hasPaidAccess: true,
       isTrialExpired: false,
       status: 'trialing',
-      plan: unexpiredTrial.plan || 'trial',
-      trialStart: unexpiredTrial.trial_start || null,
-      trialEnd: unexpiredTrial.trial_end || null,
-      currentPeriodStart: unexpiredTrial.current_period_start || null,
-      currentPeriodEnd: unexpiredTrial.current_period_end || null,
-      cancelAtPeriodEnd: Boolean(unexpiredTrial.cancel_at_period_end),
-      canceledAt: unexpiredTrial.canceled_at || null,
-      autopayStatus: unexpiredTrial.autopay_status || 'none',
-      paymentStatus: unexpiredTrial.payment_status || 'pending',
-      razorpaySubscriptionId: unexpiredTrial.razorpay_subscription_id || null,
-      razorpayPaymentId: unexpiredTrial.razorpay_payment_id || null,
-      activeRecord: unexpiredTrial,
+      plan: winning.plan || 'trial',
+      trialStart: winning.trial_start || null,
+      trialEnd: trialEndIso,
+      currentPeriodStart: winning.current_period_start || null,
+      currentPeriodEnd: winning.current_period_end || null,
+      cancelAtPeriodEnd: Boolean(winning.cancel_at_period_end),
+      canceledAt: winning.canceled_at || null,
+      autopayStatus: winning.autopay_status || 'none',
+      paymentStatus: winning.payment_status || 'pending',
+      razorpaySubscriptionId: winning.razorpay_subscription_id || null,
+      razorpayPaymentId: winning.razorpay_payment_id || null,
+      activeRecord: winning,
     }
   }
 
-  // RULE 3: Restricted / Expired state (latest record provides context)
-  const latest = sorted[0]
-  const isRefunded = latest.payment_status === 'refunded'
-  const isPeriodExpired = Boolean(
-    latest.current_period_end && new Date(latest.current_period_end).getTime() <= nowMs
-  )
-  const isPastDue = latest.status === 'past_due'
-  const isCanceled = latest.status === 'canceled' || isRefunded
-  const isCreated = latest.status === 'created'
+  // Expired / Inactive state
+  const isRefunded = winning.payment_status === 'refunded'
+  const isPeriodExpired = Boolean(winningEndMs !== null && winningEndMs <= nowMs)
 
   let resolvedStatus: AuthoritativeSubscriptionState['status'] = 'expired'
   if (isRefunded) {
     resolvedStatus = 'canceled'
   } else if (isPeriodExpired) {
-    resolvedStatus = isCanceled ? 'canceled' : isPastDue ? 'past_due' : 'expired'
-  } else if (isPastDue) {
+    resolvedStatus = winning.status === 'canceled' ? 'canceled' : winning.status === 'past_due' ? 'past_due' : 'expired'
+  } else if (winning.status === 'past_due') {
     resolvedStatus = 'past_due'
-  } else if (isCanceled) {
+  } else if (winning.status === 'canceled') {
     resolvedStatus = 'canceled'
-  } else if (isCreated) {
+  } else if (winning.status === 'created') {
     resolvedStatus = 'created'
   }
 
@@ -215,32 +342,33 @@ export function resolveAuthoritativeSubscription(
     hasPaidAccess: false,
     isTrialExpired: true,
     status: resolvedStatus,
-    plan: latest.plan || 'trial',
-    trialStart: latest.trial_start || null,
-    trialEnd: latest.trial_end || null,
-    currentPeriodStart: latest.current_period_start || null,
-    currentPeriodEnd: latest.current_period_end || null,
-    cancelAtPeriodEnd: Boolean(latest.cancel_at_period_end),
-    canceledAt: latest.canceled_at || null,
-    autopayStatus: latest.autopay_status || 'none',
-    paymentStatus: latest.payment_status || (isRefunded ? 'refunded' : 'pending'),
-    razorpaySubscriptionId: latest.razorpay_subscription_id || null,
-    razorpayPaymentId: latest.razorpay_payment_id || null,
-    activeRecord: latest,
+    plan: winning.plan || 'trial',
+    trialStart: winning.trial_start || null,
+    trialEnd: winning.trial_end || null,
+    currentPeriodStart: winning.current_period_start || null,
+    currentPeriodEnd: winning.current_period_end || null,
+    cancelAtPeriodEnd: Boolean(winning.cancel_at_period_end),
+    canceledAt: winning.canceled_at || null,
+    autopayStatus: winning.autopay_status || 'none',
+    paymentStatus: winning.payment_status || (isRefunded ? 'refunded' : 'pending'),
+    razorpaySubscriptionId: winning.razorpay_subscription_id || null,
+    razorpayPaymentId: winning.razorpay_payment_id || null,
+    activeRecord: winning,
   }
 }
 
 export interface SubscriptionScheduleResult {
+
   isTrialEligible: boolean
   startAt: number | null
   chargeImmediate: boolean
   remainingTrialSeconds: number
   reason:
-    | 'brand_new_customer'
-    | 'active_trial_preserved'
-    | 'trial_expired'
-    | 'active_paid_subscription'
-    | 'trial_window_sub_15m'
+  | 'brand_new_customer'
+  | 'active_trial_preserved'
+  | 'trial_expired'
+  | 'active_paid_subscription'
+  | 'trial_window_sub_15m'
 }
 
 /**
@@ -340,7 +468,10 @@ export function resolveCustomerEntitlements(
       ? (recordsOrState as AuthoritativeSubscriptionState)
       : resolveAuthoritativeSubscription(recordsOrState as SubscriptionRecord[], nowMs)
 
-  const configuredLimit = PLAN_PROPERTY_LIMITS[subState.plan] || DEFAULT_PROPERTY_LIMIT
+  const effectiveTier = subState.activeRecord
+    ? resolvePlanTier(subState.activeRecord)
+    : resolvePlanTier(subState.plan)
+  const configuredLimit = PLAN_PROPERTY_LIMITS[effectiveTier] || DEFAULT_PROPERTY_LIMIT
   const safeCount = Math.max(0, activePropertyCount)
 
   // RULE 1: If trial expired or no valid paid access, property creation is restricted
@@ -358,8 +489,8 @@ export function resolveCustomerEntitlements(
         subState.status === 'created'
           ? 'Please complete checkout authorization to activate your subscription.'
           : subState.status === 'expired'
-          ? 'Your 7-day free trial has expired. Please subscribe to add properties.'
-          : `Your subscription is currently ${subState.status}. Please activate your subscription to create new properties.`,
+            ? 'Your 7-day free trial has expired. Please subscribe to add properties.'
+            : `Your subscription is currently ${subState.status}. Please activate your subscription to create new properties.`,
     }
   }
 
@@ -379,8 +510,8 @@ export function resolveCustomerEntitlements(
     reason: canCreate
       ? undefined
       : safeCount > configuredLimit
-      ? `You are managing ${safeCount} properties, but your current plan includes ${configuredLimit} properties (${safeCount}/${configuredLimit} used). Please upgrade your plan for additional property capacity.`
-      : `Your current plan includes ${configuredLimit} properties (${safeCount}/${configuredLimit} used). Please upgrade your plan for additional property capacity.`,
+        ? `You are managing ${safeCount} properties, but your current plan includes ${configuredLimit} properties (${safeCount}/${configuredLimit} used). Please upgrade your plan for additional property capacity.`
+        : `Your current plan includes ${configuredLimit} properties (${safeCount}/${configuredLimit} used). Please upgrade your plan for additional property capacity.`,
   }
 }
 
@@ -408,8 +539,8 @@ export async function getOwnerEntitlements(
   const subRecords = Array.isArray(subRes?.data)
     ? subRes.data
     : subRes?.data
-    ? [subRes.data]
-    : []
+      ? [subRes.data]
+      : []
 
   const propertyCount = typeof propCountRes?.count === 'number' ? propCountRes.count : 0
   return resolveCustomerEntitlements(subRecords, propertyCount, nowMs)
@@ -427,33 +558,66 @@ export async function getOwnerEntitlements(
 export async function persistSubscriptionToDatabase(
   adminClient: any,
   ownerId: string,
-  payload: Record<string, any>
+  payload: Record<string, any>,
+  targetSubscriptionId?: string | null
 ): Promise<{ success: boolean; error?: string }> {
   const normalizedPayload = { ...payload }
+  const subscriptionId = targetSubscriptionId || normalizedPayload.razorpay_subscription_id
 
-  // 1. Fetch existing rows for this owner
-  const { data: existingRows, error: fetchErr } = await adminClient
-    .from('subscriptions')
-    .select('id, owner_id, plan, status')
-    .eq('owner_id', ownerId)
-    .order('updated_at', { ascending: false })
-
-  if (fetchErr) {
-    console.error('[SubscriptionSync] Failed to query existing subscriptions:', fetchErr)
+  // 1. Check if a row specifically for this razorpay_subscription_id exists
+  let targetRowId: string | null = null
+  if (subscriptionId) {
+    const { data: matchedRows } = await adminClient
+      .from('subscriptions')
+      .select('id')
+      .eq('owner_id', ownerId)
+      .eq('razorpay_subscription_id', subscriptionId)
+      .limit(1)
+    if (matchedRows && matchedRows.length > 0) {
+      targetRowId = matchedRows[0].id
+    }
   }
 
-  const rowsCount = existingRows ? existingRows.length : 0
+  // Security invariant: If subscriptionId is provided but does not match any existing row,
+  // we MUST NEVER fall back to updating another subscription belonging to this owner.
+  // We insert a new row atomically for this specific subscription ID.
 
-  // Helper to attempt write with fallback for legacy check constraints
+  // Helper to attempt write with fallback for legacy check constraints and concurrent insert protection
   async function attemptWrite(writePayload: Record<string, any>) {
-    if (rowsCount > 0) {
-      // Update all existing rows for this owner
+    if (targetRowId) {
+      // Scoped update to the single targeted row
       return adminClient
         .from('subscriptions')
         .update(writePayload)
-        .eq('owner_id', ownerId)
+        .eq('id', targetRowId)
+    } else if (subscriptionId) {
+      // Atomic insert for new Razorpay subscription ID
+      const payloadWithSub = {
+        ...writePayload,
+        owner_id: ownerId,
+        razorpay_subscription_id: subscriptionId,
+      }
+      const insertRes = await adminClient
+        .from('subscriptions')
+        .insert(payloadWithSub)
+
+      // Handle simultaneous insert collision: if another worker inserted this subscriptionId concurrently
+      if (
+        insertRes.error &&
+        (insertRes.error.code === '23505' ||
+          insertRes.error.message?.includes('duplicate key') ||
+          insertRes.error.message?.includes('unique constraint') ||
+          insertRes.error.message?.includes('uq_subscriptions'))
+      ) {
+        return adminClient
+          .from('subscriptions')
+          .update(writePayload)
+          .eq('owner_id', ownerId)
+          .eq('razorpay_subscription_id', subscriptionId)
+      }
+      return insertRes
     } else {
-      // Insert new row
+      // Safe insert when no specific subscription ID is designated
       return adminClient
         .from('subscriptions')
         .insert({ ...writePayload, owner_id: ownerId })
@@ -470,8 +634,8 @@ export async function persistSubscriptionToDatabase(
       normalizedPayload.plan === 'yearly'
         ? 'pro'
         : normalizedPayload.plan === 'monthly'
-        ? 'growth'
-        : normalizedPayload.plan
+          ? 'growth'
+          : normalizedPayload.plan
 
     const fallbackPayload = { ...normalizedPayload, plan: mappedPlan }
     const fallbackRes = await attemptWrite(fallbackPayload)

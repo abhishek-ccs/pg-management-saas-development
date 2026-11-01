@@ -89,6 +89,70 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // 4b. Fetch and verify authoritative payment entity directly from Razorpay API
+    const payment: any = await razorpay.payments.fetch(razorpay_payment_id)
+
+    if (!payment) {
+      return NextResponse.json(
+        { error: 'Payment record not found with payment gateway.' },
+        { status: 404 }
+      )
+    }
+
+    // Authoritatively verify payment entity belongs to this exact subscription
+    // Client-supplied metadata (payment.notes) is strictly untrusted and rejected as proof of association.
+    let isPaymentAssociatedWithSubscription = false
+
+    if (payment.subscription_id && payment.subscription_id === razorpay_subscription_id) {
+      isPaymentAssociatedWithSubscription = true
+    } else if (payment.invoice_id) {
+      try {
+        const invoice: any = await razorpay.invoices.fetch(payment.invoice_id)
+        if (invoice && invoice.subscription_id === razorpay_subscription_id) {
+          isPaymentAssociatedWithSubscription = true
+        }
+      } catch (invErr) {
+        console.warn('[VerifySubscription] Could not fetch invoice to verify association:', invErr)
+      }
+    }
+
+    if (!isPaymentAssociatedWithSubscription) {
+      console.error('Payment subscription association could not be established:', {
+        paymentId: razorpay_payment_id,
+        paymentSubId: payment.subscription_id,
+        paymentInvoiceId: payment.invoice_id,
+        expectedSubId: razorpay_subscription_id,
+      })
+      return NextResponse.json(
+        {
+          error:
+            'Payment cannot be authoritatively associated with the requested subscription. Access rejected.',
+        },
+        { status: 400 }
+      )
+    }
+
+    // Verify payment capture status:
+    // A captured payment proves actual collected funds.
+    // For trial mandate authorization (status === 'authenticated'), payment may be 'captured' or 'authorized'.
+    // For active subscriptions, payment MUST be 'captured'.
+    const isPaymentCaptured = payment.status === 'captured'
+    const isTrialAuth =
+      rzpSub.status === 'authenticated' &&
+      (payment.status === 'authorized' || payment.status === 'captured')
+
+    if (!isPaymentCaptured && !isTrialAuth) {
+      console.error('Payment not captured:', {
+        paymentId: razorpay_payment_id,
+        paymentStatus: payment.status,
+        subscriptionStatus: rzpSub.status,
+      })
+      return NextResponse.json(
+        { error: `Payment not captured. Status with payment provider: ${payment.status}.` },
+        { status: 400 }
+      )
+    }
+
     // 5. Update BaseraBook database status via service-role admin client
     const targetPlan = (body.plan || rzpSub.notes?.plan_tier || planType || rzpSub.notes?.plan_type || 'growth') as string
 
@@ -189,7 +253,8 @@ export async function POST(req: NextRequest) {
     const { success: persistOk, error: persistErr } = await persistSubscriptionToDatabase(
       admin,
       user.id,
-      updatePayload
+      updatePayload,
+      razorpay_subscription_id
     )
 
     if (!persistOk) {

@@ -53,6 +53,10 @@ export function getRazorpayPlanId(
 
   if (generalPlanId) return generalPlanId
 
+  // 4. Default fallback to growth tier for unknown tier compatibility
+  const defaultPlanId = KNOWN_RAZORPAY_PLAN_MAP[`growth_${planType}`]
+  if (defaultPlanId) return defaultPlanId
+
   throw new Error(
     `Missing Razorpay plan ID for ${normalizedTier} (${planType}) subscription. Please set ${envVarName}.`
   )
