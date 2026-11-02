@@ -104,11 +104,11 @@ export async function POST(req: NextRequest) {
       customer_notify: 1,
       ...(user.email
         ? {
-            notify_info: {
-              notify_email: user.email.trim().toLowerCase(),
-              ...(customerPhone ? { notify_phone: customerPhone } : {}),
-            },
-          }
+          notify_info: {
+            notify_email: user.email.trim().toLowerCase(),
+            ...(customerPhone ? { notify_phone: customerPhone } : {}),
+          },
+        }
         : {}),
       notes: {
         user_id: user.id,
@@ -149,9 +149,12 @@ export async function POST(req: NextRequest) {
           updated_at: new Date().toISOString(),
         }
 
-        await persistSubscriptionToDatabase(admin, user.id, updateData, subscription.id)
+        const persistResult = await persistSubscriptionToDatabase(admin, user.id, updateData, subscription.id)
+        if (!persistResult.success) {
+          console.error('[create-subscription] Failed to pre-save pending subscription to DB:', persistResult.error)
+        }
       } catch (dbErr) {
-        console.warn('Non-fatal: failed to pre-save pending subscription to DB:', dbErr)
+        console.error('[create-subscription] Error persisting pending subscription to DB:', dbErr)
       }
     }
 

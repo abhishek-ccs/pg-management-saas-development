@@ -293,22 +293,36 @@ export async function POST(req: NextRequest) {
     }
 
     if (targetOwnerId) {
-      // Out-of-order event check:
-      // If user has already renewed with a newer subscription and active paid-through date,
-      // do not let a delayed cancellation for a replaced older subscription override it.
-      if (
-        (eventType === 'subscription.cancelled' || eventType.startsWith('mandate.')) &&
+      const isSameSubscription = Boolean(
         existingSub?.razorpay_subscription_id &&
         subscriptionId &&
-        existingSub.razorpay_subscription_id !== subscriptionId &&
+        existingSub.razorpay_subscription_id === subscriptionId
+      )
+
+      // Out-of-order event check:
+      // If user has already renewed with a newer subscription and active paid-through date,
+      // do not let a delayed cancellation or failure for a replaced older subscription override it.
+      if (
+        !isSameSubscription &&
+        existingSub?.razorpay_subscription_id &&
+        subscriptionId &&
+        existingSub.status === 'active' &&
         existingSub.current_period_end &&
         new Date(existingSub.current_period_end).getTime() > Date.now()
       ) {
-        console.warn(
-          `[Webhook] Ignored cancellation event for replaced subscription ${subscriptionId}; active subscription is ${existingSub.razorpay_subscription_id}`
-        )
-        await markWebhookCompleted(admin, eventId, claim.leaseToken)
-        return NextResponse.json({ status: 'ignored_stale_subscription' }, { status: 200 })
+        if (
+          eventType === 'subscription.cancelled' ||
+          eventType.startsWith('mandate.') ||
+          eventType === 'subscription.halted' ||
+          eventType === 'subscription.paused' ||
+          eventType === 'payment.failed'
+        ) {
+          console.warn(
+            `[Webhook] Ignored ${eventType} event for replaced subscription ${subscriptionId}; active subscription is ${existingSub.razorpay_subscription_id}`
+          )
+          await markWebhookCompleted(admin, eventId, claim.leaseToken)
+          return NextResponse.json({ status: 'ignored_stale_subscription' }, { status: 200 })
+        }
       }
 
       const nowMs = Date.now()
@@ -365,9 +379,18 @@ export async function POST(req: NextRequest) {
           updateData.cancel_at_period_end = false
           updateData.trial_end = null
 
-          // Do NOT mark payment_status = 'paid' unless there is proof of captured payment!
-          if (existingSub?.razorpay_payment_id) {
+          // INVARIANT: Never inherit an old subscription's payment ID or payment status!
+          // Only mark payment_status = 'paid' if there is proof of captured payment for THIS subscription.
+          const isCapturedPayment = paymentEntity?.status === 'captured'
+          const isSameSubPaid = isSameSubscription && existingSub?.payment_status === 'paid'
+
+          if (isCapturedPayment || isSameSubPaid) {
             updateData.payment_status = 'paid'
+            if (paymentEntity?.id) {
+              updateData.razorpay_payment_id = paymentEntity.id
+            }
+          } else {
+            updateData.payment_status = 'pending'
           }
 
           if (subscriptionEntity?.current_start) {
@@ -570,15 +593,20 @@ export async function POST(req: NextRequest) {
         subscriptionId
       )
 
-      if (persistOk) {
-        console.log(
-          `✔ Webhook updated subscription: user=${targetOwnerId}, status=${updateData.status || existingSub?.status}, event=${eventType}`
-        )
-      } else {
+      if (!persistOk) {
         console.error(
           `❌ Webhook failed to persist subscription: user=${targetOwnerId}, error=${persistErr}`
         )
+        await markWebhookFailed(admin, eventId, persistErr || 'Database persistence failed')
+        return NextResponse.json(
+          { error: persistErr || 'Failed to persist subscription to database' },
+          { status: 500 }
+        )
       }
+
+      console.log(
+        `✔ Webhook updated subscription: user=${targetOwnerId}, status=${updateData.status || existingSub?.status}, event=${eventType}`
+      )
     }
 
     // 4. Mark event as completed in idempotency log using fencing token

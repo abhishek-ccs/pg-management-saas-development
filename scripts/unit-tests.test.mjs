@@ -1718,6 +1718,7 @@ test('41. Razorpay-to-BaseraBook Subscription Synchronization & Authority Engine
       status: 'active',
       plan: 'pro',
       razorpay_subscription_id: 'sub_active_rzp_1',
+      razorpay_payment_id: 'pay_sub_active_1',
       trial_end: new Date(now - 7 * oneDay).toISOString(),
       updated_at: new Date(now).toISOString(),
     }
@@ -1750,6 +1751,7 @@ test('41. Razorpay-to-BaseraBook Subscription Synchronization & Authority Engine
       status: 'active',
       plan: 'yearly',
       razorpay_subscription_id: 'sub_active_null_trial',
+      razorpay_payment_id: 'pay_sub_active_3',
       trial_end: null,
       updated_at: new Date(now).toISOString(),
     }
@@ -1813,6 +1815,7 @@ test('41. Razorpay-to-BaseraBook Subscription Synchronization & Authority Engine
       status: 'active',
       plan: 'yearly',
       razorpay_subscription_id: 'sub_new_active_rzp',
+      razorpay_payment_id: 'pay_sub_new_active',
       trial_end: null,
       updated_at: new Date(now).toISOString(),
     }
@@ -1841,6 +1844,7 @@ test('41. Razorpay-to-BaseraBook Subscription Synchronization & Authority Engine
       status: 'active',
       plan: 'growth',
       razorpay_subscription_id: 'sub_test_verified_123',
+      razorpay_payment_id: 'pay_sub_123',
       trial_end: null,
       updated_at: new Date().toISOString(),
     }

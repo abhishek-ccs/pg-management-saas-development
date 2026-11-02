@@ -5,7 +5,7 @@ import {
   verifySubscriptionPaymentSignature,
   SubscriptionPlanType,
 } from '@/lib/razorpay'
-import { persistSubscriptionToDatabase } from '@/lib/subscription'
+import { persistSubscriptionToDatabase, resolveAuthoritativeSubscription } from '@/lib/subscription'
 import { sendSubscriptionActivatedEmail } from '@/lib/email/client'
 
 export const runtime = 'nodejs'
@@ -312,11 +312,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Query the authoritative resolver state for this user to return server-verified entitlement
+    const { data: authoritativeRows } = await admin
+      .from('subscriptions')
+      .select('*')
+      .eq('owner_id', user.id)
+      .order('updated_at', { ascending: false })
+
+    const authState = resolveAuthoritativeSubscription(authoritativeRows)
+
     return NextResponse.json({
       success: true,
-      status: normalizedStatus,
-      plan: targetPlan,
+      status: authState.status,
+      plan: authState.plan,
       subscriptionId: razorpay_subscription_id,
+      hasPaidAccess: authState.hasPaidAccess,
+      isTrialExpired: authState.isTrialExpired,
+      trialEnd: authState.trialEnd,
     })
   } catch (error: any) {
     console.error('Subscription verification error:', error)

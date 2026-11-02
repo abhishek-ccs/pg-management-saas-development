@@ -3,7 +3,27 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient, ensureFreshSession } from '@/lib/supabase/client'
-import { resolveAuthoritativeSubscription, resolveCustomerEntitlements, type CustomerEntitlement } from '@/lib/subscription'
+import { resolveAuthoritativeSubscription, resolveCustomerEntitlements, getSubscriptionBadgeLabel, type CustomerEntitlement } from '@/lib/subscription'
+
+function getBadgeColorClasses(badgeLabel: string): string {
+  switch (badgeLabel) {
+    case 'Active Paid Plan':
+      return 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+    case 'Access Until Billing End':
+      return 'bg-amber-100 text-amber-800 border border-amber-200'
+    case 'Trial Expired':
+      return 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
+    case 'Cancelled':
+      return 'bg-zinc-100 text-zinc-700 border border-zinc-200'
+    case 'Payment Required / Past Due':
+      return 'bg-[#fff4e5] text-[#b46b1a] border border-[#f5c285]'
+    case 'Refunded / Access Revoked':
+      return 'bg-rose-100 text-rose-800 border border-rose-200'
+    case 'Free Trial':
+    default:
+      return 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
+  }
+}
 import {
   createPropertyAction,
   updatePropertyAction,
@@ -433,6 +453,7 @@ export default function DashboardPage() {
   const [subscriptionPlan, setSubscriptionPlan] = useState<string>('trial')
   const [subscriptionStatus, setSubscriptionStatus] = useState<string>('trialing')
   const [isTrialExpired, setIsTrialExpired] = useState(false)
+  const [hasPaidAccess, setHasPaidAccess] = useState(false)
   const [currentPeriodStart, setCurrentPeriodStart] = useState<string | null>(null)
   const [currentPeriodEnd, setCurrentPeriodEnd] = useState<string | null>(null)
   const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false)
@@ -457,18 +478,14 @@ export default function DashboardPage() {
   }, [selectedPropertyId])
 
   // Centralized Entitlement State
+  // Strictly consumes authoritative backend entitlement state.
+  // Never independently grants paid access merely because currentPeriodEnd is in the future.
   const entitlement: CustomerEntitlement = useMemo(() => {
-    const isUnexpiredPaidPeriod = Boolean(
-      currentPeriodEnd && new Date(currentPeriodEnd).getTime() > Date.now()
-    )
-    const isUnexpiredTrial = Boolean(subscriptionStatus === 'trialing' && !isTrialExpired)
-    const hasPaidAccess = isUnexpiredPaidPeriod || isUnexpiredTrial
-
     return resolveCustomerEntitlements(
       {
         hasPaidAccess,
         isTrialExpired,
-        status: (subscriptionStatus as any) || (isUnexpiredPaidPeriod ? 'active' : 'expired'),
+        status: (subscriptionStatus as any) || (hasPaidAccess ? 'active' : 'expired'),
         plan: subscriptionPlan,
         trialStart,
         trialEnd,
@@ -482,7 +499,7 @@ export default function DashboardPage() {
       },
       properties.length
     )
-  }, [subscriptionStatus, isTrialExpired, subscriptionPlan, trialStart, trialEnd, currentPeriodStart, currentPeriodEnd, cancelAtPeriodEnd, autopayStatus, properties.length])
+  }, [hasPaidAccess, subscriptionStatus, isTrialExpired, subscriptionPlan, trialStart, trialEnd, currentPeriodStart, currentPeriodEnd, cancelAtPeriodEnd, autopayStatus, properties.length])
 
   // Active property derived helper
   const property: Property = useMemo(() => {
@@ -900,24 +917,42 @@ export default function DashboardPage() {
 
             const verifyData = await verifyRes.json()
             if (verifyRes.ok && verifyData.success) {
+              setShowPricingModal(false)
+
+              // Explicitly distinguish trial access vs paid access:
+              // Never call setHasPaidAccess(true) merely because status === 'active' or 'trialing'.
+              // Strictly consume the explicitly returned, server-verified authoritative entitlement.
+              const isServerVerifiedPaidAccess = Boolean(
+                verifyData.status === 'active' && verifyData.hasPaidAccess === true
+              )
+              setHasPaidAccess(isServerVerifiedPaidAccess)
+
+              if (verifyData.status) {
+                setSubscriptionStatus(verifyData.status)
+              }
+              if (verifyData.plan) {
+                setSubscriptionPlan(verifyData.plan)
+              }
+              if (typeof verifyData.isTrialExpired === 'boolean') {
+                setIsTrialExpired(verifyData.isTrialExpired)
+              }
+              if (verifyData.trialEnd !== undefined) {
+                setTrialEnd(verifyData.trialEnd)
+              }
+
               if (verifyData.status === 'active') {
-                setSubscriptionStatus('active')
-                setSubscriptionPlan(verifyData.plan || selectedPlanObj.id)
-                setIsTrialExpired(false)
-                setTrialEnd(null)
-                setShowPricingModal(false)
-                flash(`🎉 ${selectedPlanObj.name} plan activated successfully!`)
-                void fetchDashboardData({ silent: true })
+                if (isServerVerifiedPaidAccess) {
+                  flash(`🎉 ${selectedPlanObj.name} plan activated successfully!`)
+                } else {
+                  flash('Payment received and undergoing verification. Updating dashboard...')
+                }
               } else if (verifyData.status === 'trialing') {
-                setSubscriptionStatus('trialing')
-                setSubscriptionPlan(verifyData.plan || selectedPlanObj.id)
-                setIsTrialExpired(false)
-                setShowPricingModal(false)
                 flash('✔ Subscription mandate authorized! Your first payment will start when your trial concludes.')
-                void fetchDashboardData({ silent: true })
               } else {
                 flash(verifyData.error || `Subscription status is ${verifyData.status}.`)
               }
+
+              void fetchDashboardData({ silent: true })
             } else {
               flash(verifyData.error || 'Payment received, but server verification could not be confirmed.')
             }
@@ -1060,6 +1095,7 @@ export default function DashboardPage() {
       const subRecords = Array.isArray(subRes?.data) ? subRes.data : subRes?.data ? [subRes.data] : []
       const authSub = resolveAuthoritativeSubscription(subRecords)
 
+      setHasPaidAccess(authSub.hasPaidAccess)
       setTrialStart(authSub.trialStart)
       setTrialEnd(authSub.trialEnd)
       setSubscriptionStatus(authSub.status)
@@ -6019,24 +6055,20 @@ export default function DashboardPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-[#8b5a2b]">Active Subscription</span>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${cancelAtPeriodEnd
-                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                          : subscriptionStatus === 'active'
-                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                            : isTrialExpired
-                              ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
-                              : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
-                        }`}
-                    >
-                      {cancelAtPeriodEnd
-                        ? 'AutoPay Cancelled (Access Active)'
-                        : subscriptionStatus === 'active'
-                          ? 'Active Paid Plan'
-                          : isTrialExpired
-                            ? 'Trial Expired'
-                            : '7-Day Free Trial'}
-                    </span>
+                    {(() => {
+                      const badgeLabel = getSubscriptionBadgeLabel({
+                        status: subscriptionStatus,
+                        hasPaidAccess: entitlement?.hasPaidAccess,
+                        isTrialExpired,
+                        cancelAtPeriodEnd,
+                        currentPeriodEnd,
+                      })
+                      return (
+                        <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${getBadgeColorClasses(badgeLabel)}`}>
+                          {badgeLabel}
+                        </span>
+                      )
+                    })()}
                   </div>
                   <h3 className="mt-1 text-base sm:text-lg font-extrabold text-[#2c221e] capitalize">
                     {subscriptionPlan || 'Starter'} Plan
@@ -11184,24 +11216,20 @@ const SettingsTab = memo(function SettingsTab({
               <span className="text-base font-bold text-[#2c221e] capitalize">
                 {subscriptionPlan || 'Free Trial'} Plan
               </span>
-              <span
-                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${subscriptionStatus === 'active'
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                    : isTrialExpired
-                      ? 'bg-[#ffebe8] text-[#b95c3c] border border-[#ffcfc7]'
-                      : isEndingSoon
-                        ? 'bg-[#fff4e5] text-[#b46b1a] border border-[#f5c285]'
-                        : 'bg-[#faf3ea] text-[#8b5a2b] border border-[#e8dfd4]'
-                  }`}
-              >
-                {subscriptionStatus === 'active'
-                  ? 'Active Paid Plan'
-                  : isTrialExpired
-                    ? 'Trial Expired'
-                    : hoursRemaining !== null && hoursRemaining < 48
-                      ? `Trial (${hoursRemaining}h left)`
-                      : `Trial (${daysRemaining ?? 7}d left)`}
-              </span>
+              {(() => {
+                const badgeLabel = getSubscriptionBadgeLabel({
+                  status: subscriptionStatus,
+                  hasPaidAccess: entitlement?.hasPaidAccess,
+                  isTrialExpired,
+                  cancelAtPeriodEnd,
+                  currentPeriodEnd,
+                })
+                return (
+                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${getBadgeColorClasses(badgeLabel)}`}>
+                    {badgeLabel}
+                  </span>
+                )
+              })()}
             </div>
             <p className="mt-2 text-xs text-[#676b7d]">
               {subscriptionStatus === 'active'

@@ -162,13 +162,88 @@ export function isAnnualPlan(r: SubscriptionRecord): boolean {
   return false
 }
 
+/**
+ * Evaluates whether a subscription record possesses verified captured-payment evidence.
+ *
+ * Invariants:
+ * 1. Explicit payment_status === 'paid' is authoritative proof of payment capture.
+ * 2. Explicit non-paid statuses ('pending', 'failed', 'refunded', 'unverified') are strictly disqualified.
+ * 3. In legacy records (payment_status is null or undefined), a non-empty razorpay_subscription_id
+ *    alone DOES NOT prove a successful charge (e.g. mandate authorized without charge).
+ * 4. Legitimate legacy paid subscriptions are preserved ONLY where trusted existing evidence
+ *    establishes that the exact subscription was successfully charged:
+ *    - Valid paid plan tier (plan !== 'trial')
+ *    - Valid non-empty razorpay_subscription_id belonging to this exact subscription
+ *    - Status is 'active' (or unexpired paid-through canceled period)
+ *    - Verified historical payment evidence: a valid non-empty razorpay_payment_id for this subscription.
+ * 5. If capture evidence cannot be established (e.g. no payment_id and payment_status is NULL),
+ *    automatic paid access is denied, and the ambiguous case is logged for reconciliation.
+ */
+export function hasAuthoritativePaymentEvidence(
+  r: SubscriptionRecord,
+  _nowMs: number = Date.now()
+): boolean {
+  const isPaidPlan = r.plan !== 'trial'
+  if (!isPaidPlan) {
+    return false
+  }
+
+  // Rule 2: Explicitly disqualified payment statuses
+  if (
+    r.payment_status === 'refunded' ||
+    r.payment_status === 'failed' ||
+    r.payment_status === 'pending' ||
+    r.payment_status === 'unverified'
+  ) {
+    return false
+  }
+
+  // Rule 1: Authoritative captured payment status
+  if (r.payment_status === 'paid') {
+    return true
+  }
+
+  // Rule 3, 4, 5: payment_status is null or undefined (legacy record)
+  const hasSubId = Boolean(
+    r.razorpay_subscription_id &&
+    typeof r.razorpay_subscription_id === 'string' &&
+    r.razorpay_subscription_id.trim().length > 0
+  )
+
+  const hasPaymentId = Boolean(
+    r.razorpay_payment_id &&
+    typeof r.razorpay_payment_id === 'string' &&
+    r.razorpay_payment_id.trim().length > 0
+  )
+
+  const isEligibleStatus = r.status === 'active' || r.status === 'canceled'
+
+  // Trusted legacy verification:
+  // Requires an eligible status (active or canceled), on a paid plan, with an authoritative
+  // Razorpay subscription ID AND verified historical captured payment evidence (razorpay_payment_id).
+  // An active subscription ID alone without a payment ID does NOT prove a successful charge!
+  if (isEligibleStatus && hasSubId && hasPaymentId) {
+    return true
+  }
+
+  // If capture evidence cannot be established, deny automatic paid access and log the record for reconciliation.
+  if (hasSubId || hasPaymentId) {
+    console.warn(
+      `[SubscriptionAuthority] Unverified legacy payment evidence: record=${r.id || 'unknown'}, owner=${r.owner_id}, sub_id=${r.razorpay_subscription_id || 'none'}, payment_id=${r.razorpay_payment_id || 'none'}, status=${r.status}, plan=${r.plan}. Cannot establish proof of successful charge without payment_status='paid' or verified payment_id. Automatic paid access denied; flagged for reconciliation.`
+    )
+  }
+
+  return false
+}
+
 export function getDerivedPeriodEndMs(r: SubscriptionRecord): number | null {
   if (r.current_period_end) {
     return new Date(r.current_period_end).getTime()
   }
-  // Bounded safe fallback: ONLY for active records with positive payment proof
+  // Bounded safe fallback: ONLY for active records with authoritative payment proof
   // Anchored to current_period_start, or immutable created_at. Never updated_at!
-  const hasPayment = Boolean(r.razorpay_payment_id || r.payment_status === 'paid' || r.status === 'active');
+  const hasPayment = hasAuthoritativePaymentEvidence(r)
+
   if (hasPayment && r.status === 'active') {
     const rawDate = r.current_period_start || r.created_at || r.updated_at;
     const baseMs = rawDate ? new Date(rawDate).getTime() : Date.now();
@@ -189,6 +264,81 @@ export function getDerivedTrialEndMs(r: SubscriptionRecord): number | null {
     return new Date(r.created_at).getTime() + 7 * 86400000
   }
   return null
+}
+
+/**
+ * Resolves the canonical dashboard subscription badge label according to BaseraBook's
+ * authoritative 7-state lifecycle matrix:
+ *
+ * 1. Valid trial -> 'Free Trial'
+ * 2. Verified active paid subscription -> 'Active Paid Plan'
+ * 3. Expired trial -> 'Trial Expired'
+ * 4. Cancelled with paid-through access -> 'Access Until Billing End'
+ * 5. Cancelled without paid-through access -> 'Cancelled'
+ * 6. Payment failure after paid period -> 'Payment Required / Past Due'
+ * 7. Fully refunded -> 'Refunded / Access Revoked'
+ */
+export function getSubscriptionBadgeLabel(params: {
+  status?: string | null
+  hasPaidAccess?: boolean
+  isTrialExpired?: boolean
+  cancelAtPeriodEnd?: boolean | null
+  currentPeriodEnd?: string | null
+  paymentStatus?: string | null
+  nowMs?: number
+}): string {
+  const status = params.status || 'expired'
+  const hasPaidAccess = Boolean(params.hasPaidAccess)
+  const isTrialExpired = Boolean(params.isTrialExpired)
+  const cancelAtPeriodEnd = Boolean(params.cancelAtPeriodEnd)
+  const paymentStatus = params.paymentStatus || 'pending'
+  const nowMs = params.nowMs ?? Date.now()
+
+  // State 7: Fully refunded
+  if (paymentStatus === 'refunded') {
+    return 'Refunded / Access Revoked'
+  }
+
+  const isPeriodActive = Boolean(
+    params.currentPeriodEnd && new Date(params.currentPeriodEnd).getTime() > nowMs
+  )
+
+  // States 4 & 5: Cancelled subscriptions
+  if (status === 'canceled' || cancelAtPeriodEnd) {
+    if (hasPaidAccess && isPeriodActive) {
+      return 'Access Until Billing End'
+    }
+    return 'Cancelled'
+  }
+
+  // State 6: Payment failure after paid period
+  if (status === 'past_due' || paymentStatus === 'failed') {
+    if (!hasPaidAccess || !isPeriodActive) {
+      return 'Payment Required / Past Due'
+    }
+  }
+
+  // State 2: Verified active paid subscription
+  if (hasPaidAccess && status === 'active') {
+    return 'Active Paid Plan'
+  }
+
+  // State 1: Valid unexpired trial
+  if (status === 'trialing' && !isTrialExpired) {
+    return 'Free Trial'
+  }
+
+  // State 3: Expired trial
+  if (isTrialExpired || status === 'expired') {
+    return 'Trial Expired'
+  }
+
+  // Fallback for created or unauthenticated states
+  if (status === 'created') {
+    return 'Trial Expired'
+  }
+
+  return 'Free Trial'
 }
 
 export function resolveAuthoritativeSubscription(
@@ -218,9 +368,27 @@ export function resolveAuthoritativeSubscription(
   // Sort records deterministically with complete parity to the PostgreSQL trigger
   const sorted = [...records].sort((a, b) => {
     const getRank = (r: SubscriptionRecord) => {
+      // Explicitly expired or ended records must NEVER rank as active or trialing
+      const isExplicitlyExpired =
+        r.status === 'expired' ||
+        (Boolean(r.ended_at) && new Date(r.ended_at!).getTime() <= nowMs)
+      if (isExplicitlyExpired) {
+        return 3
+      }
+
       const endMs = getDerivedPeriodEndMs(r)
-      const hasPayment = Boolean(r.razorpay_payment_id || r.payment_status === 'paid' || (r.status === 'active' && endMs !== null));
-      if (hasPayment && r.payment_status !== 'refunded' && endMs !== null && endMs > nowMs) {
+      const isPaidPlan = r.plan !== 'trial'
+      const hasVerifiedPayment = hasAuthoritativePaymentEvidence(r, nowMs)
+      const isEligibleStatus =
+        (r.status === 'active' || r.status === 'canceled') &&
+        isPaidPlan
+
+      if (
+        isEligibleStatus &&
+        hasVerifiedPayment &&
+        endMs !== null &&
+        endMs > nowMs
+      ) {
         return 1
       }
       const trialMs = getDerivedTrialEndMs(r)
@@ -253,14 +421,20 @@ export function resolveAuthoritativeSubscription(
 
   const winning = sorted[0]
   const winningEndMs = getDerivedPeriodEndMs(winning)
-  const hasWinningPayment = Boolean(
-    winning.razorpay_payment_id ||
-    winning.payment_status === 'paid' ||
-    (winning.status === 'active' && winningEndMs !== null)
-  )
+  const isWinningExplicitlyExpired =
+    winning.status === 'expired' ||
+    (Boolean(winning.ended_at) && new Date(winning.ended_at!).getTime() <= nowMs)
+
+  const isWinningPaidPlan = winning.plan !== 'trial'
+  const hasWinningPayment = hasAuthoritativePaymentEvidence(winning, nowMs)
+  const isWinningStatusEligible =
+    (winning.status === 'active' || winning.status === 'canceled') &&
+    isWinningPaidPlan
+
   const isPaidActive = Boolean(
+    !isWinningExplicitlyExpired &&
+    isWinningStatusEligible &&
     hasWinningPayment &&
-    winning.payment_status !== 'refunded' &&
     winningEndMs !== null &&
     winningEndMs > nowMs
   )
@@ -334,7 +508,7 @@ export function resolveAuthoritativeSubscription(
     resolvedStatus = 'past_due'
   } else if (winning.status === 'canceled') {
     resolvedStatus = 'canceled'
-  } else if (winning.status === 'created') {
+  } else if (winning.status === 'created' || (winning.status === 'active' && winning.payment_status === 'pending')) {
     resolvedStatus = 'created'
   }
 
@@ -586,10 +760,14 @@ export async function persistSubscriptionToDatabase(
   async function attemptWrite(writePayload: Record<string, any>) {
     if (targetRowId) {
       // Scoped update to the single targeted row
-      return adminClient
+      let updateQuery = adminClient
         .from('subscriptions')
         .update(writePayload)
         .eq('id', targetRowId)
+      if (typeof updateQuery.select === 'function') {
+        updateQuery = updateQuery.select('id')
+      }
+      return updateQuery
     } else if (subscriptionId) {
       // Atomic insert for new Razorpay subscription ID
       const payloadWithSub = {
@@ -597,11 +775,15 @@ export async function persistSubscriptionToDatabase(
         owner_id: ownerId,
         razorpay_subscription_id: subscriptionId,
       }
-      const insertRes = await adminClient
+      let insertQuery = adminClient
         .from('subscriptions')
         .insert(payloadWithSub)
+      if (typeof insertQuery.select === 'function') {
+        insertQuery = insertQuery.select('id')
+      }
+      const insertRes = await insertQuery
 
-      // Handle simultaneous insert collision: if another worker inserted this subscriptionId concurrently
+      // Handle simultaneous insert collision or unique constraint violation on owner_id (e.g. uq_subscriptions_owner)
       if (
         insertRes.error &&
         (insertRes.error.code === '23505' ||
@@ -609,23 +791,96 @@ export async function persistSubscriptionToDatabase(
           insertRes.error.message?.includes('unique constraint') ||
           insertRes.error.message?.includes('uq_subscriptions'))
       ) {
-        return adminClient
+        // 1. Check if another worker concurrently inserted this exact razorpay_subscription_id
+        let updateExactQuery = adminClient
           .from('subscriptions')
           .update(writePayload)
           .eq('owner_id', ownerId)
           .eq('razorpay_subscription_id', subscriptionId)
+        if (typeof updateExactQuery.select === 'function') {
+          updateExactQuery = updateExactQuery.select('id')
+        }
+        const updateExact = await updateExactQuery
+
+        if (!updateExact.error && updateExact.data && (!Array.isArray(updateExact.data) || updateExact.data.length > 0)) {
+          return updateExact
+        }
+
+        // 2. If updateExact matched 0 rows, the unique constraint (e.g. uq_subscriptions_owner)
+        // was triggered because an existing row exists for owner_id under a different/old subscription ID.
+        // We look up the existing row for this owner to verify safe transition.
+        const { data: ownerRows } = await adminClient
+          .from('subscriptions')
+          .select('*')
+          .eq('owner_id', ownerId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+
+        if (ownerRows && ownerRows.length > 0) {
+          const existing = ownerRows[0]
+          // Safe replacement rules:
+          // 1. Existing row is expired, trial, created, or canceled without active paid access
+          // 2. OR incoming write payload is authoritative (active or paid, NEVER merely 'created' over active subscription)
+          const isExistingExpiredOrTrial =
+            existing.status === 'expired' ||
+            existing.plan === 'trial' ||
+            existing.status === 'created' ||
+            existing.status === 'canceled'
+
+          const isNewPayloadAuthoritative =
+            writePayload.status === 'active' ||
+            writePayload.payment_status === 'paid'
+
+          if (isExistingExpiredOrTrial || isNewPayloadAuthoritative) {
+            targetRowId = existing.id
+            // INVARIANT: Never inherit the old subscription's payment ID or payment status!
+            const safeUpdatePayload = {
+              ...writePayload,
+              razorpay_subscription_id: subscriptionId,
+              razorpay_payment_id:
+                writePayload.razorpay_payment_id !== undefined ? writePayload.razorpay_payment_id : null,
+              payment_status:
+                writePayload.payment_status !== undefined ? writePayload.payment_status : 'pending',
+            }
+            let safeUpdateQuery = adminClient
+              .from('subscriptions')
+              .update(safeUpdatePayload)
+              .eq('id', existing.id)
+            if (typeof safeUpdateQuery.select === 'function') {
+              safeUpdateQuery = safeUpdateQuery.select('id')
+            }
+            return safeUpdateQuery
+          } else {
+            console.warn(
+              `[SubscriptionSync] Refusing to overwrite active subscription ${existing.razorpay_subscription_id} with ${subscriptionId}`
+            )
+            return {
+              data: null,
+              error: {
+                message: `Active subscription ${existing.razorpay_subscription_id} cannot be overwritten by ${subscriptionId}`,
+              },
+            }
+          }
+        }
+
+        return updateExact
       }
       return insertRes
     } else {
       // Safe insert when no specific subscription ID is designated
-      return adminClient
+      let insertQuery = adminClient
         .from('subscriptions')
         .insert({ ...writePayload, owner_id: ownerId })
+      if (typeof insertQuery.select === 'function') {
+        insertQuery = insertQuery.select('id')
+      }
+      return insertQuery
     }
   }
 
   // Attempt 1: Full payload
-  let { error: writeError } = await attemptWrite(normalizedPayload)
+  let writeRes = await attemptWrite(normalizedPayload)
+  let writeError = writeRes.error
 
   // Attempt 2: If check constraint failed on plan, map yearly -> pro, monthly -> growth
   if (writeError && writeError.message?.includes('subscriptions_plan_check')) {
@@ -638,8 +893,8 @@ export async function persistSubscriptionToDatabase(
           : normalizedPayload.plan
 
     const fallbackPayload = { ...normalizedPayload, plan: mappedPlan }
-    const fallbackRes = await attemptWrite(fallbackPayload)
-    writeError = fallbackRes.error
+    writeRes = await attemptWrite(fallbackPayload)
+    writeError = writeRes.error
   }
 
   // Attempt 3: If new columns (cancel_at_period_end, autopay_status, etc.) don't exist yet, retry with existing schema columns
@@ -658,8 +913,8 @@ export async function persistSubscriptionToDatabase(
       razorpay_payment_id: normalizedPayload.razorpay_payment_id,
       updated_at: new Date().toISOString(),
     }
-    const midRes = await attemptWrite(midPayload)
-    writeError = midRes.error
+    writeRes = await attemptWrite(midPayload)
+    writeError = writeRes.error
   }
 
   // Attempt 4: Baseline update if extended columns failed
@@ -670,13 +925,26 @@ export async function persistSubscriptionToDatabase(
       status: normalizedPayload.status,
       updated_at: new Date().toISOString(),
     }
-    const baselineRes = await attemptWrite(baselinePayload)
-    writeError = baselineRes.error
+    writeRes = await attemptWrite(baselinePayload)
+    writeError = writeRes.error
   }
 
   if (writeError) {
     console.error('[SubscriptionSync] Fatal: could not persist subscription to DB:', writeError)
     return { success: false, error: writeError.message }
+  }
+
+  // Reliable Supabase update/select result check:
+  // A response with data === null, undefined, or an empty array (data.length === 0)
+  // CANNOT be treated as proof that an update or insert affected any row.
+  const affectedCount = Array.isArray(writeRes?.data)
+    ? writeRes.data.length
+    : writeRes?.data
+      ? 1
+      : 0
+
+  if (affectedCount === 0) {
+    return { success: false, error: 'Database operation affected 0 rows' }
   }
 
   return { success: true }
