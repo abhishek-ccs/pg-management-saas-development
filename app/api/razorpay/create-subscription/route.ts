@@ -152,9 +152,17 @@ export async function POST(req: NextRequest) {
         const persistResult = await persistSubscriptionToDatabase(admin, user.id, updateData, subscription.id)
         if (!persistResult.success) {
           console.error('[create-subscription] Failed to pre-save pending subscription to DB:', persistResult.error)
+          return NextResponse.json(
+            { error: 'Failed to record subscription in database. Please try again or contact support.' },
+            { status: 500 }
+          )
         }
-      } catch (dbErr) {
+      } catch (dbErr: any) {
         console.error('[create-subscription] Error persisting pending subscription to DB:', dbErr)
+        return NextResponse.json(
+          { error: 'Failed to record subscription in database. Please try again or contact support.' },
+          { status: 500 }
+        )
       }
     }
 

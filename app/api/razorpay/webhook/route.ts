@@ -18,6 +18,22 @@ interface WebhookClaimResult {
   isRetryable?: boolean
 }
 
+const SUPPORTED_WEBHOOK_EVENTS = new Set([
+  'subscription.charged',
+  'subscription.activated',
+  'subscription.authenticated',
+  'subscription.cancelled',
+  'mandate.revoked',
+  'mandate.cancelled',
+  'subscription.halted',
+  'subscription.paused',
+  'payment.failed',
+  'refund.processed',
+  'refund.created',
+  'refund.failed',
+  'refund.speed_changed',
+])
+
 async function claimWebhookEvent(
   admin: any,
   eventId: string,
@@ -69,8 +85,8 @@ async function claimWebhookEvent(
         return { claimed: false, reason: 'in_flight', isRetryable: true }
       }
 
-      // 3. Lease has expired OR prior attempt failed: atomically re-claim the lease with fencing token
-      const { data: reClaimed, error: updateErr } = await admin
+      // 3. Lease has expired OR prior attempt failed OR status is pending: atomically re-claim the lease with fencing token
+      let updateQuery = admin
         .from('razorpay_webhook_events')
         .update({
           status: 'processing',
@@ -80,8 +96,14 @@ async function claimWebhookEvent(
           error: null,
         })
         .eq('id', existing.id)
-        .eq('status', existing.status)
-        .select('id')
+
+      if (existing.status !== null && existing.status !== undefined) {
+        updateQuery = updateQuery.eq('status', existing.status)
+      } else {
+        updateQuery = updateQuery.is('status', null)
+      }
+
+      const { data: reClaimed, error: updateErr } = await updateQuery.select('id')
 
       if (updateErr || !reClaimed || reClaimed.length === 0) {
         return { claimed: false, reason: 'concurrent_claim_lost', isRetryable: true }
@@ -239,6 +261,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: claim.reason || 'unprocessed' }, { status: 200 })
     }
 
+    // 2b. Check for supported event type.
+    // If the event type is unsupported by our subscription & refund lifecycle, mark it completed in the idempotency log
+    // so it is acknowledged cleanly and not repeatedly re-processed.
+    if (!SUPPORTED_WEBHOOK_EVENTS.has(eventType)) {
+      console.log(`[Webhook] Acknowledging unsupported event type: ${eventType} (event_id=${eventId})`)
+      await markWebhookCompleted(admin, eventId, claim.leaseToken)
+      return NextResponse.json({ status: 'ignored_unsupported_event', eventType }, { status: 200 })
+    }
+
     // 3. Process Subscription & Payment Lifecycle Events
     const subscriptionEntity = payload.payload?.subscription?.entity
     const paymentEntity = payload.payload?.payment?.entity
@@ -300,15 +331,12 @@ export async function POST(req: NextRequest) {
       )
 
       // Out-of-order event check:
-      // If user has already renewed with a newer subscription and active paid-through date,
-      // do not let a delayed cancellation or failure for a replaced older subscription override it.
+      // If user has already renewed or replaced with another subscription,
+      // do not let a delayed cancellation or failure for an older or different subscription override it.
       if (
         !isSameSubscription &&
         existingSub?.razorpay_subscription_id &&
-        subscriptionId &&
-        existingSub.status === 'active' &&
-        existingSub.current_period_end &&
-        new Date(existingSub.current_period_end).getTime() > Date.now()
+        subscriptionId
       ) {
         if (
           eventType === 'subscription.cancelled' ||
@@ -318,7 +346,7 @@ export async function POST(req: NextRequest) {
           eventType === 'payment.failed'
         ) {
           console.warn(
-            `[Webhook] Ignored ${eventType} event for replaced subscription ${subscriptionId}; active subscription is ${existingSub.razorpay_subscription_id}`
+            `[Webhook] Ignored ${eventType} event for different/replaced subscription ${subscriptionId}; current subscription is ${existingSub.razorpay_subscription_id}`
           )
           await markWebhookCompleted(admin, eventId, claim.leaseToken)
           return NextResponse.json({ status: 'ignored_stale_subscription' }, { status: 200 })
@@ -333,8 +361,21 @@ export async function POST(req: NextRequest) {
       if (subscriptionId) {
         updateData.razorpay_subscription_id = subscriptionId
       }
-      if (subscriptionEntity?.notes?.plan_tier) {
-        updateData.plan = subscriptionEntity.notes.plan_tier
+      const resolvedPlanTier =
+        subscriptionEntity?.notes?.plan_tier ||
+        paymentEntity?.notes?.plan_tier ||
+        (subscriptionEntity?.plan_id?.includes('starter')
+          ? 'starter'
+          : subscriptionEntity?.plan_id?.includes('growth')
+            ? 'growth'
+            : subscriptionEntity?.plan_id?.includes('business')
+              ? 'business'
+              : subscriptionEntity?.plan_id?.includes('pro')
+                ? 'pro'
+                : undefined)
+
+      if (resolvedPlanTier) {
+        updateData.plan = resolvedPlanTier
       }
 
       switch (eventType) {
@@ -597,7 +638,7 @@ export async function POST(req: NextRequest) {
         console.error(
           `❌ Webhook failed to persist subscription: user=${targetOwnerId}, error=${persistErr}`
         )
-        await markWebhookFailed(admin, eventId, persistErr || 'Database persistence failed')
+        await markWebhookFailed(admin, eventId, persistErr || 'Database persistence failed', claim.leaseToken)
         return NextResponse.json(
           { error: persistErr || 'Failed to persist subscription to database' },
           { status: 500 }

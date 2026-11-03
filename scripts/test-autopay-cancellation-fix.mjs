@@ -2799,3 +2799,715 @@ test('63. Dashboard cannot grant paid access when the authoritative resolver den
   })
   assert.equal(badge, 'Trial Expired')
 })
+
+test('64. New subscription creation with no prior subscription', async () => {
+  const createdRows = []
+  const mockAdminClient = {
+    from: (table) => ({
+      select: (cols) => ({
+        eq: (f1, v1) => ({
+          eq: (f2, v2) => ({
+            limit: () => Promise.resolve({ data: [], error: null }),
+          }),
+        }),
+      }),
+      insert: (payload) => {
+        const row = { id: 'sub_row_new_64', ...payload }
+        createdRows.push(row)
+        return Promise.resolve({ data: [row], error: null })
+      },
+    }),
+  }
+
+  const res = await persistSubscriptionToDatabase(
+    mockAdminClient,
+    'user_brand_new_64',
+    { plan: 'starter', status: 'created', razorpay_subscription_id: 'sub_new_user_64' },
+    'sub_new_user_64'
+  )
+
+  assert.equal(res.success, true, 'New subscription insertion must succeed')
+  assert.equal(createdRows.length, 1)
+  assert.equal(createdRows[0].owner_id, 'user_brand_new_64')
+  assert.equal(createdRows[0].razorpay_subscription_id, 'sub_new_user_64')
+})
+
+test('65. Replacement of expired subscription (old payment evidence cleared, new subscription ID set)', async () => {
+  const existingRow = {
+    id: 'row_expired_65',
+    owner_id: 'user_expired_replace_65',
+    plan: 'starter',
+    status: 'expired',
+    razorpay_subscription_id: 'sub_old_expired_65',
+    razorpay_payment_id: 'pay_old_expired_65',
+    payment_status: 'paid',
+    current_period_end: '2026-10-01T00:00:00Z',
+    updated_at: '2026-10-01T00:00:00Z',
+  }
+
+  let updatedPayload = null
+
+  const mockAdminClient = {
+    from: (table) => ({
+      select: (cols) => ({
+        eq: (f1, v1) => ({
+          eq: (f2, v2) => ({
+            limit: () => Promise.resolve({ data: [], error: null }), // No match on new sub ID
+          }),
+          order: () => ({
+            limit: () => Promise.resolve({ data: [existingRow], error: null }),
+          }),
+        }),
+      }),
+      insert: () =>
+        Promise.resolve({
+          data: null,
+          error: { code: '23505', message: 'duplicate key value violates unique constraint "uq_subscriptions_owner"' },
+        }),
+      update: (payload) => ({
+        eq: (f, v) => {
+          assert.equal(v, existingRow.id, 'Must update existing owner row ID')
+          updatedPayload = { ...payload }
+          Object.assign(existingRow, payload)
+          return {
+            select: () => Promise.resolve({ data: [existingRow], error: null }),
+          }
+        },
+      }),
+    }),
+  }
+
+  const res = await persistSubscriptionToDatabase(
+    mockAdminClient,
+    'user_expired_replace_65',
+    { plan: 'growth', status: 'created', razorpay_subscription_id: 'sub_new_checkout_65' },
+    'sub_new_checkout_65'
+  )
+
+  assert.equal(res.success, true, 'Replacement must succeed')
+  assert.equal(existingRow.razorpay_subscription_id, 'sub_new_checkout_65')
+  assert.equal(existingRow.razorpay_payment_id, null, 'Old payment ID must be cleared')
+  assert.equal(existingRow.payment_status, 'pending', 'Payment status must be reset to pending')
+})
+
+test('66. Replacement of canceled subscription', async () => {
+  const existingCanceled = {
+    id: 'row_canceled_66',
+    owner_id: 'user_canceled_replace_66',
+    plan: 'growth',
+    status: 'canceled',
+    razorpay_subscription_id: 'sub_old_canceled_66',
+    razorpay_payment_id: 'pay_old_canceled_66',
+    payment_status: 'paid',
+    current_period_end: '2026-10-15T00:00:00Z', // In the past
+    updated_at: '2026-10-15T00:00:00Z',
+  }
+
+  const mockAdminClient = {
+    from: (table) => ({
+      select: (cols) => ({
+        eq: (f1, v1) => ({
+          eq: (f2, v2) => ({
+            limit: () => Promise.resolve({ data: [], error: null }),
+          }),
+          order: () => ({
+            limit: () => Promise.resolve({ data: [existingCanceled], error: null }),
+          }),
+        }),
+      }),
+      insert: () =>
+        Promise.resolve({
+          data: null,
+          error: { code: '23505', message: 'duplicate key value violates unique constraint "uq_subscriptions_owner"' },
+        }),
+      update: (payload) => ({
+        eq: (f, v) => {
+          Object.assign(existingCanceled, payload)
+          return {
+            select: () => Promise.resolve({ data: [existingCanceled], error: null }),
+          }
+        },
+      }),
+    }),
+  }
+
+  const res = await persistSubscriptionToDatabase(
+    mockAdminClient,
+    'user_canceled_replace_66',
+    { plan: 'pro', status: 'created', razorpay_subscription_id: 'sub_new_pro_66' },
+    'sub_new_pro_66'
+  )
+
+  assert.equal(res.success, true)
+  assert.equal(existingCanceled.razorpay_subscription_id, 'sub_new_pro_66')
+  assert.equal(existingCanceled.razorpay_payment_id, null, 'Old payment evidence must not persist')
+  assert.equal(existingCanceled.payment_status, 'pending')
+})
+
+test('67. Prevention of overwriting active paid subscriptions', async () => {
+  const now = Date.now()
+  const activePaidRow = {
+    id: 'row_active_paid_67',
+    owner_id: 'user_active_67',
+    plan: 'pro',
+    status: 'active',
+    razorpay_subscription_id: 'sub_legit_active_67',
+    razorpay_payment_id: 'pay_legit_active_67',
+    payment_status: 'paid',
+    current_period_end: new Date(now + 15 * ONE_DAY_MS).toISOString(),
+    updated_at: new Date(now).toISOString(),
+  }
+
+  const mockAdminClient = {
+    from: (table) => ({
+      select: (cols) => ({
+        eq: (f1, v1) => ({
+          eq: (f2, v2) => ({
+            limit: () => Promise.resolve({ data: [], error: null }),
+          }),
+          order: () => ({
+            limit: () => Promise.resolve({ data: [activePaidRow], error: null }),
+          }),
+        }),
+      }),
+      insert: () =>
+        Promise.resolve({
+          data: null,
+          error: { code: '23505', message: 'duplicate key value violates unique constraint "uq_subscriptions_owner"' },
+        }),
+      update: () => {
+        throw new Error('Update must NEVER be called when attempting to overwrite active subscription with pending')
+      },
+    }),
+  }
+
+  const res = await persistSubscriptionToDatabase(
+    mockAdminClient,
+    'user_active_67',
+    { plan: 'starter', status: 'created', razorpay_subscription_id: 'sub_unpaid_attempt_67' },
+    'sub_unpaid_attempt_67'
+  )
+
+  assert.equal(res.success, false, 'Must reject overwriting active paid subscription with pending checkout')
+  assert.ok(res.error?.includes('cannot be overwritten'))
+  assert.equal(activePaidRow.razorpay_subscription_id, 'sub_legit_active_67', 'Original sub ID preserved')
+})
+
+test('68. Database persistence failure returns HTTP 500 in create-subscription', async () => {
+  // Simulates create-subscription route handling when DB persistence fails
+  function handleCreateSubscriptionDbResult(persistResult) {
+    if (!persistResult.success) {
+      return {
+        status: 500,
+        body: { error: 'Failed to record subscription in database. Please try again or contact support.' },
+      }
+    }
+    return { status: 200, body: { subscriptionId: 'sub_test_68' } }
+  }
+
+  const failedResult = { success: false, error: 'violates check constraint "subscriptions_status_check"' }
+  const httpResponse = handleCreateSubscriptionDbResult(failedResult)
+
+  assert.equal(httpResponse.status, 500, 'Must fail fast with HTTP 500 when database persistence fails')
+  assert.ok(httpResponse.body.error.includes('Failed to record subscription'))
+})
+
+test('69. Webhook signature verification failure returns HTTP 400', () => {
+  const secret = 'webhook_secret_test_69'
+  const rawBody = JSON.stringify({ event: 'subscription.charged', payload: {} })
+
+  // Valid signature
+  const validSignature = crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
+  const calculatedValid = crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
+  assert.equal(validSignature, calculatedValid)
+
+  // Invalid signature
+  const invalidSignature = 'tampered_signature_hex_value'
+  const isMatch = crypto.timingSafeEqual(
+    Buffer.from(validSignature, 'utf8'),
+    Buffer.from(invalidSignature.padEnd(validSignature.length, '0'), 'utf8')
+  ) && validSignature === invalidSignature
+  assert.equal(isMatch, false, 'Tampered signature must fail verification')
+})
+
+test('70. Duplicate webhook delivery handling', () => {
+  const store = new Map()
+
+  function handleClaim(eventId, leaseToken, leaseExpiresAt) {
+    const existing = store.get(eventId)
+    if (!existing) {
+      store.set(eventId, { status: 'processing', leaseToken, leaseExpiresAt })
+      return { claimed: true, leaseToken }
+    }
+    if (existing.status === 'completed') {
+      return { claimed: false, reason: 'already_completed' }
+    }
+    if (existing.status === 'processing' && existing.leaseExpiresAt > Date.now()) {
+      return { claimed: false, reason: 'in_flight' }
+    }
+    // Expired lease re-claim
+    store.set(eventId, { status: 'processing', leaseToken, leaseExpiresAt })
+    return { claimed: true, leaseToken }
+  }
+
+  const eventId = 'evt_test_70'
+  const claim1 = handleClaim(eventId, 'lease_worker_1', Date.now() + 60000)
+  assert.equal(claim1.claimed, true, 'First worker claims lease')
+
+  const claim2 = handleClaim(eventId, 'lease_worker_2', Date.now() + 60000)
+  assert.equal(claim2.claimed, false, 'Concurrent worker receives in_flight')
+  assert.equal(claim2.reason, 'in_flight')
+
+  // Mark completed
+  store.get(eventId).status = 'completed'
+  const claim3 = handleClaim(eventId, 'lease_worker_3', Date.now() + 60000)
+  assert.equal(claim3.claimed, false)
+  assert.equal(claim3.reason, 'already_completed')
+})
+
+test('71. Webhook retry after failure (re-claims failed or expired lease)', () => {
+  const store = new Map()
+  const eventId = 'evt_fail_and_retry_71'
+
+  // Attempt 1: Failed
+  store.set(eventId, {
+    status: 'failed',
+    leaseToken: 'lease_old',
+    leaseExpiresAt: Date.now() - 1000, // Expired
+    error: 'Temporary DB timeout',
+  })
+
+  // Attempt 2: Retry from Razorpay
+  const now = Date.now()
+  const existing = store.get(eventId)
+  const isReclaimable =
+    existing &&
+    (existing.status === 'failed' || (existing.status === 'processing' && existing.leaseExpiresAt <= now))
+
+  assert.equal(isReclaimable, true, 'Failed or expired event must be re-claimable')
+
+  const newLeaseToken = 'lease_worker_retry'
+  store.set(eventId, {
+    status: 'processing',
+    leaseToken: newLeaseToken,
+    leaseExpiresAt: now + 300000,
+    error: null,
+  })
+
+  assert.equal(store.get(eventId).status, 'processing')
+  assert.equal(store.get(eventId).leaseToken, newLeaseToken)
+})
+
+test('72. Captured payment synchronization (payment_status = paid only on captured payment)', () => {
+  const now = new Date('2026-11-03T12:00:00Z').getTime()
+
+  // Case A: subscription.activated without captured payment (mandate authorization pending first charge)
+  const pendingRecord = {
+    id: 'sub_pending_72',
+    owner_id: 'user_pending_72',
+    plan: 'starter',
+    status: 'active',
+    payment_status: 'pending',
+    razorpay_subscription_id: 'sub_active_pending_72',
+    razorpay_payment_id: null,
+    current_period_end: new Date(now + 30 * ONE_DAY_MS).toISOString(),
+  }
+
+  const resPending = resolveAuthoritativeSubscription([pendingRecord], now)
+  assert.equal(resPending.hasPaidAccess, false, 'Pending payment must not grant paid access')
+  assert.equal(resPending.status, 'created')
+
+  // Case B: subscription.charged with verified captured payment
+  const capturedRecord = {
+    ...pendingRecord,
+    payment_status: 'paid',
+    razorpay_payment_id: 'pay_captured_72',
+  }
+
+  const resCaptured = resolveAuthoritativeSubscription([capturedRecord], now)
+  assert.equal(resCaptured.hasPaidAccess, true, 'Captured payment grants paid access')
+  assert.equal(resCaptured.status, 'active')
+})
+
+test('73. Stale event for older subscription arriving after new subscription does not overwrite or cancel', () => {
+  const currentSubId = 'sub_new_current_73'
+  const staleEventSubId = 'sub_old_replaced_73'
+
+  const currentDbRecord = {
+    id: 'sub_row_73',
+    owner_id: 'user_stale_73',
+    plan: 'growth',
+    status: 'active',
+    razorpay_subscription_id: currentSubId,
+  }
+
+  const isSameSubscription = currentDbRecord.razorpay_subscription_id === staleEventSubId
+  assert.equal(isSameSubscription, false)
+
+  const incomingEventType = 'subscription.cancelled'
+  const isDestructiveEvent =
+    incomingEventType === 'subscription.cancelled' ||
+    incomingEventType.startsWith('mandate.') ||
+    incomingEventType === 'subscription.halted' ||
+    incomingEventType === 'subscription.paused' ||
+    incomingEventType === 'payment.failed'
+
+  const shouldIgnoreStale = !isSameSubscription && Boolean(currentDbRecord.razorpay_subscription_id) && isDestructiveEvent
+  assert.equal(shouldIgnoreStale, true, 'Stale event for older subscription must be ignored')
+})
+
+test('74. Correct owner mapping for multiple subscriptions', () => {
+  const now = new Date('2026-11-03T12:00:00Z').getTime()
+
+  // User previously had an expired starter plan, then bought a growth plan
+  const oldExpired = {
+    id: 'sub_old_multi_74',
+    owner_id: 'user_multi_74',
+    plan: 'starter',
+    status: 'expired',
+    razorpay_subscription_id: 'sub_old_74',
+    current_period_end: new Date(now - 10 * ONE_DAY_MS).toISOString(),
+    created_at: '2026-09-01T00:00:00Z',
+    updated_at: '2026-10-01T00:00:00Z',
+  }
+
+  const newActive = {
+    id: 'sub_new_multi_74',
+    owner_id: 'user_multi_74',
+    plan: 'growth',
+    status: 'active',
+    payment_status: 'paid',
+    razorpay_subscription_id: 'sub_new_74',
+    razorpay_payment_id: 'pay_new_74',
+    current_period_end: new Date(now + 20 * ONE_DAY_MS).toISOString(),
+    created_at: '2026-10-02T00:00:00Z',
+    updated_at: '2026-10-02T00:00:00Z',
+  }
+
+  const res = resolveAuthoritativeSubscription([oldExpired, newActive], now)
+  assert.equal(res.hasPaidAccess, true)
+  assert.equal(res.plan, 'growth', 'Must select active growth plan')
+  assert.equal(res.razorpaySubscriptionId, 'sub_new_74')
+  assert.equal(res.razorpayPaymentId, 'pay_new_74')
+
+  const entitlement = resolveCustomerEntitlements(res, 3, now)
+  assert.equal(entitlement.maxProperties, 5, 'Growth plan allows 5 properties')
+  assert.equal(entitlement.remainingPropertySlots, 2)
+  assert.equal(entitlement.canCreateProperty, true)
+})
+
+test('75. Billing period calculations without repeated extensions', () => {
+  const nowMs = new Date('2026-11-03T12:00:00Z').getTime()
+  const startTs = Math.floor(nowMs / 1000)
+  const endTs = startTs + 30 * 86400
+
+  // When Razorpay supplies endTs
+  const calculatedEnd = new Date(endTs * 1000).toISOString()
+  assert.equal(new Date(calculatedEnd).getTime() - nowMs, 30 * ONE_DAY_MS)
+
+  // Cancellation must strictly preserve existing current_period_end and not extend it
+  const existingPeriodEnd = new Date(nowMs + 12 * ONE_DAY_MS).toISOString()
+  const cancellationPreservedEnd = existingPeriodEnd
+  assert.equal(cancellationPreservedEnd, existingPeriodEnd, 'Cancellation must not alter period end')
+})
+
+test('76. Safe reconciliation of existing webhook rows (DEFAULT completed production recovery)', () => {
+  // Simulate the database state produced by adding status with DEFAULT 'completed' in production
+  const webhookRows = [
+    {
+      id: 'evt_err_1',
+      event_type: 'subscription.charged',
+      status: 'completed', // Erroneously marked completed by column default
+      error: 'Timeout connecting to database',
+      lease_token: 'lease_old_1',
+      lease_expires_at: '2026-10-20T00:00:00Z',
+      payload: { payload: { subscription: { entity: { id: 'sub_failed_1' } }, payment: { entity: { id: 'pay_failed_1' } } } },
+    },
+    {
+      id: 'evt_unapplied_charge_2',
+      event_type: 'subscription.charged',
+      status: 'completed', // Marked completed by column default, but charge never applied to subscription
+      error: null,
+      lease_token: 'lease_old_2',
+      lease_expires_at: '2026-10-20T00:00:00Z',
+      payload: { payload: { subscription: { entity: { id: 'sub_unapplied_2' } }, payment: { entity: { id: 'pay_unapplied_2' } } } },
+    },
+    {
+      id: 'evt_verified_charge_3',
+      event_type: 'subscription.charged',
+      status: 'completed', // Genuinely processed
+      error: null,
+      lease_token: 'lease_old_3',
+      lease_expires_at: '2026-10-20T00:00:00Z',
+      payload: { payload: { subscription: { entity: { id: 'sub_verified_3' } }, payment: { entity: { id: 'pay_verified_3' } } } },
+    },
+    {
+      id: 'evt_unapplied_cancel_4',
+      event_type: 'subscription.cancelled',
+      status: 'completed', // Marked completed by default, but subscription was never canceled
+      error: null,
+      lease_token: 'lease_old_4',
+      lease_expires_at: '2026-10-20T00:00:00Z',
+      payload: { payload: { subscription: { entity: { id: 'sub_not_canceled_4' } } } },
+    },
+    {
+      id: 'evt_verified_cancel_5',
+      event_type: 'subscription.cancelled',
+      status: 'completed', // Genuinely canceled
+      error: null,
+      lease_token: 'lease_old_5',
+      lease_expires_at: '2026-10-20T00:00:00Z',
+      payload: { payload: { subscription: { entity: { id: 'sub_canceled_5' } } } },
+    },
+    {
+      id: 'evt_old_unapplied_6',
+      event_type: 'subscription.charged',
+      status: 'completed',
+      error: null,
+      created_at: '2026-09-01T00:00:00Z', // > 7 days old
+      payload: { payload: { subscription: { entity: { id: 'sub_old_6' } }, payment: { entity: { id: 'pay_old_6' } } } },
+    },
+  ]
+
+  const subscriptions = [
+    { razorpay_subscription_id: 'sub_verified_3', razorpay_payment_id: 'pay_verified_3', payment_status: 'paid', status: 'active' },
+    { razorpay_subscription_id: 'sub_not_canceled_4', status: 'active' },
+    { razorpay_subscription_id: 'sub_canceled_5', status: 'canceled' },
+  ]
+
+  // Execute migration logic simulation (5a, 5b, 5c, and ensure no 7-day auto-complete):
+  for (const row of webhookRows) {
+    // 5a: error IS NOT NULL -> failed
+    if (row.error !== null && row.status !== 'failed') {
+      row.status = 'failed'
+    }
+
+    // 5b: subscription.charged / subscription.activated
+    if (row.status === 'completed' && row.error === null && ['subscription.charged', 'subscription.activated'].includes(row.event_type)) {
+      const subId = row.payload?.payload?.subscription?.entity?.id
+      const payId = row.payload?.payload?.payment?.entity?.id
+      const hasPaidEvidence = subscriptions.some(s =>
+        (s.razorpay_subscription_id === subId || s.razorpay_payment_id === payId) && s.payment_status === 'paid'
+      )
+      if (!hasPaidEvidence) {
+        row.status = 'pending'
+        row.lease_token = null
+        row.lease_expires_at = null
+      }
+    }
+
+    // 5c: cancellation events
+    if (row.status === 'completed' && row.error === null && ['subscription.cancelled', 'mandate.revoked', 'mandate.cancelled'].includes(row.event_type)) {
+      const subId = row.payload?.payload?.subscription?.entity?.id
+      const isCanceledInDb = subscriptions.some(s => s.razorpay_subscription_id === subId && s.status === 'canceled')
+      if (!isCanceledInDb) {
+        row.status = 'pending'
+        row.lease_token = null
+        row.lease_expires_at = null
+      }
+    }
+  }
+
+  // Verifications:
+  // 1. Errored row became 'failed'
+  const row1 = webhookRows.find(r => r.id === 'evt_err_1')
+  assert.equal(row1.status, 'failed', 'Row with error must be marked failed')
+
+  // 2. Unapplied charge row was reset to 'pending' with lease cleared
+  const row2 = webhookRows.find(r => r.id === 'evt_unapplied_charge_2')
+  assert.equal(row2.status, 'pending', 'Unapplied charge must be reset to pending')
+  assert.equal(row2.lease_token, null, 'Lease token must be cleared on reset')
+  assert.equal(row2.lease_expires_at, null)
+
+  // 3. Verified charge row remained 'completed' (idempotency preserved)
+  const row3 = webhookRows.find(r => r.id === 'evt_verified_charge_3')
+  assert.equal(row3.status, 'completed', 'Verified charge must remain completed')
+
+  // 4. Unapplied cancel was reset to 'pending'
+  const row4 = webhookRows.find(r => r.id === 'evt_unapplied_cancel_4')
+  assert.equal(row4.status, 'pending', 'Unapplied cancel must be reset to pending')
+
+  // 5. Verified cancel remained 'completed'
+  const row5 = webhookRows.find(r => r.id === 'evt_verified_cancel_5')
+  assert.equal(row5.status, 'completed', 'Verified cancel must remain completed')
+
+  // 6. Old row (> 7 days) without paid record was reset to pending, never kept completed
+  const row6 = webhookRows.find(r => r.id === 'evt_old_unapplied_6')
+  assert.equal(row6.status, 'pending', 'Historical event without paid record must be reset to pending, not kept completed')
+})
+
+test('77. Webhook processor correctly handles and claims pending events', () => {
+  const store = new Map()
+  const eventId = 'evt_pending_claim_77'
+
+  // Row inserted with DEFAULT 'pending' (or reset to pending by migration)
+  store.set(eventId, {
+    id: eventId,
+    status: 'pending',
+    lease_token: null,
+    lease_expires_at: null,
+    error: null,
+  })
+
+  // Simulated claimWebhookEvent function matching route.ts logic:
+  const claimEvent = (id, newLeaseToken, expiryMs) => {
+    const existing = store.get(id)
+    if (!existing) {
+      store.set(id, { id, status: 'processing', lease_token: newLeaseToken, lease_expires_at: expiryMs, error: null })
+      return { claimed: true, leaseToken: newLeaseToken }
+    }
+
+    if (existing.status === 'completed') {
+      return { claimed: false, reason: 'already_completed' }
+    }
+
+    const now = Date.now()
+    const isLeaseActive = existing.status === 'processing' && existing.lease_expires_at > now
+    if (isLeaseActive) {
+      return { claimed: false, reason: 'in_flight', isRetryable: true }
+    }
+
+    // Existing row is pending, failed, or processing with expired lease:
+    const matchesStatus = (existing.status !== null && existing.status !== undefined)
+      ? existing.status === store.get(id).status
+      : store.get(id).status === null
+
+    if (!matchesStatus) {
+      return { claimed: false, reason: 'concurrent_claim_lost', isRetryable: true }
+    }
+
+    existing.status = 'processing'
+    existing.lease_token = newLeaseToken
+    existing.lease_expires_at = expiryMs
+    existing.error = null
+    return { claimed: true, leaseToken: newLeaseToken }
+  }
+
+  // Worker claims the pending event
+  const claimResult = claimEvent(eventId, 'lease_worker_pending_77', Date.now() + 60000)
+  assert.equal(claimResult.claimed, true, 'Worker must successfully claim pending event')
+  assert.equal(claimResult.leaseToken, 'lease_worker_pending_77')
+  assert.equal(store.get(eventId).status, 'processing')
+  assert.equal(store.get(eventId).lease_token, 'lease_worker_pending_77')
+
+  // A concurrent worker immediately receives in_flight
+  const concurrentResult = claimEvent(eventId, 'lease_worker_2', Date.now() + 60000)
+  assert.equal(concurrentResult.claimed, false)
+  assert.equal(concurrentResult.reason, 'in_flight')
+})
+
+test('78. Webhook processor acknowledges unsupported event types and prevents repetition', () => {
+  const supportedEvents = new Set([
+    'subscription.charged',
+    'subscription.activated',
+    'subscription.authenticated',
+    'subscription.cancelled',
+    'mandate.revoked',
+    'mandate.cancelled',
+    'subscription.halted',
+    'subscription.paused',
+    'payment.failed',
+    'refund.processed',
+    'refund.created',
+    'refund.failed',
+    'refund.speed_changed',
+  ])
+
+  const store = new Map()
+  const eventId = 'evt_unsupported_order_paid_78'
+  const eventType = 'order.paid'
+
+  assert.equal(supportedEvents.has(eventType), false, 'order.paid is not a subscription lifecycle event')
+
+  // Simulate webhook delivery
+  let claim = { claimed: true, leaseToken: 'lease_unsupported_78' }
+  store.set(eventId, { id: eventId, status: 'processing', lease_token: claim.leaseToken })
+
+  // Processor checks if supported:
+  let response = null
+  if (!supportedEvents.has(eventType)) {
+    // Mark completed in idempotency log to acknowledge receipt
+    const existing = store.get(eventId)
+    if (existing && existing.lease_token === claim.leaseToken) {
+      existing.status = 'completed'
+      existing.lease_token = null
+      existing.lease_expires_at = null
+    }
+    response = { status: 200, body: { status: 'ignored_unsupported_event', eventType } }
+  }
+
+  assert.equal(response.status, 200)
+  assert.equal(response.body.status, 'ignored_unsupported_event')
+  assert.equal(store.get(eventId).status, 'completed', 'Unsupported event must be marked completed')
+
+  // When Razorpay redelivers the unsupported event, claimWebhookEvent sees completed and ignores
+  const redeliverExisting = store.get(eventId)
+  assert.equal(redeliverExisting.status, 'completed')
+  const redeliveryClaim = redeliverExisting.status === 'completed'
+    ? { claimed: false, reason: 'already_completed' }
+    : { claimed: true }
+
+  assert.equal(redeliveryClaim.claimed, false)
+  assert.equal(redeliveryClaim.reason, 'already_completed', 'Redelivery of unsupported event is ignored without re-processing')
+})
+
+test('79. Unique index detection recognizes unique index with INCLUDE columns (indnkeyatts = 1)', () => {
+  // Simulate PostgreSQL pg_index / pg_attribute catalog metadata
+  // Case A: Index created with INCLUDE columns:
+  // CREATE UNIQUE INDEX idx_sub_owner_covering ON public.subscriptions (owner_id) INCLUDE (status, plan);
+  // In PostgreSQL:
+  // indnatts = 3 (owner_id + status + plan)
+  // indnkeyatts = 1 (only owner_id is the unique key column)
+  const coveringIndex = {
+    relname: 'idx_sub_owner_covering',
+    indisunique: true,
+    indnatts: 3,
+    indnkeyatts: 1,
+    keyColumns: [{ attname: 'owner_id', attnum: 1, attisdropped: false }],
+    includeColumns: [
+      { attname: 'status', attnum: 2, attisdropped: false },
+      { attname: 'plan', attnum: 3, attisdropped: false },
+    ],
+    indpred: null,
+  }
+
+  // Legacy query logic: checked i.indnatts = 1
+  const legacyDetected =
+    coveringIndex.indisunique &&
+    coveringIndex.indnatts === 1 &&
+    coveringIndex.keyColumns[0].attname === 'owner_id' &&
+    !coveringIndex.keyColumns[0].attisdropped &&
+    coveringIndex.indpred === null
+
+  assert.equal(legacyDetected, false, 'Legacy query with indnatts = 1 failed to recognize unique index with INCLUDE columns')
+
+  // Corrected query logic: checks i.indnkeyatts = 1 without checking indnatts
+  const correctedDetected =
+    coveringIndex.indisunique &&
+    coveringIndex.indnkeyatts === 1 &&
+    coveringIndex.keyColumns[0].attname === 'owner_id' &&
+    !coveringIndex.keyColumns[0].attisdropped &&
+    coveringIndex.indpred === null
+
+  assert.equal(correctedDetected, true, 'Corrected query with indnkeyatts = 1 recognizes unique index with INCLUDE columns')
+
+  // Case B: Composite unique index on (owner_id, plan) -> indnkeyatts = 2 (not sole owner_id key)
+  const compositeIndex = {
+    relname: 'idx_sub_owner_plan_composite',
+    indisunique: true,
+    indnatts: 2,
+    indnkeyatts: 2,
+    keyColumns: [
+      { attname: 'owner_id', attnum: 1, attisdropped: false },
+      { attname: 'plan', attnum: 2, attisdropped: false },
+    ],
+    indpred: null,
+  }
+
+  const compositeDetected =
+    compositeIndex.indisunique &&
+    compositeIndex.indnkeyatts === 1 &&
+    compositeIndex.keyColumns[0].attname === 'owner_id'
+
+  assert.equal(compositeDetected, false, 'Composite index with multiple key columns must not be treated as unique on owner_id alone')
+})

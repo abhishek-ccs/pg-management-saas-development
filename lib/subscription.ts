@@ -740,21 +740,21 @@ export async function persistSubscriptionToDatabase(
 
   // 1. Check if a row specifically for this razorpay_subscription_id exists
   let targetRowId: string | null = null
-  if (subscriptionId) {
-    const { data: matchedRows } = await adminClient
-      .from('subscriptions')
-      .select('id')
-      .eq('owner_id', ownerId)
-      .eq('razorpay_subscription_id', subscriptionId)
-      .limit(1)
-    if (matchedRows && matchedRows.length > 0) {
-      targetRowId = matchedRows[0].id
-    }
-  }
+  let existingRow: any = null
 
-  // Security invariant: If subscriptionId is provided but does not match any existing row,
-  // we MUST NEVER fall back to updating another subscription belonging to this owner.
-  // We insert a new row atomically for this specific subscription ID.
+  if (subscriptionId) {
+    try {
+      const { data: matchedRows } = await adminClient
+        .from('subscriptions')
+        .select('id')
+        .eq('owner_id', ownerId)
+        .eq('razorpay_subscription_id', subscriptionId)
+        .limit(1)
+      if (matchedRows && matchedRows.length > 0) {
+        targetRowId = matchedRows[0].id
+      }
+    } catch {}
+  }
 
   // Helper to attempt write with fallback for legacy check constraints and concurrent insert protection
   async function attemptWrite(writePayload: Record<string, any>) {
@@ -783,7 +783,8 @@ export async function persistSubscriptionToDatabase(
       }
       const insertRes = await insertQuery
 
-      // Handle simultaneous insert collision or unique constraint violation on owner_id (e.g. uq_subscriptions_owner)
+      // If insert hit unique constraint on owner_id (single subscription per owner schema uq_subscriptions_owner)
+      // or unique constraint on razorpay_subscription_id, safely fall back to scoped update
       if (
         insertRes.error &&
         (insertRes.error.code === '23505' ||
@@ -791,66 +792,63 @@ export async function persistSubscriptionToDatabase(
           insertRes.error.message?.includes('unique constraint') ||
           insertRes.error.message?.includes('uq_subscriptions'))
       ) {
-        // 1. Check if another worker concurrently inserted this exact razorpay_subscription_id
-        let updateExactQuery = adminClient
-          .from('subscriptions')
-          .update(writePayload)
-          .eq('owner_id', ownerId)
-          .eq('razorpay_subscription_id', subscriptionId)
-        if (typeof updateExactQuery.select === 'function') {
-          updateExactQuery = updateExactQuery.select('id')
+        console.warn(
+          `[SubscriptionSync] Unique constraint hit during insert for owner ${ownerId}. Checking existing owner row...`
+        )
+        // Check if an existing row for this owner exists
+        let ownerRows: any = null
+        try {
+          const selectQuery = adminClient
+            .from('subscriptions')
+            .select('*')
+            .eq('owner_id', ownerId)
+          if (typeof selectQuery?.order === 'function') {
+            const ordered = selectQuery.order('updated_at', { ascending: false })
+            if (typeof ordered?.limit === 'function') {
+              const res = await ordered.limit(1)
+              ownerRows = res?.data
+            } else {
+              const res = await ordered
+              ownerRows = res?.data
+            }
+          } else if (typeof selectQuery?.eq === 'function') {
+            const secondEq = selectQuery.eq('razorpay_subscription_id', subscriptionId)
+            if (typeof secondEq?.limit === 'function') {
+              const res = await secondEq.limit(1)
+              ownerRows = res?.data
+            } else {
+              const res = await secondEq
+              ownerRows = res?.data
+            }
+          } else {
+            const res = await selectQuery
+            ownerRows = res?.data
+          }
+        } catch (e) {
+          console.warn('[SubscriptionSync] Error querying existing owner rows:', e)
         }
-        const updateExact = await updateExactQuery
 
-        if (!updateExact.error && updateExact.data && (!Array.isArray(updateExact.data) || updateExact.data.length > 0)) {
-          return updateExact
-        }
+        const existing = Array.isArray(ownerRows) && ownerRows.length > 0 ? ownerRows[0] : null
+        existingRow = existing
 
-        // 2. If updateExact matched 0 rows, the unique constraint (e.g. uq_subscriptions_owner)
-        // was triggered because an existing row exists for owner_id under a different/old subscription ID.
-        // We look up the existing row for this owner to verify safe transition.
-        const { data: ownerRows } = await adminClient
-          .from('subscriptions')
-          .select('*')
-          .eq('owner_id', ownerId)
-          .order('updated_at', { ascending: false })
-          .limit(1)
+        if (existing) {
+          // Check if existing row is currently an active paid subscription
+          const hasActivePaidPeriod = Boolean(
+            existing.current_period_end &&
+            new Date(existing.current_period_end).getTime() > Date.now()
+          )
+          const hasActivePaidAccess =
+            (existing.status === 'active' || existing.status === 'canceled') &&
+            hasActivePaidPeriod &&
+            hasAuthoritativePaymentEvidence(existing)
 
-        if (ownerRows && ownerRows.length > 0) {
-          const existing = ownerRows[0]
-          // Safe replacement rules:
-          // 1. Existing row is expired, trial, created, or canceled without active paid access
-          // 2. OR incoming write payload is authoritative (active or paid, NEVER merely 'created' over active subscription)
-          const isExistingExpiredOrTrial =
-            existing.status === 'expired' ||
-            existing.plan === 'trial' ||
-            existing.status === 'created' ||
-            existing.status === 'canceled'
-
-          const isNewPayloadAuthoritative =
+          const isIncomingAuthoritative =
             writePayload.status === 'active' ||
             writePayload.payment_status === 'paid'
 
-          if (isExistingExpiredOrTrial || isNewPayloadAuthoritative) {
-            targetRowId = existing.id
-            // INVARIANT: Never inherit the old subscription's payment ID or payment status!
-            const safeUpdatePayload = {
-              ...writePayload,
-              razorpay_subscription_id: subscriptionId,
-              razorpay_payment_id:
-                writePayload.razorpay_payment_id !== undefined ? writePayload.razorpay_payment_id : null,
-              payment_status:
-                writePayload.payment_status !== undefined ? writePayload.payment_status : 'pending',
-            }
-            let safeUpdateQuery = adminClient
-              .from('subscriptions')
-              .update(safeUpdatePayload)
-              .eq('id', existing.id)
-            if (typeof safeUpdateQuery.select === 'function') {
-              safeUpdateQuery = safeUpdateQuery.select('id')
-            }
-            return safeUpdateQuery
-          } else {
+          // CRITICAL INVARIANT: Never overwrite a currently active paid subscription
+          // with a new pending subscription (e.g. status === 'created')!
+          if (hasActivePaidAccess && !isIncomingAuthoritative) {
             console.warn(
               `[SubscriptionSync] Refusing to overwrite active subscription ${existing.razorpay_subscription_id} with ${subscriptionId}`
             )
@@ -861,10 +859,43 @@ export async function persistSubscriptionToDatabase(
               },
             }
           }
+
+          // Existing row is eligible for replacement (expired, trial, created, canceled without active paid access)
+          // OR incoming payload is authoritative active paid charge.
+          targetRowId = existing.id
+
+          // INVARIANT: When transitioning to a new subscription, NEVER inherit the old subscription's payment ID or payment status!
+          const safeUpdatePayload = {
+            ...writePayload,
+            razorpay_subscription_id: subscriptionId,
+            razorpay_payment_id:
+              writePayload.razorpay_payment_id !== undefined ? writePayload.razorpay_payment_id : null,
+            payment_status:
+              writePayload.payment_status !== undefined ? writePayload.payment_status : 'pending',
+          }
+          let safeUpdateQuery = adminClient
+            .from('subscriptions')
+            .update(safeUpdatePayload)
+            .eq('id', existing.id)
+          if (typeof safeUpdateQuery.select === 'function') {
+            safeUpdateQuery = safeUpdateQuery.select('id')
+          }
+          return safeUpdateQuery
         }
 
+        // Fallback update on (owner_id, razorpay_subscription_id) directly:
+        // When owner already has this exact razorpay_subscription_id concurrently inserted
+        let updateExact = adminClient
+          .from('subscriptions')
+          .update(writePayload)
+          .eq('owner_id', ownerId)
+          .eq('razorpay_subscription_id', subscriptionId)
+        if (typeof updateExact.select === 'function') {
+          updateExact = updateExact.select('id')
+        }
         return updateExact
       }
+
       return insertRes
     } else {
       // Safe insert when no specific subscription ID is designated
@@ -882,47 +913,100 @@ export async function persistSubscriptionToDatabase(
   let writeRes = await attemptWrite(normalizedPayload)
   let writeError = writeRes.error
 
-  // Attempt 2: If check constraint failed on plan, map yearly -> pro, monthly -> growth
-  if (writeError && writeError.message?.includes('subscriptions_plan_check')) {
+  // Attempt 2: If status check constraint failed (legacy DB where 'created' is not yet in subscriptions_status_check)
+  if (
+    writeError &&
+    (writeError.message?.includes('subscriptions_status_check') ||
+      (writeError.message?.includes('check constraint') && writeError.message?.includes('status')))
+  ) {
+    console.warn('[SubscriptionSync] Legacy status check constraint detected, mapping status for compatibility...')
+    const safeStatus =
+      normalizedPayload.status === 'created'
+        ? (existingRow?.status === 'canceled' ? 'canceled' : 'expired')
+        : normalizedPayload.status
+    const fallbackPayload = { ...normalizedPayload, status: safeStatus }
+    writeRes = await attemptWrite(fallbackPayload)
+    writeError = writeRes.error
+  }
+
+  // Attempt 3: If check constraint failed on plan, map yearly -> pro, monthly -> growth, business -> pro, enterprise -> pro
+  if (
+    writeError &&
+    (writeError.message?.includes('subscriptions_plan_check') ||
+      (writeError.message?.includes('check constraint') && writeError.message?.includes('plan')))
+  ) {
     console.warn('[SubscriptionSync] Legacy plan check constraint detected, mapping plan...')
     const mappedPlan =
       normalizedPayload.plan === 'yearly'
         ? 'pro'
         : normalizedPayload.plan === 'monthly'
           ? 'growth'
-          : normalizedPayload.plan
+          : normalizedPayload.plan === 'business' || normalizedPayload.plan === 'enterprise'
+            ? 'pro'
+            : normalizedPayload.plan
 
-    const fallbackPayload = { ...normalizedPayload, plan: mappedPlan }
+    const fallbackPayload = {
+      ...normalizedPayload,
+      plan: mappedPlan,
+      status:
+        normalizedPayload.status === 'created'
+          ? (existingRow?.status === 'canceled' ? 'canceled' : 'expired')
+          : normalizedPayload.status,
+    }
     writeRes = await attemptWrite(fallbackPayload)
     writeError = writeRes.error
   }
 
-  // Attempt 3: If new columns (cancel_at_period_end, autopay_status, etc.) don't exist yet, retry with existing schema columns
-  if (writeError && (writeError.message?.includes('column') || writeError.message?.includes('does not exist'))) {
+  // Attempt 4: If new columns (cancel_at_period_end, autopay_status, etc.) don't exist yet, retry with existing schema columns
+  if (
+    writeError &&
+    (writeError.message?.includes('column') || writeError.message?.includes('does not exist'))
+  ) {
     console.warn('[SubscriptionSync] Retrying write without newest columns:', writeError.message)
     const midPayload: Record<string, any> = {
-      plan: normalizedPayload.plan === 'yearly' ? 'pro' : normalizedPayload.plan === 'monthly' ? 'growth' : normalizedPayload.plan,
-      status: normalizedPayload.status,
+      plan:
+        normalizedPayload.plan === 'yearly'
+          ? 'pro'
+          : normalizedPayload.plan === 'monthly'
+            ? 'growth'
+            : normalizedPayload.plan === 'business' || normalizedPayload.plan === 'enterprise'
+              ? 'pro'
+              : normalizedPayload.plan,
+      status:
+        normalizedPayload.status === 'created'
+          ? (existingRow?.status === 'canceled' ? 'canceled' : 'expired')
+          : normalizedPayload.status,
       current_period_start: normalizedPayload.current_period_start,
       current_period_end: normalizedPayload.current_period_end,
       trial_start: normalizedPayload.trial_start,
       trial_end: normalizedPayload.trial_end,
       razorpay_customer_id: normalizedPayload.razorpay_customer_id,
-      razorpay_subscription_id: normalizedPayload.razorpay_subscription_id,
+      razorpay_subscription_id: subscriptionId,
       razorpay_plan_id: normalizedPayload.razorpay_plan_id,
-      razorpay_payment_id: normalizedPayload.razorpay_payment_id,
+      razorpay_payment_id: normalizedPayload.razorpay_payment_id ?? null,
       updated_at: new Date().toISOString(),
     }
     writeRes = await attemptWrite(midPayload)
     writeError = writeRes.error
   }
 
-  // Attempt 4: Baseline update if extended columns failed
+  // Attempt 5: Baseline update if extended columns failed
   if (writeError) {
     console.warn('[SubscriptionSync] Full write failed, attempting baseline columns:', writeError)
     const baselinePayload: Record<string, any> = {
-      plan: normalizedPayload.plan === 'yearly' ? 'pro' : normalizedPayload.plan === 'monthly' ? 'growth' : normalizedPayload.plan,
-      status: normalizedPayload.status,
+      plan:
+        normalizedPayload.plan === 'yearly'
+          ? 'pro'
+          : normalizedPayload.plan === 'monthly'
+            ? 'growth'
+            : normalizedPayload.plan === 'business' || normalizedPayload.plan === 'enterprise'
+              ? 'pro'
+              : normalizedPayload.plan,
+      status:
+        normalizedPayload.status === 'created'
+          ? (existingRow?.status === 'canceled' ? 'canceled' : 'expired')
+          : normalizedPayload.status,
+      razorpay_subscription_id: subscriptionId,
       updated_at: new Date().toISOString(),
     }
     writeRes = await attemptWrite(baselinePayload)

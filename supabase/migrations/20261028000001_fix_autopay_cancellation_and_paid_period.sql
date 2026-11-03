@@ -22,6 +22,7 @@ ALTER TABLE public.subscriptions
 
 -- 2. Add atomic lease status tracking columns to public.razorpay_webhook_events
 ALTER TABLE public.razorpay_webhook_events
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
   ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed',
   ADD COLUMN IF NOT EXISTS error TEXT,
   ADD COLUMN IF NOT EXISTS lease_token TEXT,
@@ -128,7 +129,7 @@ WHERE s.razorpay_payment_id IS NOT NULL
             OR newer_charge.payload->'payload'->'payment'->'entity'->>'subscription_id' = s.razorpay_subscription_id
           )
           AND (
-            newer_charge.created_at > we.created_at
+            COALESCE(newer_charge.created_at, newer_charge.processed_at) > COALESCE(we.created_at, we.processed_at)
             OR (
               newer_charge.payload->'payload'->'payment'->'entity'->>'id' IS NOT NULL
               AND newer_charge.payload->'payload'->'payment'->'entity'->>'id' <> s.razorpay_payment_id
